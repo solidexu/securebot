@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * SecureBot CLI 入口
  */

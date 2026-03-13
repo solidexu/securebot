@@ -7,6 +7,7 @@ export default defineConfig({
   minify: false,
   sourcemap: true,
   dts: true,
+  shims: true,  // 保留 shebang
   external: [
     'undici',
     'chokidar',

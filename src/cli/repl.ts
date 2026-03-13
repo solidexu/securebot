@@ -497,7 +497,7 @@ async function handleCommand(
           const current = model === state.config.model.model ? chalk.green(' (当前)') : '';
           console.log(`  ${model}${current}`);
         }
-      } catch (error) {
+      } catch {
         console.log(chalk.yellow('无法获取模型列表，请确保 Ollama 正在运行'));
       }
       break;
@@ -543,6 +543,49 @@ async function handleCommand(
     case 'save': {
       const count = await saveAllSessions(state.agents, sessionStorage);
       console.log(chalk.green(`✓ 已保存 ${count} 个会话`));
+      break;
+    }
+
+    case 'reload': {
+      try {
+        const newConfig = loadConfig();
+        state.config = newConfig;
+        
+        // 重新创建 Agent
+        const newAgents = createAgents(newConfig);
+        
+        // 迁移现有会话到新 Agent
+        for (const [oldId, oldAgent] of state.agents) {
+          const newAgent = newAgents.get(oldId);
+          if (newAgent && oldAgent.sessions.size > 0) {
+            // 保留会话历史
+            newAgent.sessions = oldAgent.sessions;
+          }
+        }
+        
+        state.agents = newAgents;
+        
+        // 检查当前 Agent 是否还存在
+        if (!newAgents.has(state.currentAgentId)) {
+          const defaultAgent = getDefaultAgent(newAgents);
+          if (defaultAgent) {
+            state.currentAgentId = defaultAgent.id;
+            console.log(chalk.yellow(`当前 Agent 已删除，切换到: ${defaultAgent.name}`));
+          }
+        }
+        
+        // 更新模型
+        if (state.modelAdapter instanceof OllamaAdapter) {
+          state.modelAdapter.setDefaultModel(newConfig.model.model);
+        }
+        
+        console.log(chalk.green('✓ 配置已重新加载'));
+        console.log(chalk.gray(`  Agent 数量: ${newAgents.size}`));
+        console.log(chalk.gray(`  当前模型: ${newConfig.model.model}`));
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        console.log(chalk.red(`配置重载失败: ${msg}`));
+      }
       break;
     }
 
@@ -617,6 +660,7 @@ function printHelp(): void {
   console.log('  /model [name]    显示/切换当前模型');
   console.log('  /models          列出可用模型');
   console.log('  /audit [on/off/stats]  审计日志管理');
+  console.log('  /reload          重新加载配置文件');
   console.log('  /reset           清除当前会话历史');
   console.log('  /save            手动保存所有会话');
   console.log('  /sessions        列出已保存的会话');
@@ -631,6 +675,7 @@ function printHelp(): void {
   console.log(chalk.gray('提示: 会话会自动保存，重启后恢复历史'));
   console.log(chalk.gray('提示: 敏感操作（文件写入、命令执行等）需要确认'));
   console.log(chalk.gray('提示: 所有工具调用都会记录审计日志'));
+  console.log(chalk.gray('提示: 修改配置文件后用 /reload 热重载'));
   console.log();
 }
 

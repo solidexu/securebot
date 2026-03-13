@@ -3,18 +3,24 @@
   "version": "0.1.0",
   "description": "Secure multi-agent AI assistant with CLI interface",
   "type": "module",
-  "main": "src/index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "bin": {
-    "securebot": "src/cli/index.ts"
+    "securebot": "dist/cli/index.js"
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsdown",
     "dev": "tsx src/cli/index.ts chat",
-    "start": "tsx src/cli/index.ts chat",
+    "start": "node dist/cli/index.js chat",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "oxlint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@clack/prompts": "^0.10.1",
@@ -42,5 +48,13 @@
     "secure"
   ],
   "author": "APP哥",
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://gitee.com/nicolasxu93/securebot.git"
+  },
+  "bugs": {
+    "url": "https://gitee.com/nicolasxu93/securebot/issues"
+  },
+  "homepage": "https://gitee.com/nicolasxu93/securebot"
 }
