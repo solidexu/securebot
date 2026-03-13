@@ -1,0 +1,46 @@
+{
+  "name": "securebot",
+  "version": "0.1.0",
+  "description": "Secure multi-agent AI assistant with CLI interface",
+  "type": "module",
+  "main": "src/index.ts",
+  "bin": {
+    "securebot": "src/cli/index.ts"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsx src/cli/index.ts chat",
+    "start": "tsx src/cli/index.ts chat",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "oxlint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.10.1",
+    "chalk": "^5.4.1",
+    "chokidar": "^4.0.3",
+    "commander": "^13.1.0",
+    "json5": "^2.2.3",
+    "undici": "^7.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "oxlint": "^0.16.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "cli",
+    "ollama",
+    "secure"
+  ],
+  "author": "APP哥",
+  "license": "MIT"
+}

@@ -1,0 +1,696 @@
+/**
+ * REPL (Read-Eval-Print Loop)
+ * 
+ * 交互式聊天界面，支持流式输出和会话持久化
+ */
+
+import * as readline from 'node:readline/promises';
+import { stdin as input, stdout as output } from 'node:process';
+import chalk from 'chalk';
+import type { ReplState, Agent, Message, ChatParams } from '../core/types.js';
+import { loadConfig, createDefaultConfig } from '../core/config.js';
+import { createAgents, parseAgentPrefix, getDefaultAgent, getOrCreateMainSession } from '../core/agent.js';
+import { addUserMessage, addAssistantMessage, addToolResultMessage, buildSystemPrompt, clearSessionHistory } from '../core/session.js';
+import { OllamaAdapter, type StreamCallback } from '../model/ollama.js';
+import { registerTool, getAvailableTools, executeTool, getAvailableToolNames } from '../tools/index.js';
+import { readTool, writeTool, editTool } from '../tools/fs.js';
+import { execTool } from '../tools/exec.js';
+import { getSessionStorage } from '../core/session-storage.js';
+import {
+  getConfirmationManager,
+  type ConfirmationRequest,
+  type ConfirmationHandler,
+} from '../core/confirmation.js';
+
+// ============ 常量 ============
+
+/** 最大工具调用轮数 */
+const MAX_TOOL_ROUNDS = 10;
+
+/** 单次工具调用超时（毫秒） */
+const TOOL_TIMEOUT = 60000;
+
+// ============ REPL 启动 ============
+
+interface ReplOptions {
+  defaultAgent?: string;
+  model?: string;
+  noTools?: boolean;
+  /** 是否加载持久化会话 */
+  noSession?: boolean;
+}
+
+export async function startRepl(options: ReplOptions = {}): Promise<void> {
+  // 加载配置
+  let config;
+  try {
+    config = loadConfig();
+  } catch {
+    console.log(chalk.yellow('配置文件不存在，创建默认配置...'));
+    createDefaultConfig();
+    config = loadConfig();
+  }
+
+  // 创建 Agent
+  const agents = createAgents(config);
+  
+  // 创建模型适配器
+  const modelAdapter = new OllamaAdapter({
+    baseUrl: config.model.baseUrl ?? undefined,
+    defaultModel: options.model ?? config.model.model,
+  });
+
+  // 检查 Ollama 连接
+  console.log(chalk.gray('检查 Ollama 连接...'));
+  const healthCheck = await modelAdapter.healthCheck();
+  if (!healthCheck.ok) {
+    console.log(chalk.red('✗ 无法连接到 Ollama'));
+    console.log(chalk.gray(`  Ollama 地址: ${config.model.baseUrl ?? 'http://localhost:11434'}`));
+    if (healthCheck.error) {
+      console.log(chalk.gray(`  错误: ${healthCheck.error}`));
+    }
+    console.log(chalk.gray('  请确保 Ollama 正在运行: ollama serve'));
+    process.exit(1);
+  }
+  console.log(chalk.green('✓ Ollama 连接成功'));
+
+  // 注册工具
+  registerTool(readTool);
+  registerTool(writeTool);
+  registerTool(editTool);
+  registerTool(execTool);
+
+  // 初始化会话存储
+  const sessionStorage = getSessionStorage();
+  await sessionStorage.initialize();
+
+  // 初始化确认管理器
+  const confirmationManager = getConfirmationManager();
+  
+  // 设置确认处理器
+  const confirmationHandler: ConfirmationHandler = async (request) => {
+    return await showConfirmationDialog(request, rl);
+  };
+  confirmationManager.setHandler(confirmationHandler);
+
+  // 加载持久化会话
+  if (!options.noSession) {
+    await loadPersistedSessions(agents, sessionStorage);
+  }
+
+  // 初始化状态
+  const state: ReplState = {
+    currentAgentId: options.defaultAgent ?? config.defaultAgent,
+    config,
+    agents,
+    modelAdapter,
+    tools: new Map(),
+    running: true,
+  };
+
+  // 打印欢迎信息
+  printWelcome(state);
+
+  // 创建 readline 接口
+  const rl = readline.createInterface({ input, output });
+
+  // 注册退出处理
+  const exitHandler = async () => {
+    await saveAllSessions(agents, sessionStorage);
+  };
+  
+  process.on('SIGINT', async () => {
+    console.log(chalk.gray('\n正在退出...'));
+    await exitHandler();
+    process.exit(0);
+  });
+  
+  process.on('SIGTERM', async () => {
+    await exitHandler();
+    process.exit(0);
+  });
+
+  // 主循环
+  while (state.running) {
+    // 获取当前 Agent
+    const agent = agents.get(state.currentAgentId) ?? getDefaultAgent(agents);
+    if (!agent) {
+      console.log(chalk.red('错误: 找不到 Agent'));
+      break;
+    }
+
+    // 提示符
+    const prompt = chalk.cyan(`[${agent.name}] > `);
+    const inputLine = await rl.question(prompt);
+
+    // 处理空输入
+    if (!inputLine.trim()) {
+      continue;
+    }
+
+    // 处理命令
+    if (inputLine.startsWith('/')) {
+      await handleCommand(state, inputLine.trim(), rl, sessionStorage);
+      continue;
+    }
+
+    // 解析 @ 前缀
+    const { agentId, message } = parseAgentPrefix(inputLine);
+    
+    if (agentId) {
+      // 切换 Agent
+      const targetAgent = agents.get(agentId);
+      if (targetAgent) {
+        state.currentAgentId = agentId;
+        console.log(chalk.gray(`已切换到: ${targetAgent.name}`));
+        
+        // 如果有消息，继续处理
+        if (message.trim()) {
+          await processMessage(state, targetAgent, message.trim(), sessionStorage);
+        }
+      } else {
+        console.log(chalk.red(`Agent 不存在: ${agentId}`));
+        console.log(chalk.gray(`可用 Agent: ${Array.from(agents.keys()).join(', ')}`));
+      }
+    } else {
+      // 使用当前 Agent 处理消息
+      await processMessage(state, agent, message, sessionStorage);
+    }
+  }
+
+  // 保存所有会话
+  await exitHandler();
+  rl.close();
+}
+
+// ============ 消息处理 ============
+
+async function processMessage(
+  state: ReplState,
+  agent: Agent,
+  message: string,
+  sessionStorage?: ReturnType<typeof getSessionStorage>
+): Promise<void> {
+  const session = getOrCreateMainSession(agent);
+  
+  // 添加用户消息
+  addUserMessage(session, message);
+  
+  // 自动保存
+  if (sessionStorage) {
+    await sessionStorage.saveSession(session);
+  }
+  
+  // 获取可用工具
+  const availableTools = getAvailableTools(agent, state.config.tools);
+
+  // 构建系统提示
+  const systemPrompt = buildSystemPrompt(
+    agent.name,
+    getAvailableToolNames(agent, state.config.tools)
+  );
+
+  // 多轮工具调用循环
+  let round = 0;
+  let lastContent = '';
+  
+  while (round < MAX_TOOL_ROUNDS) {
+    round++;
+    
+    // 构建消息列表
+    const messages: Message[] = [
+      { role: 'system', content: systemPrompt },
+      ...session.history,
+    ];
+
+    // 显示思考提示
+    if (round === 1) {
+      process.stdout.write(chalk.gray('思考中... '));
+    } else {
+      process.stdout.write(chalk.gray(`继续思考 (轮次 ${round})... `));
+    }
+    
+    let result;
+    try {
+      // 使用流式输出
+      let streamStarted = false;
+      let hasContent = false;
+      
+      const onStream: StreamCallback = (chunk) => {
+        if (!streamStarted && chunk.content) {
+          // 首次收到内容，换行开始输出
+          process.stdout.write('\n\n');
+          streamStarted = true;
+        }
+        
+        if (chunk.content) {
+          hasContent = true;
+          // 直接输出内容，不做额外处理
+          process.stdout.write(chunk.content);
+        }
+        
+        // 流结束时换行
+        if (chunk.done && hasContent) {
+          process.stdout.write('\n');
+        }
+      };
+      
+      // 检查是否支持流式
+      if (state.modelAdapter.chatWithStream) {
+        result = await state.modelAdapter.chatWithStream({
+          model: state.config.model.model,
+          messages,
+          tools: availableTools.length > 0 ? availableTools : undefined,
+          onStream,
+        } as ChatParams & { onStream: StreamCallback });
+      } else {
+        // 回退到非流式
+        result = await state.modelAdapter.chat({
+          model: state.config.model.model,
+          messages,
+          tools: availableTools.length > 0 ? availableTools : undefined,
+        } as ChatParams);
+      }
+      
+      // 如果没有流式内容（可能是工具调用），清除提示
+      if (!result.content) {
+        process.stdout.write('\r' + ' '.repeat(30) + '\r');
+      }
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.log(chalk.red(`\n模型调用失败: ${errMsg}`));
+      return;
+    }
+
+    lastContent = result.content;
+
+    // 没有工具调用，返回最终结果
+    if (!result.toolCalls || result.toolCalls.length === 0) {
+      // 添加助手消息
+      addAssistantMessage(session, result.content);
+      
+      // 自动保存
+      if (sessionStorage) {
+        await sessionStorage.saveSession(session);
+      }
+      
+      // 显示 Token 统计
+      if (result.usage) {
+        console.log(chalk.gray(
+          `\nToken: 输入 ${result.usage.promptTokens} / 输出 ${result.usage.completionTokens} / 总计 ${result.usage.totalTokens}`
+        ));
+      }
+      console.log();
+      return;
+    }
+
+    // 有工具调用
+    addAssistantMessage(session, result.content, result.toolCalls);
+    
+    // 执行所有工具
+    for (const toolCall of result.toolCalls) {
+      console.log(chalk.blue(`\n调用工具: ${toolCall.name}`));
+      
+      let toolResult;
+      try {
+        // 敏感操作确认
+        const confirmationManager = getConfirmationManager();
+        const needsConfirm = confirmationManager.needsConfirmation(
+          toolCall.name,
+          toolCall.arguments,
+          { agent, session, workspace: agent.workspace, logger: console }
+        );
+        
+        if (needsConfirm) {
+          const confirmResult = await confirmationManager.requestConfirmation(
+            toolCall.name,
+            toolCall.arguments,
+            { agent, session, workspace: agent.workspace, logger: console }
+          );
+          
+          if (!confirmResult.confirmed) {
+            toolResult = {
+              success: false,
+              error: '用户取消了操作',
+            };
+            // 添加工具结果
+            addToolResultMessage(
+              session,
+              toolCall.id,
+              toolCall.name,
+              `已取消: 用户拒绝执行`
+            );
+            console.log(chalk.gray('✗ 用户取消'));
+            continue;
+          }
+        }
+        
+        // 超时控制
+        toolResult = await Promise.race([
+          executeTool(toolCall.name, toolCall.arguments, {
+            agent,
+            session,
+            workspace: agent.workspace,
+            logger: console,
+          }),
+          new Promise<ReturnType<typeof executeTool>>((_, reject) =>
+            setTimeout(() => reject(new Error('工具执行超时')), TOOL_TIMEOUT)
+          ),
+        ]);
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        toolResult = {
+          success: false,
+          error: errMsg,
+        };
+      }
+      
+      // 添加工具结果
+      addToolResultMessage(
+        session,
+        toolCall.id,
+        toolCall.name,
+        toolResult.success 
+          ? toolResult.content ?? '(成功)'
+          : `错误: ${toolResult.error}`
+      );
+      
+      // 显示结果
+      console.log(chalk.gray(toolResult.success ? '✓ 成功' : '✗ 失败'));
+      if (toolResult.content) {
+        const preview = toolResult.content.length > 200 
+          ? toolResult.content.slice(0, 200) + '...'
+          : toolResult.content;
+        console.log(chalk.gray(preview));
+      }
+    }
+    
+    // 自动保存
+    if (sessionStorage) {
+      await sessionStorage.saveSession(session);
+    }
+  }
+
+  // 达到最大轮数，输出最后的内容
+  console.log(chalk.yellow(`\n已达到最大工具调用轮数 (${MAX_TOOL_ROUNDS})`));
+  console.log();
+  console.log(formatResponse(lastContent));
+  console.log();
+  
+  // 自动保存
+  if (sessionStorage) {
+    await sessionStorage.saveSession(session);
+  }
+}
+
+// ============ 命令处理 ============
+
+async function handleCommand(
+  state: ReplState,
+  command: string,
+  _rl: readline.Interface,
+  sessionStorage: ReturnType<typeof getSessionStorage>
+): Promise<void> {
+  const parts = command.slice(1).split(/\s+/);
+  const cmd = parts[0]?.toLowerCase();
+  const arg = parts[1];
+
+  switch (cmd) {
+    case 'help':
+    case 'h':
+    case '?':
+      printHelp();
+      break;
+
+    case 'exit':
+    case 'quit':
+    case 'q':
+      state.running = false;
+      console.log(chalk.gray('再见！'));
+      break;
+
+    case 'agent':
+      if (arg) {
+        // 切换 Agent
+        const targetAgent = state.agents.get(arg);
+        if (targetAgent) {
+          state.currentAgentId = arg;
+          console.log(chalk.gray(`已切换到: ${targetAgent.name}`));
+        } else {
+          console.log(chalk.red(`Agent 不存在: ${arg}`));
+        }
+      } else {
+        console.log(chalk.cyan(`当前 Agent: ${state.currentAgentId}`));
+      }
+      break;
+
+    case 'agents':
+      console.log(chalk.cyan('可用 Agent:'));
+      for (const [id, agent] of state.agents) {
+        const current = id === state.currentAgentId ? chalk.green(' (当前)') : '';
+        const session = agent.sessions.get(`agent:${id}:main`);
+        const historyCount = session?.history.length ?? 0;
+        console.log(`  ${id} - ${agent.name}${current} ${chalk.gray(`[${historyCount} 条历史]`)}`);
+      }
+      break;
+
+    case 'clear':
+      console.clear();
+      break;
+
+    case 'reset': {
+      const agent = state.agents.get(state.currentAgentId);
+      if (agent) {
+        const session = getOrCreateMainSession(agent);
+        clearSessionHistory(session);
+        await sessionStorage.deleteSession(session.sessionKey);
+        console.log(chalk.green('✓ 已清除当前会话历史'));
+      }
+      break;
+    }
+
+    case 'history': {
+      const agent = state.agents.get(state.currentAgentId);
+      if (agent) {
+        const session = getOrCreateMainSession(agent);
+        console.log(chalk.cyan(`对话历史 (${session.history.length} 条):`));
+        for (const msg of session.history) {
+          const role = { user: '用户', assistant: '助手', system: '系统', tool: '工具' }[msg.role];
+          const preview = msg.content.length > 100 ? msg.content.slice(0, 100) + '...' : msg.content;
+          console.log(chalk.gray(`[${role}] ${preview}`));
+        }
+      }
+      break;
+    }
+
+    case 'model':
+      console.log(chalk.cyan(`当前模型: ${state.config.model.model}`));
+      break;
+
+    case 'save': {
+      const count = await saveAllSessions(state.agents, sessionStorage);
+      console.log(chalk.green(`✓ 已保存 ${count} 个会话`));
+      break;
+    }
+
+    case 'sessions': {
+      const sessions = await sessionStorage.listSessions();
+      if (sessions.length === 0) {
+        console.log(chalk.gray('暂无保存的会话'));
+      } else {
+        console.log(chalk.cyan('已保存的会话:'));
+        for (const s of sessions) {
+          const time = s.updatedAt.toLocaleString('zh-CN', {
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+          });
+          console.log(`  ${s.agentId} ${chalk.gray(`[${s.messageCount} 条] ${time}`)}`);
+        }
+      }
+      break;
+    }
+
+    case 'confirm': {
+      const confirmationManager = getConfirmationManager();
+      if (arg === 'off') {
+        confirmationManager.updatePolicy({ mode: 'off' });
+        console.log(chalk.green('✓ 已关闭敏感操作确认'));
+      } else if (arg === 'on') {
+        confirmationManager.updatePolicy({ mode: 'on-risk' });
+        console.log(chalk.green('✓ 已开启敏感操作确认'));
+      } else if (arg === 'always') {
+        confirmationManager.updatePolicy({ mode: 'always' });
+        console.log(chalk.green('✓ 已开启所有操作确认'));
+      } else {
+        console.log(chalk.cyan('敏感操作确认设置:'));
+        console.log(`  /confirm on     - 开启（仅敏感操作）`);
+        console.log(`  /confirm off    - 关闭`);
+        console.log(`  /confirm always - 始终确认`);
+      }
+      break;
+    }
+
+    default:
+      console.log(chalk.yellow(`未知命令: ${cmd}`));
+      console.log(chalk.gray('输入 /help 查看帮助'));
+  }
+}
+
+// ============ 辅助函数 ============
+
+function printWelcome(state: ReplState): void {
+  console.log();
+  console.log(chalk.cyan.bold('SecureBot v0.1.0'));
+  console.log(chalk.gray('安全可控的多 Agent AI 助手'));
+  console.log();
+  console.log(chalk.gray(`模型: ${state.config.model.model}`));
+  console.log(chalk.gray(`默认 Agent: ${state.currentAgentId}`));
+  console.log();
+  console.log(chalk.gray('输入消息开始对话，或输入 /help 查看帮助'));
+  console.log(chalk.gray('使用 @<agent> 切换 Agent，如: @dev 帮我写代码'));
+  console.log();
+}
+
+function printHelp(): void {
+  console.log();
+  console.log(chalk.cyan('命令列表:'));
+  console.log('  /help, /h, /?    显示帮助');
+  console.log('  /exit, /quit, /q  退出');
+  console.log('  /agent [name]    显示/切换当前 Agent');
+  console.log('  /agents          列出所有 Agent');
+  console.log('  /history         显示对话历史');
+  console.log('  /model           显示当前模型');
+  console.log('  /reset           清除当前会话历史');
+  console.log('  /save            手动保存所有会话');
+  console.log('  /sessions        列出已保存的会话');
+  console.log('  /confirm [on/off/always]  敏感操作确认设置');
+  console.log('  /clear           清屏');
+  console.log();
+  console.log(chalk.cyan('Agent 切换:'));
+  console.log('  @dev <消息>      切换到开发助手');
+  console.log('  @support <消息>  切换到客服助手');
+  console.log('  @admin <消息>    切换到管理助手');
+  console.log();
+  console.log(chalk.gray('提示: 会话会自动保存，重启后恢复历史'));
+  console.log(chalk.gray('提示: 敏感操作（文件写入、命令执行等）需要确认'));
+  console.log();
+}
+
+function formatResponse(content: string): string {
+  if (!content) return '(无回复)';
+  return content
+    .split('\n')
+    .map(line => `  ${line}`)
+    .join('\n');
+}
+
+// ============ 会话持久化辅助函数 ============
+
+/**
+ * 加载持久化的会话
+ */
+async function loadPersistedSessions(
+  agents: Map<string, Agent>,
+  sessionStorage: ReturnType<typeof getSessionStorage>
+): Promise<number> {
+  let loaded = 0;
+  
+  for (const [agentId, agent] of agents) {
+    const sessionKey = `agent:${agentId}:main`;
+    const session = await sessionStorage.loadSession(sessionKey);
+    
+    if (session && session.history.length > 0) {
+      // 将加载的会话添加到 agent
+      agent.sessions.set(sessionKey, session);
+      loaded++;
+    }
+  }
+  
+  return loaded;
+}
+
+/**
+ * 保存所有会话
+ */
+async function saveAllSessions(
+  agents: Map<string, Agent>,
+  sessionStorage: ReturnType<typeof getSessionStorage>
+): Promise<number> {
+  let saved = 0;
+  
+  for (const agent of agents.values()) {
+    for (const session of agent.sessions.values()) {
+      if (session.history.length > 0) {
+        await sessionStorage.saveSession(session);
+        saved++;
+      }
+    }
+  }
+  
+  return saved;
+}
+
+// ============ 敏感操作确认 ============
+
+/**
+ * 显示确认对话框
+ */
+async function showConfirmationDialog(
+  request: ConfirmationRequest,
+  rl: readline.Interface
+): Promise<{ confirmed: boolean; remember?: boolean }> {
+  console.log();
+  console.log(chalk.yellow.bold('⚠️  敏感操作确认'));
+  console.log(chalk.gray('─'.repeat(40)));
+  console.log(chalk.cyan(`工具: ${request.tool}`));
+  console.log(chalk.white(request.message));
+  
+  if (request.risk) {
+    console.log(chalk.yellow(`风险: ${request.risk}`));
+  }
+  
+  if (request.suggestions && request.suggestions.length > 0) {
+    console.log(chalk.gray('建议:'));
+    for (const suggestion of request.suggestions) {
+      console.log(chalk.gray(`  • ${suggestion}`));
+    }
+  }
+  
+  console.log(chalk.gray('─'.repeat(40)));
+  
+  const levelEmoji: Record<string, string> = {
+    safe: '✅',
+    low: '🟢',
+    medium: '🟡',
+    high: '🟠',
+    critical: '🔴',
+  };
+  
+  const emoji = levelEmoji[request.level] ?? '❓';
+  console.log(chalk.gray(`敏感级别: ${emoji} ${request.level.toUpperCase()}`));
+  console.log();
+  
+  // 询问用户
+  const answer = await rl.question(
+    chalk.cyan('确认执行? [y/N/a(总是)/r(记住)] ')
+  );
+  
+  const input = answer.trim().toLowerCase();
+  
+  if (input === 'y' || input === 'yes') {
+    return { confirmed: true };
+  }
+  
+  if (input === 'a' || input === 'always') {
+    return { confirmed: true, remember: true };
+  }
+  
+  if (input === 'r' || input === 'remember') {
+    return { confirmed: true, remember: true };
+  }
+  
+  console.log(chalk.red('✗ 操作已取消'));
+  return { confirmed: false };
+}
