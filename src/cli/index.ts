@@ -39,14 +39,32 @@ program
   });
 
 // agent 命令
-program
+const agentCmd = program
   .command('agent')
-  .description('管理 Agent')
+  .description('管理 Agent');
+
+agentCmd
   .command('list')
   .description('列出所有 Agent')
   .action(async () => {
-    const { listAgents } = await import('./commands/agent.js');
+    const { listAgents } = await import('./commands/agent-create.js');
     await listAgents();
+  });
+
+agentCmd
+  .command('create')
+  .description('交互式创建新 Agent')
+  .action(async () => {
+    const { createAgentInteractive } = await import('./commands/agent-create.js');
+    await createAgentInteractive();
+  });
+
+agentCmd
+  .command('delete')
+  .description('删除 Agent')
+  .action(async () => {
+    const { deleteAgentInteractive } = await import('./commands/agent-create.js');
+    await deleteAgentInteractive();
   });
 
 // config 命令

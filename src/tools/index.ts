@@ -6,6 +6,9 @@
 
 import type { Tool, ToolContext, ToolResult, Agent, ToolPolicy } from '../core/types.js';
 import { isToolAllowed, getAgentToolPolicy } from '../core/agent.js';
+import { getAuditLogger } from '../core/audit.js';
+import { readTool, writeTool, editTool } from './fs.js';
+import { execTool } from './exec.js';
 import { ragTools } from '../rag/tools.js';
 
 // ============ 工具注册表 ============
@@ -72,16 +75,27 @@ export function getAvailableToolNames(agent: Agent, globalPolicy: ToolPolicy): s
 // ============ 工具执行 ============
 
 /**
- * 执行工具
+ * 执行工具（带审计日志）
  */
 export async function executeTool(
   toolName: string,
   params: Record<string, unknown>,
   context: ToolContext
 ): Promise<ToolResult> {
+  const startTime = Date.now();
+  const auditLogger = getAuditLogger();
+  
   const tool = getTool(toolName);
   
   if (!tool) {
+    auditLogger.logToolCall(
+      context.agent.id,
+      context.session.sessionKey,
+      toolName,
+      params,
+      'failure',
+      `工具不存在: ${toolName}`
+    );
     return {
       success: false,
       error: `工具不存在: ${toolName}`,
@@ -91,6 +105,14 @@ export async function executeTool(
   // 检查权限
   const policy = getAgentToolPolicy(context.agent, context.session as unknown as ToolPolicy);
   if (!isToolAllowed(toolName, policy)) {
+    auditLogger.logToolCall(
+      context.agent.id,
+      context.session.sessionKey,
+      toolName,
+      params,
+      'failure',
+      `工具未授权`
+    );
     return {
       success: false,
       error: `工具 ${toolName} 未授权`,
@@ -99,9 +121,33 @@ export async function executeTool(
   
   try {
     const result = await tool.execute(params, context);
+    const duration = Date.now() - startTime;
+    
+    auditLogger.logToolCall(
+      context.agent.id,
+      context.session.sessionKey,
+      toolName,
+      params,
+      result.success ? 'success' : 'failure',
+      result.error,
+      duration
+    );
+    
     return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    const duration = Date.now() - startTime;
+    
+    auditLogger.logToolCall(
+      context.agent.id,
+      context.session.sessionKey,
+      toolName,
+      params,
+      'failure',
+      message,
+      duration
+    );
+    
     return {
       success: false,
       error: `工具执行失败: ${message}`,
@@ -139,7 +185,15 @@ export function generateAllToolSchemas(): ReturnType<typeof generateToolSchema>[
   return getAllTools().map(generateToolSchema);
 }
 
-// ============ 自动注册 RAG 工具 ============
+// ============ 自动注册所有工具 ============
 
-// 注册 RAG 相关工具
+// 文件系统工具
+registerTool(readTool);
+registerTool(writeTool);
+registerTool(editTool);
+
+// 命令执行工具
+registerTool(execTool);
+
+// RAG 工具
 registerTools(ragTools);

@@ -12,10 +12,9 @@ import { loadConfig, createDefaultConfig } from '../core/config.js';
 import { createAgents, parseAgentPrefix, getDefaultAgent, getOrCreateMainSession } from '../core/agent.js';
 import { addUserMessage, addAssistantMessage, addToolResultMessage, buildSystemPrompt, clearSessionHistory } from '../core/session.js';
 import { OllamaAdapter, type StreamCallback } from '../model/ollama.js';
-import { registerTool, getAvailableTools, executeTool, getAvailableToolNames } from '../tools/index.js';
-import { readTool, writeTool, editTool } from '../tools/fs.js';
-import { execTool } from '../tools/exec.js';
+import { getAvailableTools, executeTool, getAvailableToolNames } from '../tools/index.js';
 import { getSessionStorage } from '../core/session-storage.js';
+import { getAuditLogger } from '../core/audit.js';
 import {
   getConfirmationManager,
   type ConfirmationRequest,
@@ -74,12 +73,7 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
   }
   console.log(chalk.green('✓ Ollama 连接成功'));
 
-  // 注册工具
-  registerTool(readTool);
-  registerTool(writeTool);
-  registerTool(editTool);
-  registerTool(execTool);
-
+  // 工具已在 tools/index.ts 中自动注册
   // 初始化会话存储
   const sessionStorage = getSessionStorage();
   await sessionStorage.initialize();
@@ -484,8 +478,67 @@ async function handleCommand(
     }
 
     case 'model':
-      console.log(chalk.cyan(`当前模型: ${state.config.model.model}`));
+      if (arg) {
+        // 动态切换模型
+        state.config.model.model = arg;
+        console.log(chalk.green(`✓ 已切换到模型: ${arg}`));
+      } else {
+        console.log(chalk.cyan(`当前模型: ${state.config.model.model}`));
+        console.log(chalk.gray('切换模型: /model <模型名>'));
+      }
       break;
+
+    case 'models': {
+      // 列出可用模型
+      try {
+        const models = await state.modelAdapter.listModels();
+        console.log(chalk.cyan('可用模型:'));
+        for (const model of models) {
+          const current = model === state.config.model.model ? chalk.green(' (当前)') : '';
+          console.log(`  ${model}${current}`);
+        }
+      } catch (error) {
+        console.log(chalk.yellow('无法获取模型列表，请确保 Ollama 正在运行'));
+      }
+      break;
+    }
+
+    case 'audit': {
+      const auditLogger = getAuditLogger();
+      if (arg === 'off') {
+        auditLogger.setEnabled(false);
+        console.log(chalk.green('✓ 已关闭审计日志'));
+      } else if (arg === 'on') {
+        auditLogger.setEnabled(true);
+        console.log(chalk.green('✓ 已开启审计日志'));
+      } else if (arg === 'stats') {
+        const stats = auditLogger.getStats();
+        console.log(chalk.cyan('审计统计:'));
+        console.log(`  总调用次数: ${stats.totalCalls}`);
+        console.log(`  成功率: ${(stats.successRate * 100).toFixed(1)}%`);
+        if (Object.keys(stats.byTool).length > 0) {
+          console.log(chalk.gray('  按工具:'));
+          for (const [tool, count] of Object.entries(stats.byTool)) {
+            console.log(chalk.gray(`    ${tool}: ${count}`));
+          }
+        }
+      } else {
+        // 显示最近日志
+        const entries = auditLogger.readRecent(20);
+        if (entries.length === 0) {
+          console.log(chalk.gray('暂无审计记录'));
+        } else {
+          console.log(chalk.cyan(`最近 ${entries.length} 条审计记录:`));
+          for (const entry of entries) {
+            const time = new Date(entry.timestamp).toLocaleTimeString('zh-CN');
+            const resultColor = entry.result === 'success' ? chalk.green : chalk.red;
+            console.log(`  ${chalk.gray(time)} [${entry.agentId}] ${entry.tool} ${resultColor(entry.result)}`);
+          }
+        }
+        console.log(chalk.gray('\n命令: /audit [on|off|stats]'));
+      }
+      break;
+    }
 
     case 'save': {
       const count = await saveAllSessions(state.agents, sessionStorage);
@@ -561,7 +614,9 @@ function printHelp(): void {
   console.log('  /agent [name]    显示/切换当前 Agent');
   console.log('  /agents          列出所有 Agent');
   console.log('  /history         显示对话历史');
-  console.log('  /model           显示当前模型');
+  console.log('  /model [name]    显示/切换当前模型');
+  console.log('  /models          列出可用模型');
+  console.log('  /audit [on/off/stats]  审计日志管理');
   console.log('  /reset           清除当前会话历史');
   console.log('  /save            手动保存所有会话');
   console.log('  /sessions        列出已保存的会话');
@@ -575,6 +630,7 @@ function printHelp(): void {
   console.log();
   console.log(chalk.gray('提示: 会话会自动保存，重启后恢复历史'));
   console.log(chalk.gray('提示: 敏感操作（文件写入、命令执行等）需要确认'));
+  console.log(chalk.gray('提示: 所有工具调用都会记录审计日志'));
   console.log();
 }
 
