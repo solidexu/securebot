@@ -352,7 +352,7 @@ async function processMessage(
         );
         
         if (needsConfirm) {
-          const confirmResult = await this.requestConfirmation(
+          const confirmResult = await confirmationManager.requestConfirmation(
             toolCall.name,
             toolCall.arguments,
             { agent, session, workspace: agent.workspace, logger: console }
