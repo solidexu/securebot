@@ -8,7 +8,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { getMemoryDir } from './config.js';
 
 // ============ 类型定义 ============
 
@@ -119,7 +119,7 @@ export interface MemoryConfig {
 // ============ 默认配置 ============
 
 const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
-  rootDir: join(homedir(), '.securebot', 'memory'),
+  rootDir: getMemoryDir(),
   workingMemoryDays: 3,
   maxEntriesPerDay: 100,
   autoSummary: true,

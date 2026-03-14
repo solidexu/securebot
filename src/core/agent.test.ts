@@ -20,7 +20,7 @@ describe('Agent', () => {
         id: 'test',
         name: 'Test Agent',
         workspace: '/tmp/test',
-      });
+      }, '/tmp');
 
       expect(agent.id).toBe('test');
       expect(agent.name).toBe('Test Agent');
@@ -34,7 +34,7 @@ describe('Agent', () => {
         id: 'test2',
         name: 'Test Agent 2',
         workspace: '/tmp/securebot-test-workspace',
-      });
+      }, '/tmp');
 
       expect(agent.workspace).toContain('securebot-test-workspace');
     });

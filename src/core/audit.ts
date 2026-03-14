@@ -6,7 +6,7 @@
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { getAuditDir } from './config.js';
 
 // ============ 类型定义 ============
 
@@ -50,7 +50,7 @@ export interface AuditConfig {
 
 // ============ 默认配置 ============
 
-const DEFAULT_AUDIT_DIR = join(homedir(), '.securebot', 'audit');
+const DEFAULT_AUDIT_DIR = getAuditDir();
 const DEFAULT_LOG_PATH = join(DEFAULT_AUDIT_DIR, 'audit.log');
 
 // ============ 审计日志类 ============

@@ -253,7 +253,9 @@ export interface Config {
   agents: AgentConfig[];
   /** 全局 RAG 配置 */
   rag?: RAGConfig;
-  /** workspace 基础路径（默认 ~/.securebot/workspaces） */
+  /** 数据目录（默认 ~/.securebot） */
+  dataDir?: string;
+  /** workspace 基础路径（默认 <dataDir>/agents） */
   workspaceBaseDir?: string;
 }
 

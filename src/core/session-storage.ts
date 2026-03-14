@@ -6,8 +6,8 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
 import type { Session, Message } from './types.js';
+import { getSessionsDir } from './config.js';
 
 // ============ 类型定义 ============
 
@@ -46,7 +46,7 @@ export interface SessionStorageConfig {
 // ============ 默认配置 ============
 
 export const DEFAULT_SESSION_STORAGE_CONFIG: SessionStorageConfig = {
-  storageDir: join(homedir(), '.securebot', 'sessions'),
+  storageDir: getSessionsDir(),
   autoSave: true,
   maxHistoryLength: 100,
   autoCleanupDays: 30,

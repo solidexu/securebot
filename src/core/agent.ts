@@ -7,22 +7,26 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import type { Agent, AgentConfig, Session, Config, ToolPolicy } from './types.js';
 import { createSession, getSessionKey } from './session.js';
-import { resolveWorkspace } from './config.js';
+import { getAgentsDir } from './config.js';
 
 // ============ Agent 创建 ============
 
 /**
  * 创建 Agent 实例
  */
-export function createAgent(config: AgentConfig): Agent {
+export function createAgent(config: AgentConfig, agentsDir: string): Agent {
   // 确保工作空间存在
-  const workspace = resolveWorkspace(config.workspace);
+  const workspace = config.workspace.startsWith('/') 
+    ? config.workspace 
+    : `${agentsDir}/${config.id}`;
+    
   if (!existsSync(workspace)) {
     mkdirSync(workspace, { recursive: true });
   }
   
   return {
     ...config,
+    workspace,
     sessions: new Map<string, Session>(),
   };
 }
@@ -32,18 +36,15 @@ export function createAgent(config: AgentConfig): Agent {
  */
 export function createAgents(config: Config): Map<string, Agent> {
   const agents = new Map<string, Agent>();
-  const baseDir = config.workspaceBaseDir 
-    ? resolveWorkspace(config.workspaceBaseDir)
-    : resolveWorkspace('~/.securebot/workspaces');
+  const agentsDir = getAgentsDir(config);
+  
+  // 确保 agents 目录存在
+  if (!existsSync(agentsDir)) {
+    mkdirSync(agentsDir, { recursive: true });
+  }
   
   for (const agentConfig of config.agents) {
-    // 如果 workspace 是相对路径，使用 baseDir
-    let workspace = agentConfig.workspace;
-    if (!workspace.startsWith('/') && !workspace.startsWith('~')) {
-      workspace = `${baseDir}/${agentConfig.id}`;
-    }
-    
-    const agent = createAgent({ ...agentConfig, workspace });
+    const agent = createAgent(agentConfig, agentsDir);
     agents.set(agent.id, agent);
   }
   

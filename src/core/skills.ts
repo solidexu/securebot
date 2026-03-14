@@ -8,7 +8,7 @@
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { getSkillsDir } from './config.js';
 
 // ============ 类型定义 ============
 
@@ -213,7 +213,7 @@ export class SkillManager {
   private config: SkillConfig;
 
   constructor(config?: Partial<SkillConfig>) {
-    const baseDir = join(homedir(), '.securebot', 'skills');
+    const baseDir = getSkillsDir();
     this.config = {
       publicDir: join(baseDir, 'public'),
       privateDir: join(baseDir, 'private'),

@@ -113,8 +113,64 @@ export const DEFAULT_CONFIG: Config = {
   defaultAgent: 'dev',
   tools: DEFAULT_TOOL_POLICY,
   agents: DEFAULT_AGENTS,
-  workspaceBaseDir: './agents',  // 相对于工程目录
 };
+
+// ============ 路径工具 ============
+
+/**
+ * 获取数据目录
+ */
+export function getDataDir(config?: Config): string {
+  if (config?.dataDir) {
+    return resolve(config.dataDir);
+  }
+  return join(homedir(), DEFAULT_CONFIG_DIR);
+}
+
+/**
+ * 获取 agents 目录
+ */
+export function getAgentsDir(config?: Config): string {
+  if (config?.workspaceBaseDir) {
+    return resolve(config.workspaceBaseDir);
+  }
+  return join(getDataDir(config), 'agents');
+}
+
+/**
+ * 获取 memory 目录
+ */
+export function getMemoryDir(config?: Config): string {
+  return join(getDataDir(config), 'memory');
+}
+
+/**
+ * 获取 skills 目录
+ */
+export function getSkillsDir(config?: Config): string {
+  return join(getDataDir(config), 'skills');
+}
+
+/**
+ * 获取 sessions 目录
+ */
+export function getSessionsDir(config?: Config): string {
+  return join(getDataDir(config), 'sessions');
+}
+
+/**
+ * 获取 audit 目录
+ */
+export function getAuditDir(config?: Config): string {
+  return join(getDataDir(config), 'audit');
+}
+
+/**
+ * 获取 Agent 工作空间路径
+ */
+export function getAgentWorkspace(agentId: string, config?: Config): string {
+  return join(getAgentsDir(config), agentId);
+}
 
 // ============ 配置加载 ============
 
