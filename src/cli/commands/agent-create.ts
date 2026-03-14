@@ -6,8 +6,8 @@
 
 import * as p from '@clack/prompts';
 import chalk from 'chalk';
-import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, rmSync, readdirSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import JSON5 from 'json5';
 import type { Config, AgentConfig, ToolPolicy } from '../../core/types.js';
@@ -289,6 +289,10 @@ export async function deleteAgentInteractive(): Promise<void> {
   // 删除 Agent
   const index = config.agents.findIndex((a: AgentConfig) => a.id === selectedId);
   if (index >= 0) {
+    // 获取要删除的 Agent 配置
+    const deletedAgent = config.agents[index];
+    
+    // 从配置中删除
     config.agents.splice(index, 1);
     
     // 如果删除的是默认 Agent，设置第一个为默认
@@ -296,7 +300,47 @@ export async function deleteAgentInteractive(): Promise<void> {
       config.agents[0]!.default = true;
     }
     
+    // 保存配置
     writeFileSync(CONFIG_PATH, JSON5.stringify(config, null, 2), 'utf-8');
+    
+    // 删除工作空间目录
+    if (deletedAgent) {
+      const dataDir = config.dataDir ?? join(homedir(), '.securebot');
+      const agentsDir = config.workspaceBaseDir 
+        ? resolve(config.workspaceBaseDir)
+        : join(dataDir, 'agents');
+      const workspacePath = deletedAgent.workspace.startsWith('/')
+        ? deletedAgent.workspace
+        : join(agentsDir, deletedAgent.workspace);
+      
+      if (existsSync(workspacePath)) {
+        try {
+          rmSync(workspacePath, { recursive: true, force: true });
+          console.log(chalk.gray(`  已删除工作空间: ${workspacePath}`));
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          console.log(chalk.yellow(`  工作空间删除失败: ${msg}`));
+        }
+      }
+      
+      // 删除会话数据
+      const sessionsPath = join(dataDir, 'sessions');
+      if (existsSync(sessionsPath)) {
+        try {
+          const sessionFiles = readdirSync(sessionsPath)
+            .filter((f: string) => f.startsWith(`${deletedAgent.id}_`));
+          for (const file of sessionFiles) {
+            rmSync(join(sessionsPath, file), { force: true });
+          }
+          if (sessionFiles.length > 0) {
+            console.log(chalk.gray(`  已删除 ${sessionFiles.length} 个会话文件`));
+          }
+        } catch {
+          // 忽略错误
+        }
+      }
+    }
+    
     console.log(chalk.green(`✓ Agent "${selectedId}" 已删除`));
   }
 }
