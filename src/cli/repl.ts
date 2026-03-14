@@ -156,7 +156,12 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
       const targetAgent = agents.get(agentId);
       if (targetAgent) {
         state.currentAgentId = agentId;
-        console.log(chalk.gray(`已切换到: ${targetAgent.name}`));
+        // 显示醒目的切换提示
+        console.log();
+        console.log(chalk.cyan('┌─────────────────────────────────────┐'));
+        console.log(chalk.cyan('│') + chalk.white.bold(`  🤖 正在与 ${targetAgent.name} 对话`).padEnd(37) + chalk.cyan('│'));
+        console.log(chalk.cyan('└─────────────────────────────────────┘'));
+        console.log();
         
         // 如果有消息，继续处理
         if (message.trim()) {
@@ -232,8 +237,8 @@ async function processMessage(
       
       const onStream: StreamCallback = (chunk) => {
         if (!streamStarted && chunk.content) {
-          // 首次收到内容，换行开始输出
-          process.stdout.write('\n\n');
+          // 首次收到内容，显示 Agent 名称后开始输出
+          process.stdout.write('\n' + chalk.cyan(`[${agent.name}]`) + '\n');
           streamStarted = true;
         }
         
@@ -429,12 +434,25 @@ async function handleCommand(
         const targetAgent = state.agents.get(arg);
         if (targetAgent) {
           state.currentAgentId = arg;
-          console.log(chalk.gray(`已切换到: ${targetAgent.name}`));
+          console.log();
+          console.log(chalk.cyan('┌─────────────────────────────────────┐'));
+          console.log(chalk.cyan('│') + chalk.white.bold(`  🤖 正在与 ${targetAgent.name} 对话`).padEnd(37) + chalk.cyan('│'));
+          console.log(chalk.cyan('└─────────────────────────────────────┘'));
+          console.log();
         } else {
           console.log(chalk.red(`Agent 不存在: ${arg}`));
+          console.log(chalk.gray(`可用 Agent: ${Array.from(state.agents.keys()).join(', ')}`));
         }
       } else {
-        console.log(chalk.cyan(`当前 Agent: ${state.currentAgentId}`));
+        // 显示当前 Agent 信息
+        const currentAgent = state.agents.get(state.currentAgentId);
+        if (currentAgent) {
+          console.log();
+          console.log(chalk.cyan('┌─────────────────────────────────────┐'));
+          console.log(chalk.cyan('│') + chalk.white.bold(`  🤖 正在与 ${currentAgent.name} 对话`).padEnd(37) + chalk.cyan('│'));
+          console.log(chalk.cyan('└─────────────────────────────────────┘'));
+          console.log();
+        }
       }
       break;
 
