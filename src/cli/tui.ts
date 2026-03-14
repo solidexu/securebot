@@ -11,7 +11,7 @@ import type { Agent, Message } from '../core/types.js';
 import { loadConfig, createDefaultConfig } from '../core/config.js';
 import { createAgents, getDefaultAgent, getOrCreateMainSession } from '../core/agent.js';
 import { addUserMessage, addAssistantMessage, buildSystemPrompt } from '../core/session.js';
-import { OllamaAdapter } from '../model/ollama.js';
+import { OllamaAdapter, type StreamCallback } from '../model/ollama.js';
 import { getAvailableTools, getAvailableToolNames } from '../tools/index.js';
 import { getSessionStorage } from '../core/session-storage.js';
 import { getMemoryManager } from '../core/memory.js';
@@ -619,7 +619,8 @@ export class TuiRepl {
     // 显示用户消息
     this.log('');
     this.log(`{green-fg}你:{/green-fg} ${message}`);
-    this.log('{gray-fg}思考中...{/gray-fg}');
+    this.log('');
+    this.log(`{cyan-fg}[${agent.name}]{/cyan-fg}`);
 
     // 获取会话
     const session = getOrCreateMainSession(agent);
@@ -640,19 +641,31 @@ export class TuiRepl {
       ...session.history,
     ];
 
+    // 用于累积流式内容
+    let fullContent = '';
+
     try {
-      // 调用模型
-      const result = await this.state.modelAdapter.chat({
+      // 流式输出回调
+      const onStream: StreamCallback = (chunk) => {
+        if (chunk.content) {
+          fullContent += chunk.content;
+          // 更新聊天框最后一条消息
+          this.updateLastMessage(fullContent);
+        }
+      };
+
+      // 调用模型（流式）
+      const result = await this.state.modelAdapter.chatWithStream({
         model: this.state.config.model.model,
         messages,
         tools: availableTools.length > 0 ? availableTools : undefined,
+        onStream,
       });
 
-      // 清除"思考中..."
-      // 显示回复
-      this.log('');
-      this.log(`{cyan-fg}[${agent.name}]{/cyan-fg}`);
-      this.log(result.content || '(无回复)');
+      // 最终显示
+      if (!result.content) {
+        result.content = fullContent;
+      }
 
       // 保存到会话
       addAssistantMessage(session, result.content);
@@ -660,10 +673,42 @@ export class TuiRepl {
       if (this.sessionStorage) {
         await this.sessionStorage.saveSession(session);
       }
+
+      // 显示 Token 统计
+      if (result.usage) {
+        this.log(`{gray-fg}Token: ${result.usage.promptTokens} + ${result.usage.completionTokens} = ${result.usage.totalTokens}{/gray-fg}`);
+      }
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       this.log(`{red-fg}错误: ${msg}{/red-fg}`);
     }
+  }
+
+  /**
+   * 更新最后一条消息（用于流式输出）
+   */
+  private updateLastMessage(content: string): void {
+    const currentContent = this.chatBox.getContent() as string;
+    const lines = currentContent.split('\n');
+    
+    // 找到最后一条非空消息的位置
+    let lastContentIndex = lines.length - 1;
+    while (lastContentIndex >= 0 && !lines[lastContentIndex]) {
+      lastContentIndex--;
+    }
+    
+    // 如果最后是 [Agent名] 开头的，在那之后插入内容
+    const lastLine = lines[lastContentIndex];
+    if (lastLine && lastLine.includes('[{cyan-fg}')) {
+      lines.push(content);
+    } else if (lastContentIndex >= 0) {
+      // 替换最后一行
+      lines[lastContentIndex] = content;
+    }
+    
+    this.chatBox.setContent(lines.join('\n'));
+    this.chatBox.setScrollPerc(100);
+    this.screen.render();
   }
 
   /**
