@@ -5,7 +5,6 @@
  */
 
 import blessed from 'blessed';
-import contrib from 'blessed-contrib';
 import { readdirSync, statSync, readFileSync, existsSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import type { Agent, Message } from '../core/types.js';
@@ -83,29 +82,6 @@ function buildFileTree(dir: string, maxDepth: number = 3, currentDepth: number =
 }
 
 /**
- * 文件树转可展开列表
- */
-function fileTreeToExpandable(nodes: FileNode[], prefix: string = ''): string[] {
-  const lines: string[] = [];
-  
-  for (const node of nodes) {
-    const icon = node.type === 'directory' ? '📁' : '📄';
-    lines.push(`${prefix}${icon} ${node.name}`);
-    
-    if (node.type === 'directory' && node.children && node.children.length > 0) {
-      // 只展开第一层
-      if (prefix === '') {
-        lines.push(...fileTreeToExpandable(node.children, '  '));
-      } else {
-        lines.push(`${prefix}  ... (${node.children.length} items)`);
-      }
-    }
-  }
-  
-  return lines;
-}
-
-/**
  * 获取文件预览
  */
 function getFilePreview(filePath: string, maxLines: number = 20): string {
@@ -133,7 +109,6 @@ function getFilePreview(filePath: string, maxLines: number = 20): string {
 
 export class TuiRepl {
   private screen: blessed.Widgets.Screen;
-  private grid: any;
   private chatBox: blessed.Widgets.BoxElement;
   private inputBox: blessed.Widgets.TextboxElement;
   private fileTree: blessed.Widgets.ListElement;
@@ -142,19 +117,23 @@ export class TuiRepl {
   private state: TuiState | null = null;
   private sessionStorage: ReturnType<typeof getSessionStorage> | null = null;
   private selectedFilePath: string = '';
+  private filePaths: string[] = []; // 存储文件路径列表
 
   constructor() {
     // 创建屏幕
     this.screen = blessed.screen({
       smartCSR: true,
       title: 'SecureBot - 安全可控的多 Agent AI 助手',
+      fullUnicode: true,
     });
 
-    // 创建布局
-    this.grid = new contrib.grid({ rows: 12, cols: 12, screen: this.screen });
-
-    // 左侧：聊天区域 (cols 0-7)
-    this.chatBox = this.grid.set(0, 0, 10, 8, blessed.box, {
+    // 左侧聊天区域
+    this.chatBox = blessed.box({
+      parent: this.screen,
+      top: 0,
+      left: 0,
+      width: '65%',
+      height: '85%',
       label: ' 💬 聊天 ',
       tags: true,
       border: { type: 'line' },
@@ -169,11 +148,16 @@ export class TuiRepl {
         track: { bg: 'gray' },
         style: { inverse: true },
       },
-    }) as blessed.Widgets.BoxElement;
+    });
 
     // 输入框
-    this.inputBox = this.grid.set(10, 0, 2, 8, blessed.textbox, {
-      label: ' 输入消息 (Enter 发送, Tab 切换焦点) ',
+    this.inputBox = blessed.textbox({
+      parent: this.screen,
+      bottom: 0,
+      left: 0,
+      width: '65%',
+      height: 3,
+      label: ' 输入消息 (Enter 发送, Tab 切换) ',
       inputOnFocus: true,
       border: { type: 'line' },
       style: {
@@ -182,8 +166,13 @@ export class TuiRepl {
       },
     });
 
-    // 右侧：文件树 (cols 8-11)
-    this.fileTree = this.grid.set(0, 8, 6, 4, blessed.list, {
+    // 右侧文件树
+    this.fileTree = blessed.list({
+      parent: this.screen,
+      top: 0,
+      right: 0,
+      width: '35%',
+      height: '45%',
       label: ' 📂 工作区 ',
       tags: true,
       border: { type: 'line' },
@@ -198,7 +187,12 @@ export class TuiRepl {
     });
 
     // 文件预览
-    this.previewBox = this.grid.set(6, 8, 4, 4, blessed.box, {
+    this.previewBox = blessed.box({
+      parent: this.screen,
+      top: '45%',
+      right: 0,
+      width: '35%',
+      height: '40%',
       label: ' 👁 预览 ',
       tags: true,
       border: { type: 'line' },
@@ -215,7 +209,12 @@ export class TuiRepl {
     });
 
     // 状态栏
-    this.statusBar = this.grid.set(10, 8, 2, 4, blessed.box, {
+    this.statusBar = blessed.box({
+      parent: this.screen,
+      bottom: 0,
+      right: 0,
+      width: '35%',
+      height: 3,
       label: ' 状态 ',
       tags: true,
       border: { type: 'line' },
@@ -244,14 +243,16 @@ export class TuiRepl {
     });
 
     // 文件树事件
-    this.fileTree.on('select', (item: any) => {
-      if (!item) return;
-      const content = item.content;
-      // 解析文件路径
-      const match = content?.match(/📄 (.+)/);
-      if (match) {
-        this.selectedFilePath = join(this.state?.workspace ?? '', match[1]);
-        this.updatePreview();
+    this.fileTree.on('select', () => {
+      if (!this.state) return;
+      
+      const selected = this.fileTree.getScroll();
+      if (selected >= 0 && selected < this.filePaths.length) {
+        const path = this.filePaths[selected];
+        if (path) {
+          this.selectedFilePath = path;
+          this.updatePreview();
+        }
       }
     });
 
@@ -362,11 +363,14 @@ export class TuiRepl {
     
     if (!existsSync(workspace)) {
       this.fileTree.setItems(['工作区目录不存在']);
+      this.filePaths = [];
       return;
     }
 
     const tree = buildFileTree(workspace);
-    const items = fileTreeToExpandable(tree);
+    const { items, paths } = this.flattenTree(tree, workspace);
+    
+    this.filePaths = paths;
     
     if (items.length === 0) {
       this.fileTree.setItems(['(空目录)']);
@@ -375,6 +379,30 @@ export class TuiRepl {
     }
 
     this.screen.render();
+  }
+
+  /**
+   * 展平文件树为列表
+   */
+  private flattenTree(nodes: FileNode[], basePath: string, prefix: string = ''): { items: string[]; paths: string[] } {
+    const items: string[] = [];
+    const paths: string[] = [];
+    
+    for (const node of nodes) {
+      const icon = node.type === 'directory' ? '📁' : '📄';
+      const indent = prefix.replace(/[^ ]/g, '  '); // 保持缩进
+      
+      items.push(`${indent}${icon} ${node.name}`);
+      paths.push(node.path);
+      
+      if (node.type === 'directory' && node.children && node.children.length > 0) {
+        const childResult = this.flattenTree(node.children, basePath, prefix + '  ');
+        items.push(...childResult.items);
+        paths.push(...childResult.paths);
+      }
+    }
+    
+    return { items, paths };
   }
 
   /**
