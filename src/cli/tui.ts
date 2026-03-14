@@ -157,7 +157,7 @@ export class TuiRepl {
       left: 0,
       width: '65%',
       height: 3,
-      label: ' 输入消息 (Enter 发送, Tab 切换) ',
+      label: ' 输入消息 (Enter 发送, F6 文件树) ',
       inputOnFocus: true,
       border: { type: 'line' },
       style: {
@@ -264,8 +264,8 @@ export class TuiRepl {
       process.exit(0);
     });
 
-    // Tab 切换焦点
-    this.screen.key(['tab'], () => {
+    // F6 切换焦点
+    this.screen.key(['f6'], () => {
       if (this.screen.focused === this.inputBox) {
         this.fileTree.focus();
       } else {
@@ -433,7 +433,7 @@ export class TuiRepl {
       `{cyan-fg}Agent:{/cyan-fg} ${agent?.name ?? this.state.currentAgentId}`,
       `{blue-fg}模型:{/blue-fg} ${this.state.config.model.model}`,
       `{green-fg}工作区:{/green-fg} ${basename(this.state.workspace)}`,
-      '{gray-fg}F2:切换Agent F5:刷新{/gray-fg}',
+      '{gray-fg}F2:Agent F5:刷新 F6:切换{/gray-fg}',
     ];
 
     this.statusBar.setContent(lines.join('\n'));
@@ -588,7 +588,7 @@ export class TuiRepl {
       '{cyan-fg}═══ 命令帮助 ═══{/cyan-fg}',
       '',
       '{white-fg}快捷键:{/white-fg}',
-      '  Tab      切换焦点 (输入框/文件树)',
+      '  F6       切换焦点 (输入框/文件树)',
       '  F2       切换 Agent',
       '  F5       刷新文件树',
       '  Q/Esc    退出',
