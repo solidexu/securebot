@@ -77,6 +77,55 @@ agentCmd
     await deleteAgentInteractive();
   });
 
+// skill 命令
+const skillCmd = program
+  .command('skill')
+  .description('技能管理');
+
+skillCmd
+  .command('list')
+  .description('列出所有技能')
+  .option('-p, --public', '仅显示公共技能')
+  .option('-r, --private', '仅显示个人技能')
+  .option('-a, --agent <id>', '显示指定 Agent 的技能')
+  .action(async (options) => {
+    const { listSkills } = await import('./commands/skill.js');
+    await listSkills(options);
+  });
+
+skillCmd
+  .command('create')
+  .description('交互式创建新技能')
+  .option('-a, --agent <id>', '创建个人技能给指定 Agent')
+  .action(async (options) => {
+    const { createSkillInteractive } = await import('./commands/skill.js');
+    await createSkillInteractive(options);
+  });
+
+skillCmd
+  .command('delete [skillId]')
+  .description('删除技能')
+  .action(async (skillId?: string) => {
+    const { deleteSkillInteractive } = await import('./commands/skill.js');
+    await deleteSkillInteractive(skillId);
+  });
+
+skillCmd
+  .command('assign <skillId> <agentId>')
+  .description('将技能分配给 Agent')
+  .action(async (skillId: string, agentId: string) => {
+    const { assignSkillToAgent } = await import('./commands/skill.js');
+    await assignSkillToAgent(skillId, agentId);
+  });
+
+skillCmd
+  .command('unassign <skillId> <agentId>')
+  .description('从 Agent 移除技能')
+  .action(async (skillId: string, agentId: string) => {
+    const { removeSkillFromAgent } = await import('./commands/skill.js');
+    await removeSkillFromAgent(skillId, agentId);
+  });
+
 // config 命令
 program
   .command('config')

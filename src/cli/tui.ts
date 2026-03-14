@@ -696,7 +696,7 @@ export class TuiRepl {
     const availableTools = getAvailableTools(agent, this.state.config.tools);
 
     // 构建系统提示
-    const systemPrompt = buildSystemPrompt(
+    const systemPrompt = await buildSystemPrompt(
       agent.name,
       getAvailableToolNames(agent, this.state.config.tools)
     );

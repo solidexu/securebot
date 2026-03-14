@@ -129,6 +129,8 @@ export interface AgentConfig {
   model?: ModelConfig;
   /** RAG 配置 */
   rag?: RAGConfig;
+  /** 技能列表（技能 ID） */
+  skills?: string[];
 }
 
 /**

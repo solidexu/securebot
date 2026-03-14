@@ -154,11 +154,12 @@ export function formatSessionHistory(session: Session, limit: number = 10): stri
 /**
  * 构建系统提示
  */
-export function buildSystemPrompt(
+export async function buildSystemPrompt(
   agentName: string,
-  availableTools: string[]
-): string {
-  return `你是 ${agentName}，一个安全可控的 AI 助手。
+  availableTools: string[],
+  skillsPrompt?: string
+): Promise<string> {
+  let prompt = `你是 ${agentName}，一个安全可控的 AI 助手。
 
 ## 可用工具
 ${availableTools.length > 0 ? availableTools.map(t => `- ${t}`).join('\n') : '(无)'}
@@ -168,5 +169,14 @@ ${availableTools.length > 0 ? availableTools.map(t => `- ${t}`).join('\n') : '(�
 - 禁止执行任何网络请求
 - 敏感操作需要用户确认
 
-请根据用户的需求提供帮助。`;
+`;
+
+  // 添加技能提示
+  if (skillsPrompt) {
+    prompt += skillsPrompt;
+  }
+
+  prompt += `\n请根据用户的需求提供帮助。`;
+  
+  return prompt;
 }
