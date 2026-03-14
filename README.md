@@ -577,6 +577,22 @@ npm run typecheck
 npm run lint
 ```
 
+## ☕ 支持开发者
+
+如果这个项目对您有帮助，欢迎请我喝杯咖啡 ☕
+
+您的支持将帮助我购买 API tokens，让我能够继续开发和维护更多开源工具。
+
+<div align="center">
+  <img src="assets/wechat-pay.png" width="200" alt="微信赞赏码">
+</div>
+
+> 如果您是海外用户，欢迎通过 GitHub Issues 与我联系，我可以提供其他支持方式。
+
+感谢每一位支持者的慷慨！🙏
+
+---
+
 ## License
 
 本作品采用 [CC BY-NC 4.0](LICENSE.md) 协议授权。
