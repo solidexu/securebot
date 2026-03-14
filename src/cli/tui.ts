@@ -6,7 +6,7 @@
 
 import blessed from 'blessed';
 import { readdirSync, statSync, readFileSync, existsSync, mkdirSync } from 'node:fs';
-import { join, basename } from 'node:path';
+import { join } from 'node:path';
 import type { Agent, Message } from '../core/types.js';
 import { loadConfig, createDefaultConfig } from '../core/config.js';
 import { createAgents, getDefaultAgent, getOrCreateMainSession } from '../core/agent.js';
@@ -110,7 +110,7 @@ function getFilePreview(filePath: string, maxLines: number = 20): string {
 export class TuiRepl {
   private screen: blessed.Widgets.Screen;
   private chatBox: blessed.Widgets.BoxElement;
-  private inputBox: blessed.Widgets.TextareaElement | null = null;
+  private inputBox: blessed.Widgets.TextareaElement;
   private fileTree: blessed.Widgets.ListElement;
   private previewBox: blessed.Widgets.BoxElement;
   private statusBar: blessed.Widgets.BoxElement;
@@ -118,6 +118,7 @@ export class TuiRepl {
   private sessionStorage: ReturnType<typeof getSessionStorage> | null = null;
   private selectedFilePath: string = '';
   private filePaths: string[] = []; // 存储文件路径列表
+  private isGenerating: boolean = false; // 是否正在生成回复
 
   constructor() {
     // 创建屏幕
@@ -151,7 +152,22 @@ export class TuiRepl {
     });
 
     // 输入框 - 使用 textarea 支持中文
-    this.inputBox = this.createInputBox();
+    this.inputBox = blessed.textarea({
+      parent: this.screen,
+      bottom: 0,
+      left: 0,
+      width: '65%',
+      height: 3,
+      label: ' 输入消息 (Enter 发送, F6 文件树, Esc 停止) ',
+      inputOnFocus: true,
+      border: { type: 'line' },
+      style: {
+        border: { fg: 'green' },
+        focus: { border: { fg: 'yellow' } },
+      },
+      keys: true,
+      mouse: true,
+    });
 
     // 右侧文件树
     this.fileTree = blessed.list({
@@ -215,50 +231,30 @@ export class TuiRepl {
   }
 
   /**
-   * 创建输入框
-   */
-  private createInputBox(): blessed.Widgets.TextareaElement {
-    const inputBox = blessed.textarea({
-      parent: this.screen,
-      bottom: 0,
-      left: 0,
-      width: '65%',
-      height: 3,
-      label: ' 输入消息 (Enter 发送, F6 文件树) ',
-      inputOnFocus: true,
-      border: { type: 'line' },
-      style: {
-        border: { fg: 'green' },
-        focus: { border: { fg: 'yellow' } },
-      },
-      keys: true,
-      mouse: true,
-    });
-
-    // 绑定 Enter 事件
-    inputBox.key('enter', async () => {
-      const message = inputBox.getValue();
-      if (message.trim()) {
-        // 先销毁旧输入框
-        inputBox.destroy();
-        // 处理输入
-        await this.handleInput(message.trim());
-        // 创建新输入框
-        this.inputBox = this.createInputBox();
-        this.inputBox.focus();
-        this.screen.render();
-      } else {
-        inputBox.focus();
-      }
-    });
-
-    return inputBox;
-  }
-
-  /**
    * 设置事件
    */
   private setupEvents(): void {
+    // 输入框事件
+    this.inputBox.key('enter', async () => {
+      if (this.isGenerating) return; // 正在生成时不处理
+      
+      const message = this.inputBox.getValue();
+      if (message.trim()) {
+        this.inputBox.clearValue();
+        this.screen.render();
+        await this.handleInput(message.trim());
+      }
+      this.inputBox.focus();
+    });
+
+    // Esc 键停止生成
+    this.inputBox.key('escape', () => {
+      if (this.isGenerating) {
+        this.log('{yellow-fg}[已停止]{/yellow-fg}');
+        this.isGenerating = false;
+        this.updateStatus();
+      }
+    });
 
     // 文件树事件
     this.fileTree.on('select', () => {
@@ -275,7 +271,7 @@ export class TuiRepl {
     });
 
     // 全局快捷键
-    this.screen.key(['escape', 'q', 'C-c'], async () => {
+    this.screen.key(['q', 'C-c'], async () => {
       await this.shutdown();
       process.exit(0);
     });
@@ -460,11 +456,12 @@ export class TuiRepl {
     if (!this.state) return;
 
     const agent = this.state.agents.get(this.state.currentAgentId);
+    const status = this.isGenerating ? '{red-fg}生成中...{/red-fg}' : '{green-fg}就绪{/green-fg}';
     const lines = [
       `{cyan-fg}Agent:{/cyan-fg} ${agent?.name ?? this.state.currentAgentId}`,
       `{blue-fg}模型:{/blue-fg} ${this.state.config.model.model}`,
-      `{green-fg}工作区:{/green-fg} ${basename(this.state.workspace)}`,
-      '{gray-fg}F2:Agent F5:刷新 F6:切换{/gray-fg}',
+      status,
+      '{gray-fg}F2:Agent F5:刷新 Esc:停止{/gray-fg}',
     ];
 
     this.statusBar.setContent(lines.join('\n'));
@@ -622,7 +619,8 @@ export class TuiRepl {
       '  F6       切换焦点 (输入框/文件树)',
       '  F2       切换 Agent',
       '  F5       刷新文件树',
-      '  Q/Esc    退出',
+      '  Esc      停止生成 / 退出',
+      '  Q        退出',
       '',
       '{white-fg}命令:{/white-fg}',
       '  /help     显示帮助',
@@ -651,7 +649,11 @@ export class TuiRepl {
     this.log('');
     this.log(`{green-fg}你:{/green-fg} ${message}`);
     this.log('');
-    this.log(`{cyan-fg}[${agent.name}]{/cyan-fg}`);
+    this.log(`{cyan-fg}[${agent.name}]{/cyan-fg} `);
+
+    // 设置生成状态
+    this.isGenerating = true;
+    this.updateStatus();
 
     // 获取会话
     const session = getOrCreateMainSession(agent);
@@ -680,8 +682,8 @@ export class TuiRepl {
       const onStream: StreamCallback = (chunk) => {
         if (chunk.content) {
           fullContent += chunk.content;
-          // 更新聊天框最后一条消息
-          this.updateLastMessage(fullContent);
+          // 直接追加到最后
+          this.appendStreamContent(chunk.content);
         }
       };
 
@@ -705,39 +707,33 @@ export class TuiRepl {
         await this.sessionStorage.saveSession(session);
       }
 
+      // 换行
+      this.log('');
+
       // 显示 Token 统计
       if (result.usage) {
         this.log(`{gray-fg}Token: ${result.usage.promptTokens} + ${result.usage.completionTokens} = ${result.usage.totalTokens}{/gray-fg}`);
       }
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      this.log(`{red-fg}错误: ${msg}{/red-fg}`);
+      if ((error as Error).name === 'AbortError') {
+        this.log('\n{yellow-fg}[已停止]{/yellow-fg}');
+      } else {
+        const msg = error instanceof Error ? error.message : String(error);
+        this.log(`{red-fg}错误: ${msg}{/red-fg}`);
+      }
+    } finally {
+      this.isGenerating = false;
+      this.updateStatus();
     }
   }
 
   /**
-   * 更新最后一条消息（用于流式输出）
+   * 追加流式内容
    */
-  private updateLastMessage(content: string): void {
+  private appendStreamContent(content: string): void {
+    // 直接追加到聊天框
     const currentContent = this.chatBox.getContent() as string;
-    const lines = currentContent.split('\n');
-    
-    // 找到最后一条非空消息的位置
-    let lastContentIndex = lines.length - 1;
-    while (lastContentIndex >= 0 && !lines[lastContentIndex]) {
-      lastContentIndex--;
-    }
-    
-    // 如果最后是 [Agent名] 开头的，在那之后插入内容
-    const lastLine = lines[lastContentIndex];
-    if (lastLine && lastLine.includes('[{cyan-fg}')) {
-      lines.push(content);
-    } else if (lastContentIndex >= 0) {
-      // 替换最后一行
-      lines[lastContentIndex] = content;
-    }
-    
-    this.chatBox.setContent(lines.join('\n'));
+    this.chatBox.setContent(currentContent + content);
     this.chatBox.setScrollPerc(100);
     this.screen.render();
   }
