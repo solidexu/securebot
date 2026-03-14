@@ -351,7 +351,7 @@ async function processMessage(
         );
         
         if (needsConfirm) {
-          const confirmResult = await confirmationManager.requestConfirmation(
+          const confirmResult = await this.requestConfirmation(
             toolCall.name,
             toolCall.arguments,
             { agent, session, workspace: agent.workspace, logger: console }
@@ -371,6 +371,12 @@ async function processMessage(
             );
             console.log(chalk.gray('✗ 用户取消'));
             continue;
+          }
+          
+          // 如果用户选择了"总是允许"，记住这个决定
+          if (confirmResult.remember) {
+            confirmationManager.rememberDecision(toolCall.name, toolCall.arguments);
+            console.log(chalk.gray('✓ 已记住选择，后续同类操作不再询问'));
           }
         }
         
