@@ -30,13 +30,22 @@ program
   .option('-a, --agent <id>', '指定默认 Agent', 'dev')
   .option('-m, --model <name>', '指定模型')
   .option('--no-tools', '禁用所有工具')
+  .option('--tui', '启用分屏界面（左侧聊天，右侧文件浏览器）')
   .action(async (options) => {
-    const { startRepl } = await import('./repl.js');
-    await startRepl({
-      defaultAgent: options.agent,
-      model: options.model,
-      noTools: options.noTools,
-    });
+    if (options.tui) {
+      const { startTuiRepl } = await import('./tui.js');
+      await startTuiRepl({
+        defaultAgent: options.agent,
+        model: options.model,
+      });
+    } else {
+      const { startRepl } = await import('./repl.js');
+      await startRepl({
+        defaultAgent: options.agent,
+        model: options.model,
+        noTools: options.noTools,
+      });
+    }
   });
 
 // agent 命令
