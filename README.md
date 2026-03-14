@@ -583,7 +583,9 @@ npm run lint
 
 您的支持将帮助我购买 API tokens，让我能够继续开发和维护更多开源工具。
 
-![微信赞赏码](securebot/assets/wechat-pay.jpg)
+<div align="center">
+  <img src="assets/wechat-pay.jpg" width="200" alt="微信赞赏码">
+</div>
 
 > 如果您是海外用户，欢迎通过 GitHub Issues 与我联系，我可以提供其他支持方式。
 
