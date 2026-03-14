@@ -33,6 +33,7 @@
   "devDependencies": {
     "@types/node": "^22.13.0",
     "oxlint": "^0.16.0",
+    "tsdown": "^0.11.0",
     "tsx": "^4.19.0",
     "typescript": "^5.8.0",
     "vitest": "^3.0.0"
