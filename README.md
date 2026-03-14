@@ -579,4 +579,9 @@ npm run lint
 
 ## License
 
-MIT
+本作品采用 [CC BY-NC 4.0](LICENSE.md) 协议授权。
+
+您可以自由地共享和演绎本作品，但须遵守署名和非商业性使用的条件。
+
+- 中文版协议: [LICENSE_CN.md](LICENSE_CN.md)
+- English License: [LICENSE.md](LICENSE.md)
