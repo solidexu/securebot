@@ -43,8 +43,11 @@ export const DEFAULT_TOOL_POLICY: ToolPolicy = {
       'tail *',
       'find * -type f',
       'tree',
+      'du *',
+      'df -h',
       // 文件读取
       'cat *',
+      'wc *',
       // Git 命令
       'git status',
       'git log --oneline *',
@@ -53,11 +56,32 @@ export const DEFAULT_TOOL_POLICY: ToolPolicy = {
       'git branch -a',
       'git branch',
       'git remote -v',
+      'git show *',
       // Node.js
       'npm list --depth=0',
       'npm run *',
       'node --version',
       'npm --version',
+      'npx *',
+      // Python
+      'python *',
+      'python3 *',
+      'pip *',
+      'pip3 *',
+      // 其他开发工具
+      'go *',
+      'cargo *',
+      'rustc *',
+      'java -version',
+      'javac *',
+      'make',
+      'make *',
+      'gcc *',
+      'g++ *',
+      // 系统
+      'which *',
+      'env',
+      'uname *',
     ],
   },
 };

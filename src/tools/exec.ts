@@ -111,6 +111,7 @@ export const execTool: Tool = {
     
     // 获取执行策略
     const policy = context.agent.tools?.exec as ExecPolicy | undefined;
+    const profile = context.agent.tools?.profile;
     const execPolicy: ExecPolicy = {
       security: policy?.security ?? 'allowlist',
       ask: policy?.ask ?? 'always',
@@ -122,12 +123,24 @@ export const execTool: Tool = {
       return { success: false, error: '命令执行已禁用' };
     }
     
-    if (execPolicy.security === 'allowlist') {
-      if (!isCommandAllowed(command, execPolicy.allowlist ?? [])) {
-        return { 
-          success: false, 
-          error: `命令不在白名单中: ${command}\n白名单: ${execPolicy.allowlist?.join(', ') ?? '(空)'}` 
-        };
+    // 检查 deny 列表
+    const denyList = context.agent.tools?.deny ?? [];
+    for (const pattern of denyList) {
+      if (command.includes(pattern) || command.startsWith(pattern)) {
+        return { success: false, error: `命令被禁止: ${pattern}` };
+      }
+    }
+    
+    // 对于 coding/full 权限的 Agent，允许执行任何命令（外层确认管理器已处理确认）
+    if (profile !== 'coding' && profile !== 'full') {
+      // 非开发权限，检查白名单
+      if (execPolicy.security === 'allowlist') {
+        if (!isCommandAllowed(command, execPolicy.allowlist ?? [])) {
+          return { 
+            success: false, 
+            error: `命令不在白名单中: ${command}\n白名单: ${execPolicy.allowlist?.join(', ') ?? '(空)'}\n提示: 使用 coding 权限的 Agent 可以执行更多命令` 
+          };
+        }
       }
     }
     
