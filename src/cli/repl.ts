@@ -28,9 +28,6 @@ import {
 /** 最大工具调用轮数 */
 const MAX_TOOL_ROUNDS = 10;
 
-/** 单次工具调用超时（毫秒） */
-const TOOL_TIMEOUT = 60000;
-
 // ============ REPL 启动 ============
 
 interface ReplOptions {
@@ -357,24 +354,30 @@ async function processMessage(
           }
         }
         
-        // 超时控制
-        toolResult = await Promise.race([
-          executeTool(toolCall.name, toolCall.arguments, {
-            agent,
-            session,
-            workspace: agent.workspace,
-            logger: console,
-          }),
-          new Promise<ReturnType<typeof executeTool>>((_, reject) =>
-            setTimeout(() => reject(new Error('工具执行超时')), TOOL_TIMEOUT)
-          ),
-        ]);
+        // 执行工具
+        toolResult = await executeTool(toolCall.name, toolCall.arguments, {
+          agent,
+          session,
+          workspace: agent.workspace,
+          logger: console,
+        });
+        
+        // 显示结果
+        if (toolResult.success) {
+          console.log(chalk.green('✓ 成功'));
+          if (toolResult.content) {
+            console.log(chalk.gray(toolResult.content.slice(0, 500)));
+          }
+        } else {
+          console.log(chalk.red(`✗ 失败: ${toolResult.error}`));
+        }
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
         toolResult = {
           success: false,
           error: errMsg,
         };
+        console.log(chalk.red(`✗ 错误: ${errMsg}`));
       }
       
       // 添加工具结果
