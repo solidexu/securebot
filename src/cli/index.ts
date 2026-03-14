@@ -175,5 +175,50 @@ program
     await runDoctor();
   });
 
+// kb 命令（知识库管理）
+const kbCmd = program
+  .command('kb')
+  .description('知识库管理');
+
+kbCmd
+  .command('list')
+  .description('列出所有知识库')
+  .action(async () => {
+    const { listKnowledgeBases } = await import('./commands/kb.js');
+    await listKnowledgeBases();
+  });
+
+kbCmd
+  .command('create')
+  .description('创建新知识库')
+  .action(async () => {
+    const { createKnowledgeBaseInteractive } = await import('./commands/kb.js');
+    await createKnowledgeBaseInteractive();
+  });
+
+kbCmd
+  .command('index [kbId]')
+  .description('索引知识库')
+  .action(async (kbId?: string) => {
+    const { indexKnowledgeBase } = await import('./commands/kb.js');
+    await indexKnowledgeBase(kbId);
+  });
+
+kbCmd
+  .command('delete [kbId]')
+  .description('删除知识库')
+  .action(async (kbId?: string) => {
+    const { deleteKnowledgeBaseInteractive } = await import('./commands/kb.js');
+    await deleteKnowledgeBaseInteractive(kbId);
+  });
+
+kbCmd
+  .command('search <query>')
+  .description('搜索知识库')
+  .action(async (query: string) => {
+    const { searchKnowledgeBases } = await import('./commands/kb.js');
+    await searchKnowledgeBases(query);
+  });
+
 // 解析参数
 program.parse();
