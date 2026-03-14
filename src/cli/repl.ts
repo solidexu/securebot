@@ -577,6 +577,28 @@ async function handleCommand(
       break;
     }
 
+    case 'export': {
+      const { exportSession } = await import('../core/export.js');
+      const agent = state.agents.get(state.currentAgentId);
+      if (agent) {
+        const session = getOrCreateMainSession(agent);
+        const format = (arg || 'markdown') as 'markdown' | 'json' | 'txt';
+        
+        if (!['markdown', 'json', 'txt'].includes(format)) {
+          console.log(chalk.red('不支持的格式，可选: markdown, json, txt'));
+          break;
+        }
+        
+        const result = exportSession(session, agent.name, { format });
+        if (result.success) {
+          console.log(chalk.green(`✓ 已导出到: ${result.path}`));
+        } else {
+          console.log(chalk.red(result.error ?? '导出失败'));
+        }
+      }
+      break;
+    }
+
     case 'reload': {
       try {
         const newConfig = loadConfig();
@@ -784,6 +806,7 @@ function printHelp(): void {
   console.log('  /reset           清除当前会话历史');
   console.log('  /save            手动保存所有会话');
   console.log('  /sessions        列出已保存的会话');
+  console.log('  /export [format] 导出会话 (markdown/json/txt)');
   console.log('  /confirm [on/off/always]  敏感操作确认设置');
   console.log('  /clear           清屏');
   console.log();

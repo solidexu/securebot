@@ -48,6 +48,15 @@ program
     }
   });
 
+// init 命令
+program
+  .command('init')
+  .description('配置向导，交互式配置 SecureBot')
+  .action(async () => {
+    const { runConfigWizard } = await import('./commands/init.js');
+    await runConfigWizard();
+  });
+
 // agent 命令
 const agentCmd = program
   .command('agent')
@@ -133,8 +142,8 @@ program
   .command('show')
   .description('显示当前配置')
   .action(async () => {
-    const { showConfig } = await import('./commands/config.js');
-    await showConfig();
+    const { showCurrentConfig } = await import('./commands/init.js');
+    await showCurrentConfig();
   });
 
 // model 命令
