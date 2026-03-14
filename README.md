@@ -33,7 +33,22 @@ npm link
 
 ## 快速开始
 
-### 1. 确保 Ollama 运行
+### 1. 运行配置向导（首次使用）
+
+```bash
+npm run dev -- init
+
+# 或
+securebot init
+```
+
+配置向导会引导你：
+- 配置 Ollama 连接
+- 选择默认模型
+- 添加自定义 Agent
+- 设置数据目录
+
+### 2. 确保 Ollama 运行
 
 ```bash
 # 启动 Ollama
@@ -283,6 +298,7 @@ securebot skill unassign <skill-id> <agent-id>
 /reset             # 清除当前会话历史
 /save              # 手动保存会话
 /sessions          # 列出已保存会话
+/export [format]   # 导出会话 (markdown/json/txt)
 
 # 配置
 /reload            # 热重载配置文件
