@@ -96,8 +96,8 @@ describe('Session', () => {
   });
 
   describe('buildSystemPrompt', () => {
-    it('should build system prompt with agent name', () => {
-      const prompt = buildSystemPrompt('Developer', ['read', 'write', 'exec']);
+    it('should build system prompt with agent name', async () => {
+      const prompt = await buildSystemPrompt('Developer', ['read', 'write', 'exec']);
 
       expect(prompt).toContain('Developer');
       expect(prompt).toContain('read');
@@ -105,8 +105,8 @@ describe('Session', () => {
       expect(prompt).toContain('exec');
     });
 
-    it('should handle empty tool list', () => {
-      const prompt = buildSystemPrompt('Assistant', []);
+    it('should handle empty tool list', async () => {
+      const prompt = await buildSystemPrompt('Assistant', []);
 
       expect(prompt).toContain('Assistant');
     });
