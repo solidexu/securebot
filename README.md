@@ -342,20 +342,55 @@ securebot skill unassign <skill-id> <agent-id>
 └── audit/              # 审计日志
 ```
 
-### 配置示例
+### 自定义数据目录
 
-**自定义数据目录**:
+**方式一：配置文件**
+
+在 `~/.securebot/config.json` 中设置 `dataDir`：
+
 ```json5
 {
+  // 自定义数据目录
   dataDir: '/data/securebot',
-  // ...
+  
+  model: {
+    model: 'qwen3.5-35b-a3b',
+    baseUrl: 'http://localhost:11434',
+  },
+  defaultAgent: 'dev',
+  agents: [
+    {
+      id: 'dev',
+      name: '开发助手',
+      workspace: 'dev',  // 实际路径: /data/securebot/agents/dev
+      tools: { profile: 'coding' },
+    },
+  ],
 }
 ```
 
-**环境变量**:
+**方式二：环境变量**
+
 ```bash
-export SECUREBOT_CONFIG_DIR=/custom/path
+# 设置配置目录（包含 config.json）
+export SECUREBOT_CONFIG_DIR=/custom/securebot
+
+# 设置配置文件路径
+export SECUREBOT_CONFIG_PATH=/custom/securebot/config.json
 ```
+
+**各目录说明**:
+
+| 目录 | 用途 | 内容 |
+|------|------|------|
+| `agents/` | Agent 工作空间 | 每个 Agent 独立的文件操作目录 |
+| `memory/daily/` | 每日记忆 | 按日期存储的对话记录 |
+| `memory/profiles/` | 档案 | 用户偏好、Agent 统计 |
+| `memory/events/` | 事件日志 | 重要操作记录 |
+| `skills/public/` | 公共技能 | 所有 Agent 可用的技能 |
+| `skills/private/` | 个人技能 | 特定 Agent 的私有技能 |
+| `sessions/` | 会话存储 | 对话历史持久化 |
+| `audit/` | 审计日志 | 所有工具调用记录 |
 ```
 
 ### 工具权限预设
