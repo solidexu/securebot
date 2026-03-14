@@ -101,6 +101,69 @@ export interface ConfirmationPolicy {
   alwaysConfirm: string[];
 }
 
+// ============ 安全命令定义 ============
+
+/**
+ * 无需确认的安全命令模式
+ */
+export const SAFE_COMMAND_PATTERNS = [
+  // 文件浏览
+  /^ls(\s|$)/,
+  /^pwd$/,
+  /^tree(\s|$)/,
+  /^find\s/,
+  /^du(\s|$)/,
+  /^df\s*-h$/,
+  
+  // 文件读取
+  /^cat\s/,
+  /^head\s/,
+  /^tail\s/,
+  /^wc\s/,
+  /^less\s/,
+  /^more\s/,
+  
+  // 系统信息
+  /^whoami$/,
+  /^date(\s|$)/,
+  /^uname(\s|$)/,
+  /^hostname$/,
+  /^echo\s/,
+  
+  // Git 只读
+  /^git\s+status/,
+  /^git\s+log/,
+  /^git\s+diff/,
+  /^git\s+branch/,
+  /^git\s+remote/,
+  /^git\s+show/,
+  /^git\s+tag/,
+  
+  // Node/项目信息
+  /^node\s+--version/,
+  /^npm\s+--version/,
+  /^npm\s+list/,
+  /^npm\s+run\s+\w+$/,
+  /^npx\s+--version/,
+  /^pnpm\s+--version/,
+  /^yarn\s+--version/,
+  /^yarn\s+list/,
+  
+  // 其他安全命令
+  /^which\s/,
+  /^type\s/,
+  /^env$/,
+  /^printenv(\s|$)/,
+];
+
+/**
+ * 检查命令是否为安全的只读命令
+ */
+export function isSafeCommand(command: string): boolean {
+  const cmd = command.trim();
+  return SAFE_COMMAND_PATTERNS.some(pattern => pattern.test(cmd));
+}
+
 // ============ 默认敏感操作定义 ============
 
 /**
@@ -148,10 +211,16 @@ export const SENSITIVE_OPERATIONS: SensitiveOperation[] = [
     level: 'high',
     riskDescription: '将执行系统命令',
     check: (params, context) => {
-      // 白名单内的命令不需要确认
+      const command = params['command'] as string;
+      
+      // 检查是否是安全命令（只读操作）
+      if (isSafeCommand(command)) {
+        return false; // 不需要确认
+      }
+      
+      // 检查白名单
       const policy = context.agent.tools?.exec;
       if (policy?.security === 'allowlist') {
-        const command = params['command'] as string;
         const allowlist = policy.allowlist ?? [];
         // 检查是否在白名单
         const isAllowed = allowlist.some(pattern => {
@@ -160,7 +229,7 @@ export const SENSITIVE_OPERATIONS: SensitiveOperation[] = [
           }
           return command === pattern;
         });
-        if (isAllowed && policy.ask === 'off') {
+        if (isAllowed && policy.ask !== 'always') {
           return false;
         }
       }
@@ -170,6 +239,14 @@ export const SENSITIVE_OPERATIONS: SensitiveOperation[] = [
       const command = params['command'] as string;
       return `执行命令: ${command}`;
     },
+  },
+  
+  // RAG 搜索
+  {
+    tool: 'rag_search',
+    category: 'read',
+    level: 'safe',
+    riskDescription: '在知识库中搜索',
   },
   
   // RAG 索引
@@ -184,24 +261,37 @@ export const SENSITIVE_OPERATIONS: SensitiveOperation[] = [
     },
   },
   
-  // 敏感文件读取
+  // RAG 状态
+  {
+    tool: 'rag_status',
+    category: 'read',
+    level: 'safe',
+    riskDescription: '查看知识库状态',
+  },
+  
+  // 文件读取
   {
     tool: 'read',
     category: 'read',
-    level: 'low',
+    level: 'medium',
     riskDescription: '读取文件内容',
     check: (params) => {
       const path = params['path'] as string;
       // 检查是否是敏感文件
       const sensitivePatterns = [
-        /\.env/i,
+        /\.env$/i,
+        /\.env\./i,
         /secret/i,
         /password/i,
-        /key.*\.pem$/i,
-        /id_rsa/i,
+        /credential/i,
         /\.pem$/i,
-        /credentials/i,
+        /\.key$/i,
+        /id_rsa/i,
+        /id_ed25519/i,
+        /\.p12$/i,
+        /\.pfx$/i,
       ];
+      // 如果是敏感文件，需要确认；普通文件不需要
       return sensitivePatterns.some(p => p.test(path));
     },
     getConfirmMessage: (params) => {
@@ -292,6 +382,11 @@ export class ConfirmationManager {
     if (!operation) {
       // 未定义的工具，根据级别判断
       return this.policy.mode === 'always';
+    }
+
+    // safe 级别的操作永远不需要确认
+    if (operation.level === 'safe') {
+      return false;
     }
 
     // 检查级别

@@ -286,6 +286,9 @@ describe('SENSITIVE_OPERATIONS', () => {
     expect(execOp?.level).toBe('high');
     
     const readOp = SENSITIVE_OPERATIONS.find(op => op.tool === 'read');
-    expect(readOp?.level).toBe('low');
+    expect(readOp?.level).toBe('medium');  // medium level, but check returns false for normal files
+    
+    const ragSearchOp = SENSITIVE_OPERATIONS.find(op => op.tool === 'rag_search');
+    expect(ragSearchOp?.level).toBe('safe');
   });
 });
