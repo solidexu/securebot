@@ -10,6 +10,7 @@ import { getAuditLogger } from '../core/audit.js';
 import { readTool, writeTool, editTool } from './fs.js';
 import { execTool } from './exec.js';
 import { ragTools } from '../rag/tools.js';
+import { memoryTools } from './memory.js';
 
 // ============ 工具注册表 ============
 
@@ -194,6 +195,9 @@ registerTool(editTool);
 
 // 命令执行工具
 registerTool(execTool);
+
+// 记忆工具
+registerTools(memoryTools);
 
 // RAG 工具
 registerTools(ragTools);

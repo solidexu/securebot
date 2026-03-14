@@ -15,6 +15,7 @@ import { OllamaAdapter, type StreamCallback } from '../model/ollama.js';
 import { getAvailableTools, executeTool, getAvailableToolNames } from '../tools/index.js';
 import { getSessionStorage } from '../core/session-storage.js';
 import { getAuditLogger } from '../core/audit.js';
+import { getMemoryManager } from '../core/memory.js';
 import {
   getConfirmationManager,
   type ConfirmationRequest,
@@ -77,6 +78,12 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
   // 初始化会话存储
   const sessionStorage = getSessionStorage();
   await sessionStorage.initialize();
+
+  // 初始化记忆系统
+  const memoryManager = getMemoryManager();
+  await memoryManager.initialize();
+  const memoryStats = memoryManager.getStats();
+  console.log(chalk.green(`✓ 记忆系统就绪 (${memoryStats.totalEntries} 条记忆)`));
 
   // 初始化确认管理器
   const confirmationManager = getConfirmationManager();
@@ -607,6 +614,47 @@ async function handleCommand(
       break;
     }
 
+    case 'memory': {
+      const memoryManager = getMemoryManager();
+      
+      if (arg === 'stats') {
+        const stats = memoryManager.getStats();
+        const profile = memoryManager.getUserProfile();
+        console.log(chalk.cyan('记忆系统状态:'));
+        console.log(`  每日记忆: ${stats.dailyMemoryCount} 个`);
+        console.log(`  总条目: ${stats.totalEntries} 条`);
+        console.log(`  Agent 档案: ${stats.agentCount} 个`);
+        console.log(`  用户信息: ${Object.keys(profile?.keyInfo ?? {}).length} 条`);
+      } else if (arg === 'clear') {
+        // 清除工作记忆缓存
+        console.log(chalk.yellow('确定要清除工作记忆吗？这将清除缓存但不会删除文件。'));
+      } else if (arg === 'search' && parts[2]) {
+        // 搜索记忆
+        const query = parts.slice(2).join(' ');
+        const entries = await memoryManager.search(query, { agentId: state.currentAgentId });
+        if (entries.length === 0) {
+          console.log(chalk.gray('未找到相关记忆'));
+        } else {
+          console.log(chalk.cyan(`找到 ${entries.length} 条记忆:`));
+          for (const entry of entries.slice(0, 10)) {
+            const date = new Date(entry.timestamp).toLocaleDateString('zh-CN');
+            console.log(chalk.gray(`  [${date}] ${entry.content.slice(0, 80)}...`));
+          }
+        }
+      } else {
+        // 显示记忆摘要
+        const summary = await memoryManager.getContextSummary(state.currentAgentId);
+        if (summary) {
+          console.log(chalk.cyan('工作记忆摘要:'));
+          console.log(summary);
+        } else {
+          console.log(chalk.gray('暂无工作记忆'));
+        }
+        console.log(chalk.gray('\n命令: /memory [stats|search <关键词>]'));
+      }
+      break;
+    }
+
     case 'sessions': {
       const sessions = await sessionStorage.listSessions();
       if (sessions.length === 0) {
@@ -678,6 +726,7 @@ function printHelp(): void {
   console.log('  /model [name]    显示/切换当前模型');
   console.log('  /models          列出可用模型');
   console.log('  /audit [on/off/stats]  审计日志管理');
+  console.log('  /memory [stats|search <词>]  记忆系统');
   console.log('  /reload          重新加载配置文件');
   console.log('  /reset           清除当前会话历史');
   console.log('  /save            手动保存所有会话');
@@ -694,6 +743,7 @@ function printHelp(): void {
   console.log(chalk.gray('提示: 敏感操作（文件写入、命令执行等）需要确认'));
   console.log(chalk.gray('提示: 所有工具调用都会记录审计日志'));
   console.log(chalk.gray('提示: 修改配置文件后用 /reload 热重载'));
+  console.log(chalk.gray('提示: 使用 /memory 查看工作记忆'));
   console.log();
 }
 
