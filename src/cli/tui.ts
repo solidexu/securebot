@@ -110,7 +110,7 @@ function getFilePreview(filePath: string, maxLines: number = 20): string {
 export class TuiRepl {
   private screen: blessed.Widgets.Screen;
   private chatBox: blessed.Widgets.BoxElement;
-  private inputBox: blessed.Widgets.TextboxElement;
+  private inputBox: blessed.Widgets.TextareaElement;
   private fileTree: blessed.Widgets.ListElement;
   private previewBox: blessed.Widgets.BoxElement;
   private statusBar: blessed.Widgets.BoxElement;
@@ -150,8 +150,8 @@ export class TuiRepl {
       },
     });
 
-    // 输入框
-    this.inputBox = blessed.textbox({
+    // 输入框 - 使用 textarea 支持中文
+    this.inputBox = blessed.textarea({
       parent: this.screen,
       bottom: 0,
       left: 0,
@@ -164,6 +164,8 @@ export class TuiRepl {
         border: { fg: 'green' },
         focus: { border: { fg: 'yellow' } },
       },
+      keys: true,
+      mouse: true,
     });
 
     // 右侧文件树
