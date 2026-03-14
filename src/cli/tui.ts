@@ -5,7 +5,7 @@
  */
 
 import blessed from 'blessed';
-import { readdirSync, statSync, readFileSync, existsSync } from 'node:fs';
+import { readdirSync, statSync, readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import type { Agent, Message } from '../core/types.js';
 import { loadConfig, createDefaultConfig } from '../core/config.js';
@@ -110,7 +110,7 @@ function getFilePreview(filePath: string, maxLines: number = 20): string {
 export class TuiRepl {
   private screen: blessed.Widgets.Screen;
   private chatBox: blessed.Widgets.BoxElement;
-  private inputBox: blessed.Widgets.TextareaElement;
+  private inputBox: blessed.Widgets.TextareaElement | null = null;
   private fileTree: blessed.Widgets.ListElement;
   private previewBox: blessed.Widgets.BoxElement;
   private statusBar: blessed.Widgets.BoxElement;
@@ -151,22 +151,7 @@ export class TuiRepl {
     });
 
     // 输入框 - 使用 textarea 支持中文
-    this.inputBox = blessed.textarea({
-      parent: this.screen,
-      bottom: 0,
-      left: 0,
-      width: '65%',
-      height: 3,
-      label: ' 输入消息 (Enter 发送, F6 文件树) ',
-      inputOnFocus: true,
-      border: { type: 'line' },
-      style: {
-        border: { fg: 'green' },
-        focus: { border: { fg: 'yellow' } },
-      },
-      keys: true,
-      mouse: true,
-    });
+    this.inputBox = this.createInputBox();
 
     // 右侧文件树
     this.fileTree = blessed.list({
@@ -230,19 +215,50 @@ export class TuiRepl {
   }
 
   /**
+   * 创建输入框
+   */
+  private createInputBox(): blessed.Widgets.TextareaElement {
+    const inputBox = blessed.textarea({
+      parent: this.screen,
+      bottom: 0,
+      left: 0,
+      width: '65%',
+      height: 3,
+      label: ' 输入消息 (Enter 发送, F6 文件树) ',
+      inputOnFocus: true,
+      border: { type: 'line' },
+      style: {
+        border: { fg: 'green' },
+        focus: { border: { fg: 'yellow' } },
+      },
+      keys: true,
+      mouse: true,
+    });
+
+    // 绑定 Enter 事件
+    inputBox.key('enter', async () => {
+      const message = inputBox.getValue();
+      if (message.trim()) {
+        // 先销毁旧输入框
+        inputBox.destroy();
+        // 处理输入
+        await this.handleInput(message.trim());
+        // 创建新输入框
+        this.inputBox = this.createInputBox();
+        this.inputBox.focus();
+        this.screen.render();
+      } else {
+        inputBox.focus();
+      }
+    });
+
+    return inputBox;
+  }
+
+  /**
    * 设置事件
    */
   private setupEvents(): void {
-    // 输入框事件
-    this.inputBox.key('enter', async () => {
-      const message = this.inputBox.getValue();
-      if (message.trim()) {
-        await this.handleInput(message.trim());
-        this.inputBox.clearValue();
-        this.screen.render();
-      }
-      this.inputBox.focus();
-    });
 
     // 文件树事件
     this.fileTree.on('select', () => {
@@ -266,9 +282,9 @@ export class TuiRepl {
 
     // F6 切换焦点
     this.screen.key(['f6'], () => {
-      if (this.screen.focused === this.inputBox) {
+      if (this.inputBox && this.screen.focused === this.inputBox) {
         this.fileTree.focus();
-      } else {
+      } else if (this.inputBox) {
         this.inputBox.focus();
       }
     });
@@ -342,6 +358,19 @@ export class TuiRepl {
       workspace: agent.workspace,
     };
 
+    // 确保 agents 目录存在
+    const agentsDir = join(process.cwd(), 'agents');
+    if (!existsSync(agentsDir)) {
+      mkdirSync(agentsDir, { recursive: true });
+      this.log(`{gray-fg}已创建 agents 目录: ${agentsDir}{/gray-fg}`);
+    }
+
+    // 确保当前 Agent 的工作空间存在
+    if (!existsSync(agent.workspace)) {
+      mkdirSync(agent.workspace, { recursive: true });
+      this.log(`{gray-fg}已创建工作空间: ${agent.workspace}{/gray-fg}`);
+    }
+
     // 更新界面
     this.updateFileTree();
     this.updateStatus();
@@ -352,7 +381,9 @@ export class TuiRepl {
 
     // 渲染并聚焦输入框
     this.screen.render();
-    this.inputBox.focus();
+    if (this.inputBox) {
+      this.inputBox.focus();
+    }
   }
 
   /**
@@ -487,13 +518,13 @@ export class TuiRepl {
         }
       }
       list.destroy();
-      this.inputBox.focus();
+      if (this.inputBox) this.inputBox.focus();
       this.screen.render();
     });
 
     list.key(['escape'], () => {
       list.destroy();
-      this.inputBox.focus();
+      if (this.inputBox) this.inputBox.focus();
       this.screen.render();
     });
 
