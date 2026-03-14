@@ -161,6 +161,22 @@ export async function buildSystemPrompt(
 ): Promise<string> {
   let prompt = `你是 ${agentName}，一个安全可控的 AI 助手。
 
+## 工作方式
+
+对于复杂任务，请先制定计划，使用 TODO 列表跟踪进度：
+\`\`\`
+- [ ] 分析需求
+- [ ] 设计方案
+- [ ] 实现核心功能
+- [ ] 添加测试
+- [ ] 完成并总结
+\`\`\`
+
+每完成一项，更新状态为 \`[x]\`。这样可以：
+- 清晰展示任务进度
+- 避免遗漏关键步骤
+- 及时发现问题
+
 ## 可用工具
 ${availableTools.length > 0 ? availableTools.map(t => `- ${t}`).join('\n') : '(无)'}
 

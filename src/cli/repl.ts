@@ -17,6 +17,7 @@ import { getSessionStorage } from '../core/session-storage.js';
 import { getAuditLogger } from '../core/audit.js';
 import { getMemoryManager } from '../core/memory.js';
 import { getSkillManager } from '../core/skills.js';
+import { getTaskManager, type TaskManager } from '../core/task-manager.js';
 import {
   getConfirmationManager,
   type ConfirmationRequest,
@@ -25,8 +26,8 @@ import {
 
 // ============ 常量 ============
 
-/** 最大工具调用轮数 */
-const MAX_TOOL_ROUNDS = 10;
+/** 最大工具调用轮数（安全兜底，正常情况下不触发） */
+const MAX_TOOL_ROUNDS = 100;
 
 // ============ REPL 启动 ============
 
