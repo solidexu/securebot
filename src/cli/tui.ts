@@ -15,6 +15,7 @@ import { OllamaAdapter, type StreamCallback } from '../model/ollama.js';
 import { getAvailableTools, getAvailableToolNames } from '../tools/index.js';
 import { getSessionStorage } from '../core/session-storage.js';
 import { getMemoryManager } from '../core/memory.js';
+import { getSkillManager } from '../core/skills.js';
 
 // ============ 类型定义 ============
 
@@ -636,8 +637,55 @@ export class TuiRepl {
       return;
     }
 
+    if (cmd === '/skills') {
+      await this.showSkills();
+      return;
+    }
+
     this.log(`{yellow-fg}未知命令: ${command}{/yellow-fg}`);
     this.log('{gray-fg}输入 /help 查看帮助{/gray-fg}');
+  }
+
+  /**
+   * 显示技能
+   */
+  private async showSkills(): Promise<void> {
+    if (!this.state) return;
+    
+    const agent = this.state.agents.get(this.state.currentAgentId);
+    if (!agent) return;
+
+    const skillManager = getSkillManager();
+    const publicSkills = await skillManager.listPublicSkills();
+    const privateSkills = await skillManager.listPrivateSkills(this.state.currentAgentId);
+
+    this.log('');
+    this.log(`{cyan-fg}📚 ${agent.name} 的技能{/cyan-fg}`);
+    this.log('');
+
+    // 公共技能
+    this.log('{green-fg}公共技能:{/green-fg}');
+    if (publicSkills.length === 0) {
+      this.log('{gray-fg}  (无){/gray-fg}');
+    } else {
+      for (const skill of publicSkills) {
+        const assigned = agent.skills?.includes(skill.id);
+        const marker = assigned ? '{green-fg} ✓{/green-fg}' : '';
+        this.log(`  ${skill.id} - ${skill.name}${marker}`);
+      }
+    }
+
+    // 个人技能
+    this.log('{yellow-fg}个人技能:{/yellow-fg}');
+    if (privateSkills.length === 0) {
+      this.log('{gray-fg}  (无){/gray-fg}');
+    } else {
+      for (const skill of privateSkills) {
+        this.log(`  ${skill.id} - ${skill.name}`);
+      }
+    }
+
+    this.log('{gray-fg}管理技能: securebot skill list/create/assign{/gray-fg}');
   }
 
   /**
@@ -660,6 +708,7 @@ export class TuiRepl {
       '  /exit     退出',
       '  /clear    清屏',
       '  /agents   列出 Agent',
+      '  /skills   显示当前 Agent 的技能',
       '',
       '{white-fg}切换 Agent:{/white-fg}',
       '  @dev 消息     切换到开发助手并发送消息',
@@ -695,10 +744,15 @@ export class TuiRepl {
     // 获取工具
     const availableTools = getAvailableTools(agent, this.state.config.tools);
 
+    // 加载技能提示词
+    const skillManager = getSkillManager();
+    const skillsPrompt = await skillManager.buildSkillsPrompt(agent.id, agent.skills);
+
     // 构建系统提示
     const systemPrompt = await buildSystemPrompt(
       agent.name,
-      getAvailableToolNames(agent, this.state.config.tools)
+      getAvailableToolNames(agent, this.state.config.tools),
+      skillsPrompt
     );
 
     // 构建消息

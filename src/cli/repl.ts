@@ -16,6 +16,7 @@ import { getAvailableTools, executeTool, getAvailableToolNames } from '../tools/
 import { getSessionStorage } from '../core/session-storage.js';
 import { getAuditLogger } from '../core/audit.js';
 import { getMemoryManager } from '../core/memory.js';
+import { getSkillManager } from '../core/skills.js';
 import {
   getConfirmationManager,
   type ConfirmationRequest,
@@ -210,10 +211,15 @@ async function processMessage(
   // 获取可用工具
   const availableTools = getAvailableTools(agent, state.config.tools);
 
+  // 加载技能提示词
+  const skillManager = getSkillManager();
+  const skillsPrompt = await skillManager.buildSkillsPrompt(agent.id, agent.skills);
+
   // 构建系统提示
   const systemPrompt = await buildSystemPrompt(
     agent.name,
-    getAvailableToolNames(agent, state.config.tools)
+    getAvailableToolNames(agent, state.config.tools),
+    skillsPrompt
   );
 
   // 多轮工具调用循环
@@ -614,6 +620,52 @@ async function handleCommand(
       break;
     }
 
+    case 'skills': {
+      const currentAgent = state.agents.get(state.currentAgentId);
+      if (!currentAgent) break;
+
+      const skillManager = getSkillManager();
+      const publicSkills = await skillManager.listPublicSkills();
+      const privateSkills = await skillManager.listPrivateSkills(state.currentAgentId);
+
+      console.log(chalk.cyan.bold(`\n📚 ${currentAgent.name} 的技能\n`));
+
+      // 公共技能
+      console.log(chalk.green('公共技能:'));
+      if (publicSkills.length === 0) {
+        console.log(chalk.gray('  (无)'));
+      } else {
+        for (const skill of publicSkills) {
+          const assigned = currentAgent.skills?.includes(skill.id);
+          const marker = assigned ? chalk.green(' ✓') : '';
+          console.log(`  ${skill.id} - ${skill.name}${marker}`);
+          console.log(chalk.gray(`    ${skill.description}`));
+        }
+      }
+
+      // 个人技能
+      console.log(chalk.yellow('\n个人技能:'));
+      if (privateSkills.length === 0) {
+        console.log(chalk.gray('  (无)'));
+      } else {
+        for (const skill of privateSkills) {
+          console.log(`  ${skill.id} - ${skill.name}`);
+          console.log(chalk.gray(`    ${skill.description}`));
+        }
+      }
+
+      // 已分配的技能
+      if (currentAgent.skills && currentAgent.skills.length > 0) {
+        console.log(chalk.cyan('\n已激活的技能:'));
+        for (const skillId of currentAgent.skills) {
+          console.log(`  - ${skillId}`);
+        }
+      }
+
+      console.log(chalk.gray('\n管理技能: securebot skill list/create/assign'));
+      break;
+    }
+
     case 'memory': {
       const memoryManager = getMemoryManager();
       
@@ -722,6 +774,7 @@ function printHelp(): void {
   console.log('  /exit, /quit, /q  退出');
   console.log('  /agent [name]    显示/切换当前 Agent');
   console.log('  /agents          列出所有 Agent');
+  console.log('  /skills          显示当前 Agent 的技能');
   console.log('  /history         显示对话历史');
   console.log('  /model [name]    显示/切换当前模型');
   console.log('  /models          列出可用模型');
@@ -743,6 +796,7 @@ function printHelp(): void {
   console.log(chalk.gray('提示: 敏感操作（文件写入、命令执行等）需要确认'));
   console.log(chalk.gray('提示: 所有工具调用都会记录审计日志'));
   console.log(chalk.gray('提示: 修改配置文件后用 /reload 热重载'));
+  console.log(chalk.gray('提示: 使用 /skills 查看当前 Agent 的技能'));
   console.log(chalk.gray('提示: 使用 /memory 查看工作记忆'));
   console.log();
 }
