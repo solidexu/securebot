@@ -119,6 +119,7 @@ export class TuiRepl {
   private selectedFilePath: string = '';
   private filePaths: string[] = []; // 存储文件路径列表
   private isGenerating: boolean = false; // 是否正在生成回复
+  private showRightPanel: boolean = true; // 右侧面板是否显示
 
   constructor() {
     // 创建屏幕
@@ -158,7 +159,7 @@ export class TuiRepl {
       left: 0,
       width: '65%',
       height: 3,
-      label: ' 输入消息 (Enter 发送, F6 文件树, Esc 停止) ',
+      label: ' 输入消息 (Enter 发送, F4 面板, Esc 停止) ',
       inputOnFocus: true,
       border: { type: 'line' },
       style: {
@@ -288,6 +289,11 @@ export class TuiRepl {
     // F5 刷新文件树
     this.screen.key(['f5'], () => {
       this.updateFileTree();
+    });
+
+    // F4 切换右侧面板
+    this.screen.key(['f4'], () => {
+      this.toggleRightPanel();
     });
 
     // F2 切换 Agent
@@ -450,6 +456,31 @@ export class TuiRepl {
   }
 
   /**
+   * 切换右侧面板显示
+   */
+  private toggleRightPanel(): void {
+    this.showRightPanel = !this.showRightPanel;
+
+    if (this.showRightPanel) {
+      // 显示右侧面板 - 恢复分屏布局
+      this.chatBox.width = '65%';
+      this.inputBox.width = '65%';
+      this.fileTree.show();
+      this.previewBox.show();
+      this.statusBar.show();
+    } else {
+      // 隐藏右侧面板 - 聊天窗口全屏
+      this.chatBox.width = '100%';
+      this.inputBox.width = '100%';
+      this.fileTree.hide();
+      this.previewBox.hide();
+      this.statusBar.hide();
+    }
+
+    this.screen.render();
+  }
+
+  /**
    * 更新状态栏
    */
   private updateStatus(): void {
@@ -457,11 +488,12 @@ export class TuiRepl {
 
     const agent = this.state.agents.get(this.state.currentAgentId);
     const status = this.isGenerating ? '{red-fg}生成中...{/red-fg}' : '{green-fg}就绪{/green-fg}';
+    const panel = this.showRightPanel ? 'F4:隐藏面板' : 'F4:显示面板';
     const lines = [
       `{cyan-fg}Agent:{/cyan-fg} ${agent?.name ?? this.state.currentAgentId}`,
       `{blue-fg}模型:{/blue-fg} ${this.state.config.model.model}`,
       status,
-      '{gray-fg}F2:Agent F5:刷新 Esc:停止{/gray-fg}',
+      `{gray-fg}${panel} F2:切换{/gray-fg}`,
     ];
 
     this.statusBar.setContent(lines.join('\n'));
@@ -616,10 +648,11 @@ export class TuiRepl {
       '{cyan-fg}═══ 命令帮助 ═══{/cyan-fg}',
       '',
       '{white-fg}快捷键:{/white-fg}',
+      '  F4       显示/隐藏右侧面板',
       '  F6       切换焦点 (输入框/文件树)',
       '  F2       切换 Agent',
       '  F5       刷新文件树',
-      '  Esc      停止生成 / 退出',
+      '  Esc      停止生成',
       '  Q        退出',
       '',
       '{white-fg}命令:{/white-fg}',
