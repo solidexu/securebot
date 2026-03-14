@@ -95,6 +95,7 @@ export class TaskManager {
           task: match[2].trim(),
           status,
         });
+      }
     }
 
     this.setTodos(todos);

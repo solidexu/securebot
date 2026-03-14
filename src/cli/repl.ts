@@ -19,6 +19,16 @@ import { getMemoryManager } from '../core/memory.js';
 import { getSkillManager } from '../core/skills.js';
 import { getTaskManager, type TaskManager } from '../core/task-manager.js';
 import {
+  assessComplexity,
+  parseTaskPlan,
+  renderTaskProgress,
+  updateStepStatus,
+  getNextPendingStep,
+  isPlanCompleted,
+  getPlanSummary,
+  type TaskPlan,
+} from '../core/smart-task.js';
+import {
   getConfirmationManager,
   type ConfirmationRequest,
   type ConfirmationHandler,
@@ -201,6 +211,17 @@ async function processMessage(
   // 添加用户消息
   addUserMessage(session, message);
   
+  // 判断任务复杂度
+  const complexity = assessComplexity(message);
+  let currentPlan: TaskPlan | null = null;
+  let lastPlanRender = '';
+  
+  if (complexity === 'complex') {
+    console.log();
+    console.log(chalk.cyan('🔍 检测到复杂任务，系统将先制定计划...'));
+    console.log();
+  }
+  
   // 自动保存
   if (sessionStorage) {
     await sessionStorage.saveSession(session);
@@ -314,10 +335,31 @@ async function processMessage(
 
     lastContent = result.content;
 
+    // 尝试解析任务计划
+    if (complexity === 'complex' && result.content) {
+      const parsedPlan = parseTaskPlan(result.content);
+      if (parsedPlan) {
+        currentPlan = parsedPlan;
+        const newRender = renderTaskProgress(currentPlan);
+        if (newRender !== lastPlanRender) {
+          console.log();
+          console.log(newRender);
+          lastPlanRender = newRender;
+        }
+      }
+    }
+
     // 没有工具调用，返回最终结果
     if (!result.toolCalls || result.toolCalls.length === 0) {
       // 添加助手消息
       addAssistantMessage(session, result.content);
+      
+      // 如果有任务计划，显示最终状态
+      if (currentPlan) {
+        console.log();
+        console.log(chalk.green('✓ 任务完成'));
+        console.log(getPlanSummary(currentPlan));
+      }
       
       // 自动保存
       if (sessionStorage) {
@@ -395,10 +437,30 @@ async function processMessage(
           if (toolResult.content) {
             console.log(chalk.gray(toolResult.content.slice(0, 500)));
           }
+          
+          // 更新任务进度
+          if (currentPlan) {
+            const currentStep = getNextPendingStep(currentPlan);
+            if (currentStep) {
+              updateStepStatus(currentPlan, currentStep.id, 'completed');
+              console.log();
+              console.log(renderTaskProgress(currentPlan));
+            }
+          }
         } else {
           const errorMsg = toolResult.error || '未知错误';
           console.log(chalk.red(`✗ 失败`));
           console.log(chalk.yellow(`  原因: ${errorMsg}`));
+          
+          // 标记任务失败
+          if (currentPlan) {
+            const currentStep = getNextPendingStep(currentPlan);
+            if (currentStep) {
+              updateStepStatus(currentPlan, currentStep.id, 'failed', errorMsg);
+              console.log();
+              console.log(renderTaskProgress(currentPlan));
+            }
+          }
         }
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
