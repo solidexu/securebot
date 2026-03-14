@@ -244,8 +244,20 @@ async function processMessage(
       // 使用流式输出
       let streamStarted = false;
       let hasContent = false;
+      let interrupted = false;
+      
+      // 设置中断监听
+      const handleInterrupt = () => {
+        interrupted = true;
+        process.stdout.write('\n' + chalk.yellow('[已打断]') + '\n');
+      };
+      
+      // 监听 Ctrl+C
+      process.once('SIGINT', handleInterrupt);
       
       const onStream: StreamCallback = (chunk) => {
+        if (interrupted) return;
+        
         if (!streamStarted && chunk.content) {
           // 首次收到内容，显示 Agent 名称后开始输出
           process.stdout.write('\n' + chalk.cyan(`[${agent.name}]`) + '\n');
@@ -279,6 +291,14 @@ async function processMessage(
           messages,
           tools: availableTools.length > 0 ? availableTools : undefined,
         } as ChatParams);
+      }
+      
+      // 恢复原始监听器
+      process.removeListener('SIGINT', handleInterrupt);
+      
+      // 如果被打断，直接返回
+      if (interrupted) {
+        return;
       }
       
       // 如果没有流式内容（可能是工具调用），清除提示
@@ -369,7 +389,9 @@ async function processMessage(
             console.log(chalk.gray(toolResult.content.slice(0, 500)));
           }
         } else {
-          console.log(chalk.red(`✗ 失败: ${toolResult.error}`));
+          const errorMsg = toolResult.error || '未知错误';
+          console.log(chalk.red(`✗ 失败`));
+          console.log(chalk.yellow(`  原因: ${errorMsg}`));
         }
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
@@ -377,7 +399,7 @@ async function processMessage(
           success: false,
           error: errMsg,
         };
-        console.log(chalk.red(`✗ 错误: ${errMsg}`));
+        console.log(chalk.red(`✗ 异常: ${errMsg}`));
       }
       
       // 添加工具结果
