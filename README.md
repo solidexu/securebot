@@ -308,12 +308,12 @@ securebot skill unassign <skill-id> <agent-id>
     baseUrl: 'http://localhost:11434',
   },
   defaultAgent: 'dev',
-  workspaceBaseDir: './agents',  // Agent 工作空间根目录
+  dataDir: '~/.securebot',  // 可选，自定义数据目录
   agents: [
     {
       id: 'dev',
       name: '开发助手',
-      workspace: 'dev',  // 相对路径，实际为 ./agents/dev
+      workspace: 'dev',  // 相对于 <dataDir>/agents
       tools: { profile: 'coding' },
     },
     // ...
@@ -321,18 +321,41 @@ securebot skill unassign <skill-id> <agent-id>
 }
 ```
 
-### 目录结构
+### 数据目录结构
+
+默认数据目录为 `~/.securebot`，可通过 `dataDir` 自定义：
 
 ```
-securebot/
-├── agents/              # Agent 工作空间（已在 .gitignore）
-│   ├── dev/            # 开发助手工作空间
-│   ├── support/        # 客服助手工作空间
-│   ├── admin/          # 管理助手工作空间
-│   └── finance/        # 财务助手工作空间
-├── src/
-├── dist/
-└── ...
+~/.securebot/
+├── agents/              # Agent 工作空间
+│   ├── dev/            # 开发助手
+│   ├── support/        # 客服助手
+│   └── ...
+├── memory/             # 记忆数据
+│   ├── daily/          # 每日记忆
+│   ├── profiles/       # 用户/Agent 档案
+│   └── events/         # 事件日志
+├── skills/             # 技能数据
+│   ├── public/         # 公共技能
+│   └── private/        # 个人技能
+├── sessions/           # 会话持久化
+└── audit/              # 审计日志
+```
+
+### 配置示例
+
+**自定义数据目录**:
+```json5
+{
+  dataDir: '/data/securebot',
+  // ...
+}
+```
+
+**环境变量**:
+```bash
+export SECUREBOT_CONFIG_DIR=/custom/path
+```
 ```
 
 ### 工具权限预设
