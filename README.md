@@ -197,6 +197,70 @@ securebot agent delete
 | admin | 管理助手 | 完全权限 |
 | finance | 财务助手 | 文件只读 |
 
+## 技能系统
+
+SecureBot 支持技能系统，可以为 Agent 添加专业技能。
+
+### 技能类型
+
+- **公共技能**: 所有 Agent 可用
+- **个人技能**: 仅特定 Agent 可用
+
+### 内置公共技能
+
+| 技能 | 说明 |
+|------|------|
+| code-review | 代码审查，发现代码问题和改进建议 |
+| translator | 多语言翻译，支持中英日韩 |
+| api-designer | RESTful API 设计 |
+| debugger | 调试专家，帮助定位代码问题 |
+| doc-writer | 技术文档撰写 |
+
+### 管理技能
+
+```bash
+# 列出所有技能
+securebot skill list
+
+# 列出指定 Agent 的技能
+securebot skill list -a dev
+
+# 创建新技能
+securebot skill create
+
+# 为 Agent 创建个人技能
+securebot skill create -a dev
+
+# 删除技能
+securebot skill delete <skill-id>
+
+# 将技能分配给 Agent
+securebot skill assign <skill-id> <agent-id>
+
+# 从 Agent 移除技能
+securebot skill unassign <skill-id> <agent-id>
+```
+
+### 查看技能
+
+在聊天中使用 `/skills` 命令查看当前 Agent 的技能：
+
+```
+/skills
+
+📚 开发助手的技能
+
+公共技能:
+  code-review - 代码审查 ✓
+  translator - 翻译助手
+  debugger - 调试专家 ✓
+
+个人技能:
+  my-workflow - 我的工作流
+
+管理技能: securebot skill list/create/assign
+```
+
 ### CLI 命令
 
 在聊天中可使用的命令：
@@ -208,6 +272,7 @@ securebot agent delete
 # Agent 管理
 /agent [name]      # 显示/切换当前 Agent
 /agents            # 列出所有 Agent
+/skills            # 显示当前 Agent 的技能
 
 # 模型
 /model [name]      # 显示/切换模型
