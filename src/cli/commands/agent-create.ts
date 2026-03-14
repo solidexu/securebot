@@ -153,7 +153,7 @@ async function showPreview(agent: AgentConfig): Promise<boolean> {
   console.log(chalk.white(`  ID:        ${agent.id}`));
   console.log(chalk.white(`  名称:      ${agent.name}`));
   console.log(chalk.white(`  权限:      ${TOOL_PROFILES[agent.tools?.profile ?? 'minimal']?.name ?? agent.tools?.profile}`));
-  console.log(chalk.white(`  工作空间:  ~/.securebot/workspaces/${agent.workspace}`));
+  console.log(chalk.white(`  工作空间:  ./agents/${agent.workspace}`));
   if (agent.default) {
     console.log(chalk.white(`  默认:      ✓`));
   }
@@ -181,8 +181,8 @@ async function saveAgent(agent: AgentConfig, config: Config): Promise<void> {
   // 添加新 Agent
   config.agents.push(agent);
   
-  // 创建工作空间
-  const workspaceDir = join(homedir(), '.securebot', 'workspaces', agent.workspace);
+  // 创建工作空间（相对于当前工作目录）
+  const workspaceDir = join(process.cwd(), 'agents', agent.workspace);
   if (!existsSync(workspaceDir)) {
     mkdirSync(workspaceDir, { recursive: true });
   }

@@ -113,7 +113,7 @@ export const DEFAULT_CONFIG: Config = {
   defaultAgent: 'dev',
   tools: DEFAULT_TOOL_POLICY,
   agents: DEFAULT_AGENTS,
-  workspaceBaseDir: '~/.securebot/workspaces',
+  workspaceBaseDir: './agents',  // 相对于工程目录
 };
 
 // ============ 配置加载 ============

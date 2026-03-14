@@ -111,7 +111,7 @@ $ securebot agent create
   ID:        my-agent
   名称:      我的助手
   权限:      最小权限
-  工作空间:  ~/.securebot/workspaces/my-agent
+  工作空间:  ./agents/my-agent
 ━━━━━━━━━━━━━━━━━━━━━
 
 ? 确认创建？ Yes
@@ -211,16 +211,31 @@ securebot agent delete
     baseUrl: 'http://localhost:11434',
   },
   defaultAgent: 'dev',
+  workspaceBaseDir: './agents',  // Agent 工作空间根目录
   agents: [
     {
       id: 'dev',
       name: '开发助手',
-      workspace: '~/.securebot/workspaces/dev',
+      workspace: 'dev',  // 相对路径，实际为 ./agents/dev
       tools: { profile: 'coding' },
     },
     // ...
   ],
 }
+```
+
+### 目录结构
+
+```
+securebot/
+├── agents/              # Agent 工作空间（已在 .gitignore）
+│   ├── dev/            # 开发助手工作空间
+│   ├── support/        # 客服助手工作空间
+│   ├── admin/          # 管理助手工作空间
+│   └── finance/        # 财务助手工作空间
+├── src/
+├── dist/
+└── ...
 ```
 
 ### 工具权限预设
