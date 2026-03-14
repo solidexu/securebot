@@ -268,6 +268,62 @@ securebot/
 /audit stats
 ```
 
+## 记忆系统
+
+SecureBot 实现了三层记忆架构，让 Agent 能够记住重要信息：
+
+### 架构说明
+
+| Layer | 位置 | 内容 | 加载方式 |
+|-------|------|------|---------|
+| Layer 1 | `~/.securebot/memory/daily/` | 每日笔记 | 自动加载最近 3 天 |
+| Layer 2 | `~/.securebot/memory/profiles/` | 用户/Agent 档案 | 自动加载 |
+| Layer 3 | RAG 向量库 | 历史知识 | 按需检索 |
+
+### 使用记忆工具
+
+在对话中，Agent 可以使用记忆工具：
+
+```
+> 请记住我的项目路径是 /home/user/myproject
+[开发助手] 我已记住这个信息。
+
+> 我之前说的项目路径是什么？
+[开发助手] 根据我的记忆，您的项目路径是 /home/user/myproject。
+```
+
+### 记忆命令
+
+```bash
+/memory              # 查看工作记忆摘要
+/memory stats        # 记忆系统统计
+/memory search 项目  # 搜索记忆
+```
+
+### 记忆工具列表
+
+| 工具 | 说明 |
+|------|------|
+| `remember` | 存储重要信息到记忆 |
+| `recall` | 搜索记忆中存储的信息 |
+| `set_user_info` | 设置用户关键信息 |
+| `get_user_info` | 获取用户信息 |
+| `memory_stats` | 查看记忆系统状态 |
+
+### 目录结构
+
+```
+~/.securebot/memory/
+├── daily/           # 每日记忆 (Layer 1)
+│   └── 2026-03-14_dev.json
+├── profiles/        # 结构化记忆 (Layer 2)
+│   ├── user.json
+│   └── agent_dev.json
+├── events/          # 事件日志
+│   └── events.log
+└── knowledge/       # 知识库 (Layer 3 扩展)
+```
+
 ## 安全
 
 - **默认禁用网络**: web_search/web_fetch/browser 全部禁用
