@@ -944,8 +944,14 @@ async function showConfirmationDialog(
   console.log();
   
   // 询问用户
+  console.log(chalk.cyan('请选择:'));
+  console.log(chalk.white('  y = 本次确认'));
+  console.log(chalk.white('  N = 拒绝执行（默认）'));
+  console.log(chalk.white('  a = 总是允许，不再询问此类操作'));
+  console.log();
+  
   const answer = await rl.question(
-    chalk.cyan('确认执行? [y/N/a(总是)/r(记住)] ')
+    chalk.cyan('确认执行? [y/N/a] ')
   );
   
   const input = answer.trim().toLowerCase();
@@ -955,10 +961,6 @@ async function showConfirmationDialog(
   }
   
   if (input === 'a' || input === 'always') {
-    return { confirmed: true, remember: true };
-  }
-  
-  if (input === 'r' || input === 'remember') {
     return { confirmed: true, remember: true };
   }
   
