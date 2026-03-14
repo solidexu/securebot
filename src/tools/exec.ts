@@ -162,15 +162,29 @@ export const execTool: Tool = {
     if (result.stderr) {
       output += `${output ? '\n' : ''}STDERR:\n${result.stderr}`;
     }
+    
+    // 错误情况下的详细信息
+    if (result.exitCode !== 0) {
+      const errorMsg = result.stderr || result.stdout || '命令执行失败';
+      return {
+        success: false,
+        error: errorMsg,
+        content: output,
+        metadata: {
+          command,
+          exitCode: result.exitCode,
+          signal: result.signal,
+        },
+      };
+    }
+    
+    // 成功情况
     if (result.exitCode !== null) {
       output += `\n退出码: ${result.exitCode}`;
     }
-    if (result.signal) {
-      output += `\n信号: ${result.signal}`;
-    }
     
     return {
-      success: result.exitCode === 0,
+      success: true,
       content: output || '(无输出)',
       metadata: {
         command,
