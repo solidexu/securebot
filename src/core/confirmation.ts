@@ -4,6 +4,9 @@
  * 管理需要用户确认的敏感操作
  */
 
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
 import type { Tool, ToolContext, ToolResult } from '../core/types.js';
 
 // ============ 类型定义 ============
@@ -311,6 +314,7 @@ export class ConfirmationManager {
   private policy: ConfirmationPolicy;
   private handler: ConfirmationHandler | null = null;
   private rememberedDecisions: Map<string, boolean> = new Map();
+  private dataDir: string;
 
   constructor(policy: Partial<ConfirmationPolicy> = {}) {
     this.policy = {
@@ -320,11 +324,60 @@ export class ConfirmationManager {
       alwaysConfirm: [],
       ...policy,
     };
+    
+    this.dataDir = join(homedir(), '.securebot');
 
     // 注册默认操作
     for (const op of SENSITIVE_OPERATIONS) {
       this.operations.set(op.tool, op);
     }
+    
+    // 加载记住的决策
+    this.loadRememberedDecisions();
+  }
+
+  /**
+   * 加载记住的决策
+   */
+  private loadRememberedDecisions(): void {
+    const filePath = join(this.dataDir, 'remembered-decisions.json');
+    if (existsSync(filePath)) {
+      try {
+        const data = JSON.parse(readFileSync(filePath, 'utf-8'));
+        if (Array.isArray(data)) {
+          for (const item of data) {
+            if (item.key && typeof item.confirmed === 'boolean') {
+              this.rememberedDecisions.set(item.key, item.confirmed);
+            }
+          }
+        }
+      } catch {
+        // 忽略错误
+      }
+    }
+  }
+
+  /**
+   * 保存记住的决策
+   */
+  private saveRememberedDecisions(): void {
+    const filePath = join(this.dataDir, 'remembered-decisions.json');
+    if (!existsSync(this.dataDir)) {
+      mkdirSync(this.dataDir, { recursive: true });
+    }
+    const data = Array.from(this.rememberedDecisions.entries()).map(
+      ([key, confirmed]) => ({ key, confirmed })
+    );
+    writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+  }
+
+  /**
+   * 记住决策（用于 "总是允许" 选项）
+   */
+  rememberDecision(tool: string, params: Record<string, unknown>): void {
+    const key = this.getDecisionKey(tool, params);
+    this.rememberedDecisions.set(key, true);
+    this.saveRememberedDecisions();
   }
 
   /**
