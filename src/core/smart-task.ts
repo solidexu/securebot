@@ -640,6 +640,12 @@ export function parseTaskPlan(content: string): TaskPlan | null {
   const todoRegex = /^[-*]\s*\[([ x→!])\]\s*(.+)/i;
   // 匹配数字列表格式
   const numberedRegex = /^\d+[\.\)、]\s*(.+)/;
+  // 匹配步骤关键词
+  const stepKeywords = /^(步骤|step)[\s:：]*\d*[\s:：]*(.+)/i;
+  // 匹配带破折号的列表
+  const dashRegex = /^[-—·]\s*(.+)/;
+  // 匹配"首先/然后/最后"等序列词
+  const sequenceRegex = /^(首先|其次|然后|接着|最后|第一|第二|第三|第四|第五)[，,：:\s]+(.+)/;
   
   for (const line of lines) {
     const trimmed = line.trim();
@@ -672,12 +678,50 @@ export function parseTaskPlan(content: string): TaskPlan | null {
     
     // 匹配数字列表
     const numberedMatch = trimmed.match(numberedRegex);
-    if (numberedMatch && steps.length < 10) {
+    if (numberedMatch) {
       steps.push({
         id: `step-${steps.length + 1}`,
         description: numberedMatch[1].trim(),
         status: 'pending',
       });
+      continue;
+    }
+    
+    // 匹配步骤关键词
+    const stepMatch = trimmed.match(stepKeywords);
+    if (stepMatch && stepMatch[2]) {
+      steps.push({
+        id: `step-${steps.length + 1}`,
+        description: stepMatch[2].trim(),
+        status: 'pending',
+      });
+      continue;
+    }
+    
+    // 匹配序列词（首先/然后等）
+    const sequenceMatch = trimmed.match(sequenceRegex);
+    if (sequenceMatch) {
+      steps.push({
+        id: `step-${steps.length + 1}`,
+        description: sequenceMatch[2].trim(),
+        status: 'pending',
+      });
+      continue;
+    }
+    
+    // 匹配破折号列表（仅在有多个时生效）
+    const dashMatch = trimmed.match(dashRegex);
+    if (dashMatch && steps.length < 10) {
+      // 检查是否看起来像步骤描述
+      const desc = dashMatch[1].trim();
+      if (desc.length > 5 && desc.length < 100 && 
+          /^(实现|创建|编写|设计|测试|添加|修改|配置|分析|完成|构建)/.test(desc)) {
+        steps.push({
+          id: `step-${steps.length + 1}`,
+          description: desc,
+          status: 'pending',
+        });
+      }
     }
   }
   

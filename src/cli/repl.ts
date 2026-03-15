@@ -235,11 +235,32 @@ async function processMessage(
   const skillsPrompt = await skillManager.buildSkillsPrompt(agent.id, agent.skills);
 
   // 构建系统提示
-  const systemPrompt = await buildSystemPrompt(
+  let systemPrompt = await buildSystemPrompt(
     agent.name,
     getAvailableToolNames(agent, state.config.tools),
     skillsPrompt
   );
+  
+  // 如果是复杂任务，添加规划引导
+  if (complexity === 'complex') {
+    systemPrompt += '\n\n## 重要提示\n' +
+      '这是一个复杂任务，请先制定详细的执行计划。\n' +
+      '计划格式要求（必须严格遵守）：\n' +
+      '```\n' +
+      '# 任务计划\n' +
+      '1. 步骤一描述\n' +
+      '2. 步骤二描述\n' +
+      '3. 步骤三描述\n' +
+      '...\n' +
+      '```\n' +
+      '或使用 TODO 格式：\n' +
+      '```\n' +
+      '# 任务计划\n' +
+      '- [ ] 步骤一\n' +
+      '- [ ] 步骤二\n' +
+      '```\n' +
+      '制定计划后，逐步执行每个步骤。\n';
+  }
 
   // 多轮工具调用循环
   let round = 0;
@@ -338,14 +359,21 @@ async function processMessage(
     // 尝试解析任务计划
     if (complexity === 'complex' && result.content) {
       const parsedPlan = parseTaskPlan(result.content);
-      if (parsedPlan) {
+      if (parsedPlan && parsedPlan.steps.length > 0) {
         currentPlan = parsedPlan;
         const newRender = renderTaskProgress(currentPlan);
         if (newRender !== lastPlanRender) {
           console.log();
+          console.log(chalk.cyan('📋 任务计划已生成:'));
           console.log(newRender);
           lastPlanRender = newRender;
         }
+      } else {
+        // 解析失败，提示用户
+        console.log();
+        console.log(chalk.yellow('⚠️ 无法解析任务计划格式'));
+        console.log(chalk.gray('模型可能没有使用标准格式输出计划'));
+        console.log(chalk.gray('建议: 提醒模型使用数字列表或 TODO 格式'));
       }
     }
 
