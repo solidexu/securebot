@@ -434,21 +434,22 @@ async function processMessage(
     }
 
     // 有工具调用
-    // 复杂任务第一轮：忽略工具调用，强制模型输出计划
-    if (complexity === 'complex' && round === 1) {
+    // 复杂任务：必须先有计划才能执行工具
+    if (complexity === 'complex' && !currentPlan) {
       console.log(chalk.yellow('\n⚠️ 检测到模型尝试直接执行工具'));
       console.log(chalk.gray('复杂任务需要先输出计划，已阻止工具执行'));
       
       // 添加更强的提示到历史中
       addAssistantMessage(session, result.content);
       addUserMessage(session, 
-        '【系统提示】你跳过了计划步骤！\n' +
-        '请按以下格式输出任务计划：\n\n' +
-        '# 执行计划\n' +
-        '1. 步骤描述\n' +
-        '2. 步骤描述\n' +
-        '...\n\n' +
-        '输出计划后，下一轮才能使用工具执行。'
+        '【系统警告】你仍然没有输出计划！\n\n' +
+        '这是复杂任务，必须先输出计划才能使用工具。\n\n' +
+        '请立即输出以下格式的计划：\n\n' +
+        '# 执行计划\n\n' +
+        '1. 第一步描述\n' +
+        '2. 第二步描述\n' +
+        '3. 第三步描述\n\n' +
+        '输出计划后才能继续。不要调用任何工具！'
       );
       continue;
     }
