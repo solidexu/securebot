@@ -852,6 +852,7 @@ async function handleCommand(
     }
 
     case 'init-memory': {
+      const memoryManager = getMemoryManager();
       const agent = state.agents.get(state.currentAgentId);
       if (agent) {
         const memStatus = await memoryManager.isAgentInitialized(agent.id);
@@ -859,9 +860,33 @@ async function handleCommand(
           console.log(chalk.green('✓ 该 Agent 记忆系统已初始化'));
           console.log(chalk.gray(`  Agent 档案: ${memStatus.hasProfile ? '✓' : '✗'}`));
           console.log(chalk.gray(`  工作记忆: ${memStatus.hasMemory ? '✓' : '✗'}`));
+          console.log(chalk.gray(`  用户信息: ${memStatus.hasKeyInfo ? '✓' : '✗'}`));
         } else {
-          console.log(chalk.cyan('正在初始化记忆系统...'));
-          await memoryManager.initializeAgentMemory(agent.id, agent.name, agent.systemPrompt);
+          console.log(chalk.cyan.bold('\n🧠 初始化 Agent 记忆系统\n'));
+          
+          // 1. 初始化 Agent 档案
+          console.log(chalk.white('1. 创建 Agent 档案...'));
+          const profile = await memoryManager.getAgentProfile(agent.id, agent.name);
+          if (agent.systemPrompt) {
+            profile.role = agent.systemPrompt;
+          }
+          await memoryManager.saveAgentProfile(profile);
+          console.log(chalk.gray(`   ✓ memory/profiles/agent_${agent.id}.json`));
+          
+          // 2. 创建工作记忆
+          console.log(chalk.white('2. 创建工作记忆...'));
+          const today = new Date().toISOString().split('T')[0]!;
+          await memoryManager.remember(agent.id, '记忆系统初始化', 'event', 3, ['init']);
+          console.log(chalk.gray(`   ✓ memory/daily/${today}_${agent.id}.json`));
+          
+          // 3. 确保用户档案存在
+          console.log(chalk.white('3. 检查用户档案...'));
+          const userProfile = memoryManager.getUserProfile();
+          if (userProfile) {
+            console.log(chalk.gray(`   ✓ memory/profiles/user.json`));
+          }
+          
+          console.log();
           console.log(chalk.green('✓ 记忆系统初始化完成'));
           console.log();
           console.log(chalk.white('现在你可以：'));
