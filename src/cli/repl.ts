@@ -865,6 +865,43 @@ async function handleCommand(
       break;
     }
 
+    case 'init-rag': {
+      const agent = state.agents.get(state.currentAgentId);
+      if (agent) {
+        console.log(chalk.cyan.bold('\n📚 RAG 知识库初始化\n'));
+        console.log(chalk.white('RAG (检索增强生成) 让 Agent 可以搜索你的文档库。'));
+        console.log();
+        console.log(chalk.cyan('初始化步骤：'));
+        console.log(chalk.white('  1. 准备知识库目录（存放 .md/.txt/.json 文件）'));
+        console.log(chalk.white('  2. 安装嵌入模型: ollama pull nomic-embed-text'));
+        console.log(chalk.white('  3. 配置 Agent 的 RAG 设置'));
+        console.log();
+        console.log(chalk.cyan('配置示例 (config.json)：'));
+        console.log(chalk.gray('─'.repeat(50)));
+        console.log(chalk.white(`{
+  "agents": [{
+    "id": "${agent.id}",
+    "name": "${agent.name}",
+    "workspace": "${agent.workspace}",
+    "rag": {
+      "enabled": true,
+      "knowledgeDirs": ["./docs", "./knowledge"],
+      "embeddingModel": "nomic-embed-text"
+    }
+  }]
+}`));
+        console.log(chalk.gray('─'.repeat(50)));
+        console.log();
+        console.log(chalk.cyan('可用工具（启用 RAG 后）：'));
+        console.log(chalk.gray('  • rag_search <query>  - 搜索知识库'));
+        console.log(chalk.gray('  • rag_index <path>    - 添加文档到知识库'));
+        console.log(chalk.gray('  • rag_status          - 查看知识库状态'));
+        console.log();
+        console.log(chalk.yellow('提示: 修改配置后使用 /reload 重新加载'));
+      }
+      break;
+    }
+
     case 'model':
       if (arg) {
         // 动态切换模型
@@ -1462,6 +1499,10 @@ function printHelp(): void {
   console.log('  /collab messages          查看消息');
   console.log('  /collab delegations       查看委派');
   console.log('  /collab delegate <agent> <task>  委派任务');
+  console.log();
+  console.log(chalk.cyan('RAG 知识库:'));
+  console.log('  /init-rag                 RAG 初始化指引');
+  console.log(chalk.gray('  提示: 需要配置 agent.rag.enabled = true'));
   console.log();
   console.log(chalk.cyan('诊断工具:'));
   console.log('  /errors [clear]           错误统计');
