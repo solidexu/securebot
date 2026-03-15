@@ -253,9 +253,15 @@ export interface Config {
   agents: AgentConfig[];
   /** 全局 RAG 配置 */
   rag?: RAGConfig;
-  /** 数据目录（默认 ~/.securebot） */
+  /** 
+   * SecureBot 根目录（统一管理所有数据）
+   * 默认: ~/.securebot
+   * 设置后，所有子目录（agents/memory/skills/sessions/audit）都在此目录下
+   */
+  rootDir?: string;
+  /** @deprecated 使用 rootDir 代替 */
   dataDir?: string;
-  /** workspace 基础路径（默认 <dataDir>/agents） */
+  /** @deprecated 使用 rootDir 代替，agents 目录在 <rootDir>/agents */
   workspaceBaseDir?: string;
 }
 

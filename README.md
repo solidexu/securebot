@@ -48,7 +48,7 @@ securebot init
 - 配置 Ollama 连接
 - 选择默认模型
 - 添加自定义 Agent
-- 设置数据目录
+- 设置 SecureBot 根目录
 
 ### 2. 确保 Ollama 运行
 

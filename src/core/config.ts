@@ -142,9 +142,14 @@ export const DEFAULT_CONFIG: Config = {
 // ============ 路径工具 ============
 
 /**
- * 获取数据目录
+ * 获取 SecureBot 根目录
+ * 优先级：rootDir > dataDir > 默认 ~/.securebot
  */
-export function getDataDir(config?: Config): string {
+export function getRootDir(config?: Config): string {
+  if (config?.rootDir) {
+    return resolve(config.rootDir);
+  }
+  // 向后兼容
   if (config?.dataDir) {
     return resolve(config.dataDir);
   }
@@ -152,41 +157,63 @@ export function getDataDir(config?: Config): string {
 }
 
 /**
+ * 获取数据目录（别名，与 getRootDir 相同）
+ * @deprecated 使用 getRootDir 代替
+ */
+export function getDataDir(config?: Config): string {
+  return getRootDir(config);
+}
+
+/**
  * 获取 agents 目录
  */
 export function getAgentsDir(config?: Config): string {
-  if (config?.workspaceBaseDir) {
+  // 向后兼容：如果显式设置了 workspaceBaseDir，使用它
+  if (config?.workspaceBaseDir && !config?.rootDir) {
     return resolve(config.workspaceBaseDir);
   }
-  return join(getDataDir(config), 'agents');
+  return join(getRootDir(config), 'agents');
 }
 
 /**
  * 获取 memory 目录
  */
 export function getMemoryDir(config?: Config): string {
-  return join(getDataDir(config), 'memory');
+  return join(getRootDir(config), 'memory');
 }
 
 /**
  * 获取 skills 目录
  */
 export function getSkillsDir(config?: Config): string {
-  return join(getDataDir(config), 'skills');
+  return join(getRootDir(config), 'skills');
 }
 
 /**
  * 获取 sessions 目录
  */
 export function getSessionsDir(config?: Config): string {
-  return join(getDataDir(config), 'sessions');
+  return join(getRootDir(config), 'sessions');
 }
 
 /**
  * 获取 audit 目录
  */
 export function getAuditDir(config?: Config): string {
-  return join(getDataDir(config), 'audit');
+  return join(getRootDir(config), 'audit');
+}
+
+/**
+ * 获取配置文件目录
+ */
+export function getConfigDir(): string {
+  // 优先使用环境变量
+  const envDir = process.env['SECUREBOT_CONFIG_DIR'];
+  if (envDir) {
+    return resolve(envDir);
+  }
+  // 默认使用根目录
+  return getRootDir();
 }
 
 /**
@@ -197,17 +224,6 @@ export function getAgentWorkspace(agentId: string, config?: Config): string {
 }
 
 // ============ 配置加载 ============
-
-/**
- * 获取配置目录路径
- */
-export function getConfigDir(): string {
-  const envDir = process.env['SECUREBOT_CONFIG_DIR'];
-  if (envDir) {
-    return resolve(envDir);
-  }
-  return join(homedir(), DEFAULT_CONFIG_DIR);
-}
 
 /**
  * 获取配置文件路径

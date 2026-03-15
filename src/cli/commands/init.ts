@@ -9,7 +9,7 @@ import chalk from 'chalk';
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import { loadConfig, saveConfig, DEFAULT_CONFIG, getConfigPath } from '../../core/config.js';
+import { loadConfig, saveConfig, DEFAULT_CONFIG, getConfigPath, getRootDir } from '../../core/config.js';
 import type { Config, AgentConfig } from '../../core/types.js';
 
 /**
@@ -91,39 +91,71 @@ export async function runConfigWizard(): Promise<void> {
           await addCustomAgents(config);
         }
         
-        // 步骤 3: 配置数据目录
-        console.log(chalk.cyan('\n步骤 3: 配置数据目录\n'));
+        // 步骤 3: 配置 SecureBot 根目录
+        console.log(chalk.cyan('\n步骤 3: 配置 SecureBot 根目录\n'));
         
-        const customDataDir = await p.confirm({
-          message: '是否自定义数据目录？',
+        console.log(chalk.gray('根目录用于存储所有 SecureBot 数据：'));
+        console.log(chalk.gray('  - agents/     Agent 工作空间'));
+        console.log(chalk.gray('  - memory/     记忆数据'));
+        console.log(chalk.gray('  - skills/     技能定义'));
+        console.log(chalk.gray('  - sessions/   会话持久化'));
+        console.log(chalk.gray('  - audit/      审计日志'));
+        console.log();
+        
+        const customRootDir = await p.confirm({
+          message: '是否自定义根目录？',
           initialValue: false,
         });
         
-        if (customDataDir) {
-          const dataDir = await p.text({
-            message: '数据目录路径',
+        if (customRootDir) {
+          const rootDir = await p.text({
+            message: 'SecureBot 根目录路径',
             placeholder: '~/.securebot',
+            initialValue: '~/.securebot',
           });
           
-          if (!p.isCancel(dataDir) && dataDir) {
-            config.dataDir = dataDir.startsWith('~') 
-              ? join(homedir(), dataDir.slice(1))
-              : dataDir;
+          if (!p.isCancel(rootDir) && rootDir) {
+            config.rootDir = rootDir.startsWith('~') 
+              ? join(homedir(), rootDir.slice(1))
+              : rootDir;
           }
         }
         
         // 保存配置
         saveConfig(config);
         
-        // 确保数据目录存在
-        const dataDir = config.dataDir ?? join(homedir(), '.securebot');
-        if (!existsSync(dataDir)) {
-          mkdirSync(dataDir, { recursive: true });
+        // 确保根目录及子目录存在
+        const rootDir = getRootDir(config);
+        const subDirs = ['agents', 'memory', 'skills', 'sessions', 'audit'];
+        for (const subDir of subDirs) {
+          const fullPath = join(rootDir, subDir);
+          if (!existsSync(fullPath)) {
+            mkdirSync(fullPath, { recursive: true });
+          }
+        }
+        
+        // 为每个 Agent 创建工作空间
+        for (const agent of config.agents) {
+          const workspace = join(rootDir, 'agents', agent.id);
+          if (!existsSync(workspace)) {
+            mkdirSync(workspace, { recursive: true });
+          }
         }
         
         console.log(chalk.green.bold('\n✓ 配置完成！\n'));
         console.log(chalk.gray(`配置文件: ${configPath}`));
-        console.log(chalk.gray(`数据目录: ${config.dataDir ?? '~/.securebot'}`));
+        console.log(chalk.gray(`根目录: ${config.rootDir ?? '~/.securebot'}`));
+        console.log();
+        console.log(chalk.cyan('目录结构:'));
+        console.log(chalk.gray(`  ${rootDir}`));
+        console.log(chalk.gray('  ├── agents/'));
+        for (const agent of config.agents) {
+          console.log(chalk.gray(`  │   └── ${agent.id}/ (${agent.name})`));
+        }
+        console.log(chalk.gray('  ├── memory/'));
+        console.log(chalk.gray('  ├── skills/'));
+        console.log(chalk.gray('  ├── sessions/'));
+        console.log(chalk.gray('  └── audit/'));
         console.log();
         console.log(chalk.cyan('快速开始:'));
         console.log(chalk.white('  npm run dev'));
@@ -226,8 +258,14 @@ export async function showCurrentConfig(): Promise<void> {
     console.log(`  地址: ${config.model.baseUrl ?? 'http://localhost:11434'}`);
     console.log();
     
-    console.log(chalk.white('数据目录:'));
-    console.log(`  ${config.dataDir ?? '~/.securebot'}`);
+    console.log(chalk.white('SecureBot 根目录:'));
+    const rootDir = getRootDir(config);
+    console.log(`  ${rootDir}`);
+    console.log(chalk.gray('  ├── agents/     Agent 工作空间'));
+    console.log(chalk.gray('  ├── memory/     记忆数据'));
+    console.log(chalk.gray('  ├── skills/     技能定义'));
+    console.log(chalk.gray('  ├── sessions/   会话持久化'));
+    console.log(chalk.gray('  └── audit/      审计日志'));
     console.log();
     
     console.log(chalk.white('Agent 列表:'));
