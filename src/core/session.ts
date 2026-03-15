@@ -193,17 +193,22 @@ ${agent.systemPrompt ? `- **角色**: ${agent.systemPrompt}` : ''}
 - **加载**: 自动加载最近 3 天的工作记忆
 
 ### Layer 2: 结构化记忆
+- **你的档案**: \`${memoryDir}/profiles/agent_${agent.id}.json\`
+  - 存储你的角色描述、技能、使用统计
+  - 存储你学习到的用户偏好
 - **用户档案**: \`${memoryDir}/profiles/user.json\`
-- **Agent 档案**: \`${memoryDir}/profiles/agent_${agent.id}.json\`
+  - 存储用户告诉你的重要信息（姓名、偏好、项目等）
+  - 当用户说"记住 xxx"时，信息会存入此档案
 - **事件记录**: \`${memoryDir}/events/events.log\`
+  - 记录重要的系统事件和里程碑
 
 ### Layer 3: 向量记忆 (RAG)
 - 通过 RAG 系统检索历史知识
 - 支持语义搜索和相似度匹配
 
 ### 记忆使用
-- 用户说"记住 xxx"时，记录到工作记忆
-- 重要配置、偏好自动提取到用户档案
+- 用户说"记住 xxx"时，记录到用户档案
+- 重要的决策、学习到的知识记录到你的档案
 - 可以搜索历史记忆获取上下文
 
 ## 技能系统
