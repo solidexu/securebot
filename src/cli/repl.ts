@@ -271,7 +271,6 @@ async function processMessage(
   // 多轮工具调用循环
   let round = 0;
   let lastContent = '';
-  let planGenerated = false;  // 跟踪是否已生成计划
   
   while (round < MAX_TOOL_ROUNDS) {
     round++;
@@ -291,7 +290,7 @@ async function processMessage(
     
     // 复杂任务：第一轮不传工具，强制模型先输出计划
     let toolsForThisRound = availableTools;
-    if (complexity === 'complex' && round === 1 && !planGenerated) {
+    if (complexity === 'complex' && round === 1) {
       toolsForThisRound = [];  // 第一轮不给工具，强制输出计划
     }
     
@@ -374,7 +373,6 @@ async function processMessage(
       const parsedPlan = parseTaskPlan(result.content);
       if (parsedPlan && parsedPlan.steps.length > 0) {
         currentPlan = parsedPlan;
-        planGenerated = true;  // 标记计划已生成
         const newRender = renderTaskProgress(currentPlan);
         if (newRender !== lastPlanRender) {
           console.log();
@@ -382,8 +380,8 @@ async function processMessage(
           console.log(newRender);
           lastPlanRender = newRender;
         }
-      } else {
-        // 解析失败，显示模型输出的前几行帮助调试
+      } else if (round === 1) {
+        // 第一轮解析失败，显示模型输出的前几行帮助调试
         console.log();
         console.log(chalk.yellow('⚠️ 未能从模型输出中解析出任务计划'));
         console.log(chalk.gray('模型输出的前 200 字符:'));
@@ -393,7 +391,6 @@ async function processMessage(
           console.log(chalk.gray('...'));
         }
         console.log(chalk.gray('─'.repeat(40)));
-        console.log(chalk.gray('提示: 模型可能直接开始执行而没有输出计划'));
         console.log();
       }
     }
@@ -401,8 +398,12 @@ async function processMessage(
     // 没有工具调用，返回最终结果
     if (!result.toolCalls || result.toolCalls.length === 0) {
       // 如果是复杂任务且第一轮没有工具调用（只有计划），继续第二轮执行
-      if (complexity === 'complex' && round === 1 && !planGenerated) {
-        // 模型没有输出计划，也没有调用工具，继续下一轮
+      if (complexity === 'complex' && round === 1) {
+        // 检查是否解析到计划
+        if (currentPlan) {
+          console.log(chalk.green('\n✓ 计划已生成，开始执行...'));
+        }
+        // 无论是否解析到计划，都继续下一轮（有工具）
         addAssistantMessage(session, result.content);
         continue;
       }
@@ -433,6 +434,26 @@ async function processMessage(
     }
 
     // 有工具调用
+    // 复杂任务第一轮：忽略工具调用，强制模型输出计划
+    if (complexity === 'complex' && round === 1) {
+      console.log(chalk.yellow('\n⚠️ 检测到模型尝试直接执行工具'));
+      console.log(chalk.gray('复杂任务需要先输出计划，已阻止工具执行'));
+      
+      // 添加更强的提示到历史中
+      addAssistantMessage(session, result.content);
+      addUserMessage(session, 
+        '【系统提示】你跳过了计划步骤！\n' +
+        '请按以下格式输出任务计划：\n\n' +
+        '# 执行计划\n' +
+        '1. 步骤描述\n' +
+        '2. 步骤描述\n' +
+        '...\n\n' +
+        '输出计划后，下一轮才能使用工具执行。'
+      );
+      continue;
+    }
+
+    // 正常执行工具
     addAssistantMessage(session, result.content, result.toolCalls);
     
     // 执行所有工具
