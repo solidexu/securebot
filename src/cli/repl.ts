@@ -223,6 +223,16 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
           console.log(chalk.white('初始化方法：'));
           console.log(chalk.cyan('  /init-memory'));
           console.log(chalk.gray('  或告诉 Agent："记住我的名字是xxx"'));
+          
+          // 显示 RAG 配置状态
+          const ragConfig = targetAgent.rag;
+          if (ragConfig?.enabled) {
+            console.log();
+            console.log(chalk.white('RAG 知识库已配置：'));
+            console.log(chalk.gray(`  嵌入模型: ${ragConfig.embeddingModel || 'nomic-embed-text'}`));
+            console.log(chalk.gray(`  知识目录: ${(ragConfig.knowledgeDirs || []).join(', ') || '未设置'}`));
+          }
+          
           console.log(chalk.gray('─'.repeat(45)));
           console.log();
         }
@@ -860,6 +870,39 @@ async function handleCommand(
           console.log(chalk.gray('  • 说"我喜欢xxx"记录偏好'));
           console.log();
           console.log(chalk.gray('使用 /memory stats 查看记忆状态'));
+        }
+        
+        // 同时检查 RAG 配置
+        const ragConfig = agent.rag;
+        if (ragConfig?.enabled) {
+          console.log();
+          console.log(chalk.cyan('检查 RAG 知识库配置...'));
+          
+          // 检查嵌入模型是否可用
+          try {
+            const models = await state.modelAdapter.listModels();
+            const embeddingModel = ragConfig.embeddingModel || 'nomic-embed-text';
+            const hasEmbeddingModel = models.some(m => m.includes(embeddingModel) || m === embeddingModel);
+            
+            if (hasEmbeddingModel) {
+              console.log(chalk.green(`✓ 嵌入模型 ${embeddingModel} 已安装`));
+            } else {
+              console.log(chalk.yellow(`⚠ 嵌入模型 ${embeddingModel} 未安装`));
+              console.log(chalk.gray(`  安装命令: ollama pull ${embeddingModel}`));
+            }
+          } catch {
+            console.log(chalk.yellow('⚠ 无法检查嵌入模型，确保 Ollama 正在运行'));
+          }
+          
+          // 检查知识库目录
+          const knowledgeDirs = ragConfig.knowledgeDirs || [];
+          if (knowledgeDirs.length > 0) {
+            console.log(chalk.gray(`  知识库目录: ${knowledgeDirs.join(', ')}`));
+            console.log(chalk.gray('  Agent 可使用 rag_search 搜索知识库'));
+          } else {
+            console.log(chalk.yellow('⚠ 未配置知识库目录'));
+            console.log(chalk.gray('  在 config.json 中设置 rag.knowledgeDirs'));
+          }
         }
       }
       break;
