@@ -139,10 +139,31 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
     await saveAllSessions(agents, sessionStorage);
   };
   
+  // Ctrl+C 处理：第一次提示，第二次退出
+  let ctrlCount = 0;
+  let ctrlTimer: ReturnType<typeof setTimeout> | null = null;
+  
   process.on('SIGINT', async () => {
-    console.log(chalk.gray('\n正在退出...'));
-    await exitHandler();
-    process.exit(0);
+    // 如果在执行中，打断执行
+    if (state.executing) {
+      console.log(chalk.yellow('\n[已打断当前操作]'));
+      state.interrupted = true;
+      return;
+    }
+    
+    // 在等待输入时
+    ctrlCount++;
+    if (ctrlCount >= 2) {
+      console.log(chalk.gray('\n正在退出...'));
+      await exitHandler();
+      process.exit(0);
+    }
+    
+    console.log(chalk.gray('\n按 Ctrl+C 再次退出，或输入 /help 查看帮助'));
+    
+    // 1 秒内没按第二次，重置计数
+    if (ctrlTimer) clearTimeout(ctrlTimer);
+    ctrlTimer = setTimeout(() => { ctrlCount = 0; }, 1000);
   });
   
   process.on('SIGTERM', async () => {
@@ -217,10 +238,15 @@ async function processMessage(
   rl: readlinePromises.Interface,
   sessionStorage?: ReturnType<typeof getSessionStorage>
 ): Promise<void> {
-  const session = getOrCreateMainSession(agent);
+  // 标记正在执行
+  state.executing = true;
+  state.interrupted = false;
   
-  // 添加用户消息
-  addUserMessage(session, message);
+  try {
+    const session = getOrCreateMainSession(agent);
+    
+    // 添加用户消息
+    addUserMessage(session, message);
   
   // 记录用户请求到记忆
   const memoryManager = getMemoryManager();
@@ -289,6 +315,12 @@ async function processMessage(
   const MAX_PLAN_ATTEMPTS = 3;  // 最大规划尝试次数
   
   while (round < MAX_TOOL_ROUNDS) {
+    // 检查是否被打断
+    if (state.interrupted) {
+      console.log(chalk.yellow('\n[操作已打断]'));
+      return;
+    }
+    
     round++;
     
     // 构建消息列表
@@ -691,6 +723,11 @@ async function processMessage(
   // 自动保存
   if (sessionStorage) {
     await sessionStorage.saveSession(session);
+  }
+  } finally {
+    // 标记执行结束
+    state.executing = false;
+    state.interrupted = false;
   }
 }
 
@@ -1393,6 +1430,7 @@ function printHelp(): void {
   console.log(chalk.gray('提示: 敏感操作（文件写入、命令执行等）需要确认'));
   console.log(chalk.gray('提示: 所有工具调用都会记录审计日志'));
   console.log(chalk.gray('提示: 修改配置文件后用 /reload 热重载'));
+  console.log(chalk.gray('提示: 执行中按 Ctrl+C 打断操作，等待时按两次 Ctrl+C 退出'));
   console.log(chalk.gray('提示: 使用 /checkpoint 管理任务检查点'));
   console.log(chalk.gray('提示: 使用 /collab 进行 Agent 协作'));
   console.log();

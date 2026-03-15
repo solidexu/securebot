@@ -300,4 +300,8 @@ export interface ReplState {
   tools: Map<string, Tool>;
   /** 是否运行中 */
   running: boolean;
+  /** 是否正在执行任务 */
+  executing?: boolean;
+  /** 是否被打断 */
+  interrupted?: boolean;
 }
