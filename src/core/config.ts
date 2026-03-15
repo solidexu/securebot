@@ -206,14 +206,14 @@ export function getAuditDir(config?: Config): string {
 /**
  * 获取配置文件目录
  */
-export function getConfigDir(): string {
+export function getConfigDir(config?: Config): string {
   // 优先使用环境变量
   const envDir = process.env['SECUREBOT_CONFIG_DIR'];
   if (envDir) {
     return resolve(envDir);
   }
-  // 默认使用根目录
-  return getRootDir();
+  // 使用配置的 rootDir
+  return getRootDir(config);
 }
 
 /**
@@ -227,13 +227,14 @@ export function getAgentWorkspace(agentId: string, config?: Config): string {
 
 /**
  * 获取配置文件路径
+ * @param config - 可选配置对象，如果设置了 rootDir 则使用它
  */
-export function getConfigPath(): string {
+export function getConfigPath(config?: Config): string {
   const envPath = process.env['SECUREBOT_CONFIG_PATH'];
   if (envPath) {
     return resolve(envPath);
   }
-  return join(getConfigDir(), DEFAULT_CONFIG_FILE);
+  return join(getConfigDir(config), DEFAULT_CONFIG_FILE);
 }
 
 /**
@@ -289,7 +290,15 @@ export function createDefaultConfig(): void {
  * 保存配置
  */
 export function saveConfig(config: Config): void {
-  const configPath = getConfigPath();
+  // 获取配置文件路径（考虑 rootDir）
+  const configPath = getConfigPath(config);
+  
+  // 确保配置目录存在
+  const configDir = dirname(configPath);
+  if (!existsSync(configDir)) {
+    mkdirSync(configDir, { recursive: true });
+  }
+  
   writeFileSync(configPath, JSON5.stringify(config, null, 2), 'utf-8');
 }
 

@@ -143,7 +143,7 @@ export async function runConfigWizard(): Promise<void> {
         }
         
         console.log(chalk.green.bold('\n✓ 配置完成！\n'));
-        console.log(chalk.gray(`配置文件: ${configPath}`));
+        console.log(chalk.gray(`配置文件: ${getConfigPath(config)}`));
         console.log(chalk.gray(`根目录: ${config.rootDir ?? '~/.securebot'}`));
         console.log();
         console.log(chalk.cyan('目录结构:'));
