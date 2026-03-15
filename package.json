@@ -30,11 +30,13 @@
     "chokidar": "^4.0.3",
     "commander": "^13.1.0",
     "json5": "^2.2.3",
-    "undici": "^7.5.0"
+    "undici": "^7.5.0",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@types/blessed": "^0.1.27",
     "@types/node": "^22.13.0",
+    "@types/uuid": "^10.0.0",
     "oxlint": "^0.16.0",
     "tsdown": "^0.11.0",
     "tsx": "^4.19.0",

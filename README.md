@@ -601,3 +601,103 @@ npm run lint
 
 - 中文版协议: [LICENSE_CN.md](LICENSE_CN.md)
 - English License: [LICENSE.md](LICENSE.md)
+
+---
+
+## 🚀 开发路线图
+
+### 待办事项
+
+#### P0 - 高优先级
+- [x] **任务恢复机制** ✅ 2026-03-15
+  - [x] 任务检查点保存 (`saveCheckpoint()`)
+  - [x] 断点续执行能力 (`resumeFromCheckpoint()`)
+  - [x] 任务状态持久化（跨会话恢复）
+  - [x] 自动检查点间隔保存
+  - [x] 执行日志与导出报告
+  
+- [x] **记忆自动摘要** ✅ 2026-03-15
+  - [x] 长对话压缩为要点 (`autoSummarize()`)
+  - [x] 重要信息自动提取 (`extractKeyInfoFromContent()`)
+  - [x] 摘要触发条件（长度/时间阈值）
+  - [x] 记忆衰减机制 (`applyDecay()`)
+  - [x] 压缩上下文输出 (`getCompressedContext()`)
+
+#### P1 - 中优先级
+- [x] **语义任务判断** ✅ 2026-03-15
+  - [x] 多轮对话上下文感知 (`analyzeContext()`)
+  - [x] 任务依赖图分析 (`buildDependencyGraph()`, `getExecutionOrder()`)
+  - [x] 语义相似度匹配 (`extractKeywords()`, `detectTaskType()`)
+  - [x] 用户历史行为学习 (`BehaviorLearner`)
+
+- [x] **Agent 协作能力** ✅ 2026-03-15
+  - [x] Agent 间消息传递 (`AgentMessageBus`)
+  - [x] 任务委派机制 (`DelegationManager`)
+  - [x] 共享工作空间 (`SharedWorkspaceManager`)
+  - [x] 统一协作入口 (`CollaborationManager`)
+
+- [x] **错误分级处理** ✅ 2026-03-15
+  - [x] 错误分类器 (`ErrorClassifier`)
+  - [x] 网络错误自动重试 (`RetryExecutor`)
+  - [x] 自动降级策略 (`FallbackConfig`)
+  - [x] 用户介入点 (`userInterventionHandler`)
+
+#### P2 - 低优先级
+- [x] **测试覆盖** ✅ 2026-03-15
+  - [x] collaboration.test.ts (27 tests)
+  - [x] error-handler.test.ts (28 tests)
+  - [x] task-manager.test.ts (29 tests)
+  - [x] smart-task.test.ts (36 tests)
+  
+- [x] **新模块集成** ✅ 2026-03-15
+  - [x] 核心 index.ts 统一导出
+  - [x] integration.ts 初始化模块
+  - [x] executeWithErrorHandling 统一错误处理
+  - [x] createTaskContext 任务上下文管理
+  - [x] sendCollaborationMessage 协作消息
+  - [x] delegateToAgent 任务委派
+  - [x] getAppStatus 应用状态
+
+- [x] **CLI 命令扩展** ✅ 2026-03-15
+  - [x] `/checkpoint list/save/status/resume` - 检查点管理
+  - [x] `/collab status/messages/delegations/delegate` - 协作系统
+  - [x] `/errors [clear]` - 错误统计
+  - [x] `/behavior` - 用户行为档案
+  - [x] `/summary trigger/history` - 记忆摘要
+  - [x] `/perf [report|clear]` - 性能监控
+
+- [x] **文档补充** ✅ 2026-03-15
+  - [x] `docs/checkpoint.md` - 检查点管理指南
+  - [x] `docs/collaboration.md` - Agent 协作指南
+  - [x] `docs/error-handling.md` - 错误处理配置
+
+- [x] **性能优化** ✅ 2026-03-15
+  - [x] `LazyLoader` - 懒加载器（缓存 + TTL）
+  - [x] `ParallelExecutor` - 并行执行器（并发控制）
+  - [x] `ChunkProcessor` - 分块处理器（流式处理）
+  - [x] `PerformanceMonitor` - 性能监控
+
+- [x] **CLI 增强** ✅ 2026-03-15
+  - [x] `MarkdownRenderer` - Markdown 渲染
+  - [x] `CodeHighlighter` - 代码高亮
+  - [x] `ProgressBar` - 进度条
+  - [x] `TableRenderer` - 表格渲染
+  - [x] `Spinner` - 加载动画
+
+- [ ] **性能优化**
+  - [ ] 记忆懒加载
+  - [ ] 工具调用并行化
+  - [ ] 大文件分块处理
+
+- [ ] **CLI 体验增强**
+  - [ ] 代码高亮渲染
+  - [ ] Markdown 渲染
+  - [ ] 任务进度可视化
+  - [ ] 历史搜索（Ctrl+R）
+
+#### P3 - 未来规划
+- [ ] **插件系统**
+  - [ ] 第三方工具集成
+  - [ ] 自定义工具热加载
+  - [ ] Webhook 支持
+  - [ ] MCP 协议支持

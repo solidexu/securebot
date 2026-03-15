@@ -114,6 +114,51 @@ export interface MemoryConfig {
   maxEntriesPerDay: number;
   /** 是否自动摘要 */
   autoSummary: boolean;
+  /** 摘要触发阈值（条目数） */
+  summaryThreshold: number;
+  /** 摘要保留条目数 */
+  summaryKeepEntries: number;
+  /** 是否启用记忆衰减 */
+  enableDecay: boolean;
+  /** 衰减系数 (0-1, 越小衰减越快) */
+  decayFactor: number;
+  /** 自动提取重要信息 */
+  autoExtractKeyInfo: boolean;
+}
+
+/**
+ * 摘要记录
+ */
+export interface SummaryRecord {
+  /** 摘要ID */
+  id: string;
+  /** 创建时间 */
+  createdAt: string;
+  /** 原始条目数 */
+  originalCount: number;
+  /** 摘要后条目数 */
+  summarizedCount: number;
+  /** 摘要内容 */
+  summary: string;
+  /** 关键信息提取 */
+  keyInfo: Array<{ key: string; value: string }>;
+  /** 时间范围 */
+  timeRange: {
+    start: string;
+    end: string;
+  };
+}
+
+/**
+ * 重要信息模式
+ */
+export interface KeyInfoPattern {
+  /** 模式名称 */
+  name: string;
+  /** 正则表达式 */
+  pattern: RegExp;
+  /** 提取函数 */
+  extract: (match: RegExpMatchArray) => { key: string; value: string };
 }
 
 // ============ 默认配置 ============
@@ -123,7 +168,43 @@ const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
   workingMemoryDays: 3,
   maxEntriesPerDay: 100,
   autoSummary: true,
+  summaryThreshold: 50,  // 超过 50 条触发摘要
+  summaryKeepEntries: 20, // 摘要后保留 20 条
+  enableDecay: true,
+  decayFactor: 0.9,      // 每天衰减 10%
+  autoExtractKeyInfo: true,
 };
+
+/**
+ * 重要信息提取模式
+ */
+const KEY_INFO_PATTERNS: KeyInfoPattern[] = [
+  {
+    name: 'remember_explicit',
+    pattern: /(?:记住|记得|保存|记录)[：:]\s*(.+?)\s*[是为]\s*(.+)/i,
+    extract: (match) => ({ key: match[1].trim(), value: match[2].trim() }),
+  },
+  {
+    name: 'project_path',
+    pattern: /(?:项目|工程)(?:路径|目录|位置)[是为：:]\s*(\/[^\s]+)/i,
+    extract: (match) => ({ key: '项目路径', value: match[1].trim() }),
+  },
+  {
+    name: 'preference',
+    pattern: /(?:我喜欢|我偏好|我习惯)(.+?)(?:，|。|$)/i,
+    extract: (match) => ({ key: '用户偏好', value: match[1].trim() }),
+  },
+  {
+    name: 'config',
+    pattern: /(?:配置|设置)[是为：:]\s*(.+?)\s*=\s*(.+)/i,
+    extract: (match) => ({ key: match[1].trim(), value: match[2].trim() }),
+  },
+  {
+    name: 'deadline',
+    pattern: /(?:截止|到期|最后)日期[是为：:]\s*(.+)/i,
+    extract: (match) => ({ key: '截止日期', value: match[1].trim() }),
+  },
+];
 
 // ============ 记忆管理器 ============
 
@@ -136,6 +217,7 @@ export class MemoryManager {
   private userProfile: UserProfile | null = null;
   private agentProfiles: Map<string, AgentProfile> = new Map();
   private initialized: boolean = false;
+  private summaryHistory: Map<string, SummaryRecord[]> = new Map();
 
   constructor(config: Partial<MemoryConfig> = {}) {
     this.config = { ...DEFAULT_MEMORY_CONFIG, ...config };
@@ -148,7 +230,7 @@ export class MemoryManager {
     if (this.initialized) return;
 
     // 确保目录存在
-    const dirs = ['daily', 'profiles', 'events', 'knowledge'];
+    const dirs = ['daily', 'profiles', 'events', 'knowledge', 'summaries'];
     for (const dir of dirs) {
       const fullPath = join(this.config.rootDir, dir);
       if (!existsSync(fullPath)) {
@@ -164,6 +246,9 @@ export class MemoryManager {
     
     // 加载 Agent 档案
     await this.loadAgentProfiles();
+    
+    // 加载摘要历史
+    await this.loadSummaryHistory();
 
     this.initialized = true;
   }
@@ -205,6 +290,16 @@ export class MemoryManager {
 
     // 保存
     await this.saveDailyMemory(memory);
+    
+    // 自动提取重要信息
+    if (this.config.autoExtractKeyInfo) {
+      await this.extractKeyInfoFromContent(content);
+    }
+    
+    // 检查是否需要自动摘要
+    if (this.config.autoSummary && memory.entries.length >= this.config.summaryThreshold) {
+      await this.autoSummarize(today, agentId);
+    }
   }
 
   /**
@@ -608,10 +703,16 @@ export class MemoryManager {
     totalEntries: number;
     agentCount: number;
     eventCount: number;
+    summaryCount: number;
   } {
     let totalEntries = 0;
     for (const memory of this.dailyCache.values()) {
       totalEntries += memory.entries.length;
+    }
+
+    let summaryCount = 0;
+    for (const summaries of this.summaryHistory.values()) {
+      summaryCount += summaries.length;
     }
 
     return {
@@ -619,7 +720,343 @@ export class MemoryManager {
       totalEntries,
       agentCount: this.agentProfiles.size,
       eventCount: 0, // 需要读取文件
+      summaryCount,
     };
+  }
+
+  // ============ 自动摘要系统 ============
+
+  /**
+   * 加载摘要历史
+   */
+  private async loadSummaryHistory(): Promise<void> {
+    const summaryDir = join(this.config.rootDir, 'summaries');
+    if (!existsSync(summaryDir)) return;
+
+    const files = readdirSync(summaryDir).filter(f => f.endsWith('.json'));
+    for (const file of files) {
+      try {
+        const content = readFileSync(join(summaryDir, file), 'utf-8');
+        const summaries = JSON.parse(content) as SummaryRecord[];
+        const key = file.replace('.json', '');
+        this.summaryHistory.set(key, summaries);
+      } catch {
+        // 忽略
+      }
+    }
+  }
+
+  /**
+   * 保存摘要历史
+   */
+  private async saveSummaryHistory(date: string, agentId: string, summaries: SummaryRecord[]): Promise<void> {
+    const key = `${date}_${agentId}`;
+    const filePath = join(this.config.rootDir, 'summaries', `${key}.json`);
+    writeFileSync(filePath, JSON.stringify(summaries, null, 2), 'utf-8');
+    this.summaryHistory.set(key, summaries);
+  }
+
+  /**
+   * 从内容提取重要信息
+   */
+  private async extractKeyInfoFromContent(content: string): Promise<void> {
+    for (const pattern of KEY_INFO_PATTERNS) {
+      const match = content.match(pattern.pattern);
+      if (match) {
+        try {
+          const { key, value } = pattern.extract(match);
+          await this.rememberKeyInfo(key, value);
+        } catch {
+          // 忽略提取错误
+        }
+      }
+    }
+  }
+
+  /**
+   * 自动摘要
+   */
+  async autoSummarize(date: string, agentId: string): Promise<SummaryRecord | null> {
+    const memory = await this.getDailyMemory(date, agentId);
+    if (memory.entries.length < this.config.summaryThreshold) {
+      return null;
+    }
+
+    // 按重要性排序
+    const sorted = [...memory.entries].sort((a, b) => b.importance - a.importance);
+    
+    // 保留高重要性的条目
+    const keepEntries = sorted.slice(0, this.config.summaryKeepEntries);
+    
+    // 需要摘要的条目
+    const toSummarize = sorted.slice(this.config.summaryKeepEntries);
+    
+    if (toSummarize.length === 0) {
+      return null;
+    }
+
+    // 生成摘要内容
+    const summaryContent = this.generateSummaryContent(toSummarize);
+    
+    // 提取关键信息
+    const keyInfo: Array<{ key: string; value: string }> = [];
+    for (const entry of toSummarize) {
+      await this.extractKeyInfoFromContent(entry.content);
+    }
+    
+    // 从用户档案获取提取的关键信息
+    if (this.userProfile) {
+      for (const [k, v] of Object.entries(this.userProfile.keyInfo)) {
+        keyInfo.push({ key: k, value: v });
+      }
+    }
+
+    // 创建摘要记录
+    const summaryRecord: SummaryRecord = {
+      id: `summary-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      originalCount: toSummarize.length,
+      summarizedCount: keepEntries.length,
+      summary: summaryContent,
+      keyInfo: keyInfo.slice(-10), // 保留最近 10 条
+      timeRange: {
+        start: toSummarize[toSummarize.length - 1]?.timestamp ?? '',
+        end: toSummarize[0]?.timestamp ?? '',
+      },
+    };
+
+    // 更新每日记忆（只保留高重要性条目）
+    memory.entries = keepEntries;
+    memory.summary = summaryContent;
+    await this.saveDailyMemory(memory);
+
+    // 保存摘要历史
+    const key = `${date}_${agentId}`;
+    const existing = this.summaryHistory.get(key) ?? [];
+    existing.push(summaryRecord);
+    await this.saveSummaryHistory(date, agentId, existing);
+
+    return summaryRecord;
+  }
+
+  /**
+   * 生成摘要内容
+   */
+  private generateSummaryContent(entries: MemoryEntry[]): string {
+    // 按类型分组
+    const grouped = new Map<string, MemoryEntry[]>();
+    for (const entry of entries) {
+      const type = entry.type;
+      if (!grouped.has(type)) {
+        grouped.set(type, []);
+      }
+      grouped.get(type)!.push(entry);
+    }
+
+    const parts: string[] = [];
+
+    // 任务类摘要
+    const tasks = grouped.get('task') ?? [];
+    if (tasks.length > 0) {
+      const completed = tasks.filter(t => t.content.includes('完成') || t.content.includes('成功'));
+      const failed = tasks.filter(t => t.content.includes('失败') || t.content.includes('错误'));
+      parts.push(`任务: ${completed.length} 个完成, ${failed.length} 个失败`);
+    }
+
+    // 对话类摘要
+    const conversations = grouped.get('conversation') ?? [];
+    if (conversations.length > 0) {
+      const topics = this.extractTopics(conversations);
+      parts.push(`讨论主题: ${topics.join(', ')}`);
+    }
+
+    // 知识类摘要
+    const knowledge = grouped.get('knowledge') ?? [];
+    if (knowledge.length > 0) {
+      const keyPoints = knowledge
+        .filter(k => k.importance >= 4)
+        .map(k => k.content.slice(0, 50))
+        .slice(0, 5);
+      if (keyPoints.length > 0) {
+        parts.push(`关键知识: ${keyPoints.join('; ')}`);
+      }
+    }
+
+    // 事件类摘要
+    const events = grouped.get('event') ?? [];
+    if (events.length > 0) {
+      const milestones = events.filter(e => e.importance >= 4);
+      parts.push(`重要事件: ${milestones.length} 个`);
+    }
+
+    if (parts.length === 0) {
+      return `压缩了 ${entries.length} 条记忆记录`;
+    }
+
+    return parts.join(' | ');
+  }
+
+  /**
+   * 提取讨论主题
+   */
+  private extractTopics(entries: MemoryEntry[]): string[] {
+    const keywords = new Map<string, number>();
+    
+    // 常见主题词
+    const topicPatterns = [
+      /(?:关于|讨论|分析|设计|实现)(.+?)(?:的|问题|方案|$)/,
+      /(.+?)(?:功能|模块|系统|组件)/,
+      /(?:问题|错误|bug)[:：]?\s*(.+)/,
+    ];
+
+    for (const entry of entries) {
+      for (const pattern of topicPatterns) {
+        const match = entry.content.match(pattern);
+        if (match) {
+          const topic = match[1]?.trim() ?? '';
+          if (topic.length > 1 && topic.length < 20) {
+            keywords.set(topic, (keywords.get(topic) ?? 0) + 1);
+          }
+        }
+      }
+    }
+
+    // 返回高频主题
+    return Array.from(keywords.entries())
+      .filter(([, count]) => count >= 2)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([topic]) => topic);
+  }
+
+  /**
+   * 应用记忆衰减
+   */
+  async applyDecay(): Promise<void> {
+    if (!this.config.enableDecay) return;
+
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+
+    for (const [key, memory] of this.dailyCache) {
+      let modified = false;
+      
+      for (const entry of memory.entries) {
+        const entryTime = new Date(entry.timestamp).getTime();
+        const daysOld = (now - entryTime) / dayMs;
+        
+        if (daysOld > 1) {
+          // 每天衰减一次
+          const decayTimes = Math.floor(daysOld);
+          const newImportance = entry.importance * Math.pow(this.config.decayFactor, decayTimes);
+          
+          // 如果重要性降到 1 以下，移除该条目
+          if (newImportance < 1) {
+            memory.entries = memory.entries.filter(e => e !== entry);
+            modified = true;
+          } else if (entry.importance !== Math.round(newImportance)) {
+            entry.importance = Math.round(newImportance);
+            modified = true;
+          }
+        }
+      }
+      
+      if (modified) {
+        await this.saveDailyMemory(memory);
+      }
+    }
+  }
+
+  /**
+   * 获取摘要历史
+   */
+  async getSummaryHistory(date?: string, agentId?: string): Promise<SummaryRecord[]> {
+    if (date && agentId) {
+      const key = `${date}_${agentId}`;
+      return this.summaryHistory.get(key) ?? [];
+    }
+
+    // 返回所有摘要
+    const all: SummaryRecord[] = [];
+    for (const summaries of this.summaryHistory.values()) {
+      all.push(...summaries);
+    }
+    return all.sort((a, b) => 
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }
+
+  /**
+   * 手动触发摘要
+   */
+  async triggerSummary(agentId?: string): Promise<SummaryRecord[]> {
+    const results: SummaryRecord[] = [];
+    const today = new Date().toISOString().split('T')[0] ?? new Date().toISOString().slice(0, 10);
+
+    if (agentId) {
+      const result = await this.autoSummarize(today, agentId);
+      if (result) results.push(result);
+    } else {
+      // 对所有 Agent 触发摘要
+      for (const [key] of this.dailyCache) {
+        const [date, aid] = key.split(':');
+        if (date && aid) {
+          const result = await this.autoSummarize(date, aid);
+          if (result) results.push(result);
+        }
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * 获取压缩后的上下文（用于大模型输入）
+   */
+  async getCompressedContext(agentId: string, maxTokens: number = 2000): Promise<string> {
+    // 先尝试获取摘要
+    const today = new Date().toISOString().split('T')[0] ?? new Date().toISOString().slice(0, 10);
+    const summaries = await this.getSummaryHistory(today, agentId);
+    
+    let context = '';
+    
+    // 添加最近的摘要
+    if (summaries.length > 0) {
+      context += '## 近期摘要\n';
+      for (const summary of summaries.slice(0, 3)) {
+        context += `- ${summary.summary}\n`;
+        if (summary.keyInfo.length > 0) {
+          context += `  关键信息: ${summary.keyInfo.map(k => `${k.key}=${k.value}`).join(', ')}\n`;
+        }
+      }
+      context += '\n';
+    }
+
+    // 添加当前工作记忆
+    const entries = await this.getWorkingMemory(agentId);
+    const sorted = [...entries].sort((a, b) => b.importance - a.importance);
+    
+    context += '## 当前记忆\n';
+    let currentLength = context.length;
+    const maxChars = maxTokens * 4;
+
+    for (const entry of sorted) {
+      const line = `- [${entry.type}] ${entry.content}\n`;
+      if (currentLength + line.length > maxChars) break;
+      
+      context += line;
+      currentLength += line.length;
+    }
+
+    // 添加用户关键信息
+    if (this.userProfile && Object.keys(this.userProfile.keyInfo).length > 0) {
+      context += '\n## 用户信息\n';
+      for (const [key, value] of Object.entries(this.userProfile.keyInfo)) {
+        context += `- ${key}: ${value}\n`;
+      }
+    }
+
+    return context;
   }
 }
 

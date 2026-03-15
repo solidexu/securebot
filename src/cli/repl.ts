@@ -862,6 +862,283 @@ async function handleCommand(
       break;
     }
 
+    // ========== 新增命令 ==========
+
+    case 'checkpoint': {
+      const taskManager = getTaskManager();
+      
+      if (arg === 'list') {
+        // 列出检查点
+        const checkpoints = taskManager.listCheckpoints();
+        if (checkpoints.length === 0) {
+          console.log(chalk.gray('暂无检查点'));
+        } else {
+          console.log(chalk.cyan(`检查点列表 (${checkpoints.length} 个):`));
+          for (const cp of checkpoints) {
+            const time = new Date(cp.createdAt).toLocaleString('zh-CN', {
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+            });
+            const progress = `${cp.progress.done}/${cp.progress.total}`;
+            console.log(`  ${chalk.gray(time)} ${cp.id} [${progress}] ${cp.sessionId}`);
+          }
+        }
+      } else if (arg === 'save') {
+        // 保存检查点
+        const checkpointId = taskManager.saveCheckpoint();
+        console.log(chalk.green(`✓ 检查点已保存: ${checkpointId}`));
+      } else if (arg === 'resume' && parts[2]) {
+        // 恢复检查点
+        const checkpointId = parts[2];
+        const result = taskManager.resumeFromCheckpoint({ checkpointId });
+        if (result.success) {
+          console.log(chalk.green('✓ 任务已恢复'));
+          console.log(chalk.gray(`  剩余任务: ${result.remainingTasks.length} 个`));
+          console.log(chalk.gray(`  进度: ${result.progress.done}/${result.progress.total}`));
+        } else {
+          console.log(chalk.red(`恢复失败: ${result.message}`));
+        }
+      } else if (arg === 'status') {
+        // 显示任务状态
+        const status = taskManager.getStatus();
+        const summary = taskManager.getSummary();
+        console.log(chalk.cyan('任务状态:'));
+        console.log(`  总任务: ${status.total}`);
+        console.log(`  已完成: ${status.done}`);
+        console.log(`  进行中: ${status.inProgress}`);
+        console.log(`  失败: ${status.failed}`);
+        console.log(`  跳过: ${status.skipped}`);
+        console.log(chalk.gray(`\n  ${summary}`));
+      } else {
+        console.log(chalk.cyan('检查点命令:'));
+        console.log('  /checkpoint list          列出所有检查点');
+        console.log('  /checkpoint save          保存检查点');
+        console.log('  /checkpoint status        显示任务状态');
+        console.log('  /checkpoint resume <id>   恢复检查点');
+      }
+      break;
+    }
+
+    case 'collab': {
+      const { getCollaborationManager } = await import('../core/collaboration.js');
+      const collaborationManager = getCollaborationManager();
+      
+      if (arg === 'status') {
+        const stats = collaborationManager.getStats();
+        console.log(chalk.cyan('协作状态:'));
+        console.log(`  待处理消息: ${stats.pendingMessages}`);
+        console.log(`  活跃委派: ${stats.activeDelegations}`);
+        console.log(`  共享空间: ${stats.sharedWorkspaces}`);
+      } else if (arg === 'messages') {
+        // 显示消息
+        const messages = collaborationManager.getMessageBus().getMessages(state.currentAgentId);
+        if (messages.length === 0) {
+          console.log(chalk.gray('暂无消息'));
+        } else {
+          console.log(chalk.cyan(`消息列表 (${messages.length} 条):`));
+          for (const msg of messages.slice(0, 10)) {
+            const time = new Date(msg.createdAt).toLocaleTimeString('zh-CN');
+            const typeColor = msg.type === 'request' ? chalk.yellow : 
+                             msg.type === 'delegation' ? chalk.magenta : chalk.gray;
+            console.log(`  ${chalk.gray(time)} [${typeColor(msg.type)}] ${msg.fromAgent}: ${msg.content.slice(0, 50)}...`);
+          }
+        }
+      } else if (arg === 'delegate' && parts[2] && parts[3]) {
+        // 委派任务
+        const delegatee = parts[2];
+        const task = parts.slice(3).join(' ');
+        try {
+          const delegation = await collaborationManager.delegateTask(
+            state.currentAgentId,
+            delegatee,
+            task
+          );
+          console.log(chalk.green(`✓ 任务已委派给 ${delegatee}`));
+          console.log(chalk.gray(`  委派ID: ${delegation.id}`));
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          console.log(chalk.red(`委派失败: ${msg}`));
+        }
+      } else if (arg === 'delegations') {
+        // 显示委派列表
+        const delegations = collaborationManager.getDelegationManager()
+          .getDelegations(state.currentAgentId);
+        if (delegations.length === 0) {
+          console.log(chalk.gray('暂无委派'));
+        } else {
+          console.log(chalk.cyan(`委派列表 (${delegations.length} 条):`));
+          for (const d of delegations.slice(0, 10)) {
+            const time = new Date(d.createdAt).toLocaleTimeString('zh-CN');
+            const statusColor = d.status === 'completed' ? chalk.green :
+                               d.status === 'failed' ? chalk.red : chalk.yellow;
+            console.log(`  ${chalk.gray(time)} [${statusColor(d.status)}] ${d.task.slice(0, 40)}...`);
+          }
+        }
+      } else {
+        console.log(chalk.cyan('协作命令:'));
+        console.log('  /collab status              协作状态');
+        console.log('  /collab messages            查看消息');
+        console.log('  /collab delegations         查看委派');
+        console.log('  /collab delegate <agent> <task>  委派任务');
+      }
+      break;
+    }
+
+    case 'errors': {
+      const { getErrorHandler } = await import('../core/error-handler.js');
+      const errorHandler = getErrorHandler();
+      
+      if (arg === 'clear') {
+        errorHandler.clearLog();
+        console.log(chalk.green('✓ 错误日志已清除'));
+      } else {
+        const stats = errorHandler.getStats();
+        const errors = errorHandler.getErrorLog(10);
+        
+        console.log(chalk.cyan('错误统计:'));
+        console.log(`  总错误: ${stats.totalErrors}`);
+        
+        if (Object.keys(stats.byType).length > 0) {
+          console.log(chalk.gray('  按类型:'));
+          for (const [type, count] of Object.entries(stats.byType)) {
+            if (count > 0) {
+              console.log(chalk.gray(`    ${type}: ${count}`));
+            }
+          }
+        }
+        
+        if (Object.keys(stats.bySeverity).length > 0) {
+          console.log(chalk.gray('  按严重程度:'));
+          for (const [severity, count] of Object.entries(stats.bySeverity)) {
+            if (count > 0) {
+              const color = severity === 'critical' ? chalk.red :
+                           severity === 'high' ? chalk.yellow : chalk.gray;
+              console.log(color(`    ${severity}: ${count}`));
+            }
+          }
+        }
+        
+        if (errors.length > 0) {
+          console.log(chalk.cyan(`\n最近 ${errors.length} 条错误:`));
+          for (const err of errors) {
+            const time = new Date(err.timestamp).toLocaleTimeString('zh-CN');
+            console.log(chalk.gray(`  [${time}] [${err.type}] ${err.message.slice(0, 60)}...`));
+          }
+        }
+        
+        console.log(chalk.gray('\n命令: /errors [clear]'));
+      }
+      break;
+    }
+
+    case 'behavior': {
+      const memoryManager = getMemoryManager();
+      const profile = memoryManager.getUserProfile();
+      
+      console.log(chalk.cyan('用户行为档案:'));
+      
+      if (profile) {
+        console.log(`\n  用户ID: ${profile.userId}`);
+        
+        if (profile.displayName) {
+          console.log(`  显示名: ${profile.displayName}`);
+        }
+        
+        if (Object.keys(profile.preferences).length > 0) {
+          console.log(chalk.gray('\n  偏好设置:'));
+          for (const [key, value] of Object.entries(profile.preferences)) {
+            console.log(chalk.gray(`    ${key}: ${JSON.stringify(value)}`));
+          }
+        }
+        
+        if (profile.frequentAgents.length > 0) {
+          console.log(chalk.gray('\n  常用 Agent:'));
+          console.log(chalk.gray(`    ${profile.frequentAgents.join(', ')}`));
+        }
+        
+        if (Object.keys(profile.keyInfo).length > 0) {
+          console.log(chalk.gray('\n  关键信息:'));
+          for (const [key, value] of Object.entries(profile.keyInfo)) {
+            console.log(chalk.gray(`    ${key}: ${value}`));
+          }
+        }
+      } else {
+        console.log(chalk.gray('暂无用户档案'));
+      }
+      
+      console.log(chalk.gray('\n提示: 系统会自动学习您的偏好和使用习惯'));
+      break;
+    }
+
+    case 'summary': {
+      // 触发记忆摘要
+      const memoryManager = getMemoryManager();
+      
+      if (arg === 'trigger') {
+        const results = await memoryManager.triggerSummary();
+        if (results.length > 0) {
+          console.log(chalk.green(`✓ 已生成 ${results.length} 个摘要`));
+          for (const r of results) {
+            console.log(chalk.gray(`  压缩 ${r.originalCount} 条 → ${r.summarizedCount} 条`));
+          }
+        } else {
+          console.log(chalk.gray('无需摘要（记忆条目未达阈值）'));
+        }
+      } else if (arg === 'history') {
+        const history = await memoryManager.getSummaryHistory();
+        if (history.length === 0) {
+          console.log(chalk.gray('暂无摘要历史'));
+        } else {
+          console.log(chalk.cyan(`摘要历史 (${history.length} 条):`));
+          for (const h of history.slice(0, 5)) {
+            const time = new Date(h.createdAt).toLocaleString('zh-CN');
+            console.log(chalk.gray(`  [${time}] 压缩 ${h.originalCount} 条`));
+            console.log(chalk.gray(`    ${h.summary.slice(0, 60)}...`));
+          }
+        }
+      } else {
+        console.log(chalk.cyan('摘要命令:'));
+        console.log('  /summary trigger   手动触发摘要');
+        console.log('  /summary history   查看摘要历史');
+      }
+      break;
+    }
+
+    case 'perf': {
+      const { getPerformanceMonitor } = await import('../core/performance.js');
+      const monitor = getPerformanceMonitor();
+      
+      if (arg === 'report') {
+        console.log(monitor.generateReport());
+      } else if (arg === 'clear') {
+        monitor.clear();
+        console.log(chalk.green('✓ 性能指标已清除'));
+      } else {
+        // 显示基本信息
+        const mem = monitor.getMemoryUsage();
+        const uptime = monitor.getUptime();
+        const metrics = monitor.getMetrics();
+        
+        console.log(chalk.cyan('性能监控:'));
+        console.log(`  运行时间: ${Math.floor(uptime / 1000)} 秒`);
+        console.log(`  内存使用:`);
+        console.log(`    堆内存: ${mem.heapUsedMB}MB / ${mem.heapTotalMB}MB`);
+        console.log(`    RSS: ${mem.rssMB}MB`);
+        
+        if (metrics.size > 0) {
+          console.log(chalk.gray('\n  执行统计:'));
+          for (const [name, data] of metrics) {
+            console.log(chalk.gray(`    ${name}: ${data.count}次, 平均 ${data.avg.toFixed(1)}ms`));
+          }
+        }
+        
+        console.log(chalk.gray('\n命令: /perf [report|clear]'));
+      }
+      break;
+    }
+
     default:
       console.log(chalk.yellow(`未知命令: ${cmd}`));
       console.log(chalk.gray('输入 /help 查看帮助'));
@@ -904,6 +1181,24 @@ function printHelp(): void {
   console.log('  /confirm [on/off/always]  敏感操作确认设置');
   console.log('  /clear           清屏');
   console.log();
+  console.log(chalk.cyan('任务管理:'));
+  console.log('  /checkpoint list          列出检查点');
+  console.log('  /checkpoint save          保存检查点');
+  console.log('  /checkpoint status        任务状态');
+  console.log('  /checkpoint resume <id>   恢复任务');
+  console.log();
+  console.log(chalk.cyan('协作系统:'));
+  console.log('  /collab status            协作状态');
+  console.log('  /collab messages          查看消息');
+  console.log('  /collab delegations       查看委派');
+  console.log('  /collab delegate <agent> <task>  委派任务');
+  console.log();
+  console.log(chalk.cyan('诊断工具:'));
+  console.log('  /errors [clear]           错误统计');
+  console.log('  /behavior                 用户行为档案');
+  console.log('  /summary [trigger|history] 记忆摘要');
+  console.log('  /perf [report|clear]      性能监控');
+  console.log();
   console.log(chalk.cyan('Agent 切换:'));
   console.log('  @dev <消息>      切换到开发助手');
   console.log('  @support <消息>  切换到客服助手');
@@ -913,8 +1208,8 @@ function printHelp(): void {
   console.log(chalk.gray('提示: 敏感操作（文件写入、命令执行等）需要确认'));
   console.log(chalk.gray('提示: 所有工具调用都会记录审计日志'));
   console.log(chalk.gray('提示: 修改配置文件后用 /reload 热重载'));
-  console.log(chalk.gray('提示: 使用 /skills 查看当前 Agent 的技能'));
-  console.log(chalk.gray('提示: 使用 /memory 查看工作记忆'));
+  console.log(chalk.gray('提示: 使用 /checkpoint 管理任务检查点'));
+  console.log(chalk.gray('提示: 使用 /collab 进行 Agent 协作'));
   console.log();
 }
 
