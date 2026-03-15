@@ -251,7 +251,8 @@ async function processMessage(
 
   // 构建系统提示
   let systemPrompt = await buildSystemPrompt(
-    agent.name,
+    agent,
+    state.config,
     getAvailableToolNames(agent, state.config.tools),
     skillsPrompt
   );

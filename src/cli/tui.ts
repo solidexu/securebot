@@ -750,7 +750,8 @@ export class TuiRepl {
 
     // 构建系统提示
     const systemPrompt = await buildSystemPrompt(
-      agent.name,
+      agent,
+      this.state.config,
       getAvailableToolNames(agent, this.state.config.tools),
       skillsPrompt
     );

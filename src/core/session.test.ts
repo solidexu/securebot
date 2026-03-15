@@ -96,19 +96,49 @@ describe('Session', () => {
   });
 
   describe('buildSystemPrompt', () => {
-    it('should build system prompt with agent name', async () => {
-      const prompt = await buildSystemPrompt('Developer', ['read', 'write', 'exec']);
+    it('should build system prompt with agent config', async () => {
+      const agent = {
+        id: 'dev',
+        name: 'Developer',
+        workspace: 'dev',
+        tools: { profile: 'coding' as const },
+      };
+      const config = {
+        model: { model: 'test', baseUrl: 'http://localhost' },
+        defaultAgent: 'dev',
+        tools: { profile: 'minimal' as const },
+        agents: [agent],
+      };
+      
+      const prompt = await buildSystemPrompt(agent, config, ['read', 'write', 'exec']);
 
       expect(prompt).toContain('Developer');
       expect(prompt).toContain('read');
       expect(prompt).toContain('write');
       expect(prompt).toContain('exec');
+      expect(prompt).toContain('工作空间');
+      expect(prompt).toContain('记忆系统');
     });
 
     it('should handle empty tool list', async () => {
-      const prompt = await buildSystemPrompt('Assistant', []);
+      const agent = {
+        id: 'assistant',
+        name: 'Assistant',
+        workspace: 'assistant',
+        tools: { profile: 'minimal' as const },
+      };
+      const config = {
+        model: { model: 'test', baseUrl: 'http://localhost' },
+        defaultAgent: 'assistant',
+        tools: { profile: 'minimal' as const },
+        agents: [agent],
+      };
+      
+      const prompt = await buildSystemPrompt(agent, config, []);
 
       expect(prompt).toContain('Assistant');
+      expect(prompt).toContain('工作空间');
+      expect(prompt).toContain('记忆系统');
     });
   });
 });
