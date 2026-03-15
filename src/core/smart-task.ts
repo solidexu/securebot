@@ -634,20 +634,31 @@ export function getExecutionOrder(steps: TaskStep[]): TaskStep[][] {
 export function parseTaskPlan(content: string): TaskPlan | null {
   const lines = content.split('\n');
   const steps: TaskStep[] = [];
-  let title = '任务计划';
+  let title = '执行计划';
   
   // 匹配 TODO 格式
   const todoRegex = /^[-*]\s*\[([ x→!])\]\s*(.+)/i;
-  // 匹配数字列表格式
-  const numberedRegex = /^\d+[\.\)、]\s*(.+)/;
+  // 匹配数字列表格式 (支持各种标点)
+  const numberedRegex = /^[（(]?\d+[)）\.\、:\：]\s*(.+)/;
   // 匹配步骤关键词
-  const stepKeywords = /^(步骤|step)[\s:：]*\d*[\s:：]*(.+)/i;
-  // 匹配带破折号的列表
-  const dashRegex = /^[-—·]\s*(.+)/;
+  const stepKeywords = /^(步骤|step|STEP)[\s:：]*\d*[\s:：]*(.+)/i;
+  // 匹配带破折号/星号的列表
+  const listRegex = /^[-—·*]\s*(.+)/;
   // 匹配"首先/然后/最后"等序列词
-  const sequenceRegex = /^(首先|其次|然后|接着|最后|第一|第二|第三|第四|第五)[，,：:\s]+(.+)/;
+  const sequenceRegex = /^(首先|其次|然后|接着|最后|第一|第二|第三|第四|第五|第六|第七|第八|第九|第十)[，,：:\s]+(.+)/;
+  // 匹配中文数字
+  const chineseNumberRegex = /^[（(]?([一二三四五六七八九十]+)[)）\.\、:\：]\s*(.+)/;
   
-  for (const line of lines) {
+  // 中文数字映射
+  const chineseNumbers: Record<string, number> = {
+    '一': 1, '二': 2, '三': 3, '四': 4, '五': 5,
+    '六': 6, '七': 7, '八': 8, '九': 9, '十': 10,
+  };
+  
+  let foundPlanSection = false;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? '';
     const trimmed = line.trim();
     
     // 跳过空行
@@ -656,6 +667,21 @@ export function parseTaskPlan(content: string): TaskPlan | null {
     // 提取标题
     if (trimmed.startsWith('#') && !steps.length) {
       title = trimmed.replace(/^#+\s*/, '');
+      foundPlanSection = true;
+      continue;
+    }
+    
+    // 检测是否进入计划区域
+    if (!foundPlanSection && (
+      trimmed.includes('执行计划') || 
+      trimmed.includes('任务计划') ||
+      trimmed.includes('开发计划') ||
+      trimmed.includes('实施步骤')
+    )) {
+      foundPlanSection = true;
+      if (trimmed.startsWith('#')) {
+        title = trimmed.replace(/^#+\s*/, '');
+      }
       continue;
     }
     
@@ -687,6 +713,17 @@ export function parseTaskPlan(content: string): TaskPlan | null {
       continue;
     }
     
+    // 匹配中文数字
+    const chineseMatch = trimmed.match(chineseNumberRegex);
+    if (chineseMatch) {
+      steps.push({
+        id: `step-${steps.length + 1}`,
+        description: chineseMatch[2].trim(),
+        status: 'pending',
+      });
+      continue;
+    }
+    
     // 匹配步骤关键词
     const stepMatch = trimmed.match(stepKeywords);
     if (stepMatch && stepMatch[2]) {
@@ -709,23 +746,26 @@ export function parseTaskPlan(content: string): TaskPlan | null {
       continue;
     }
     
-    // 匹配破折号列表（仅在有多个时生效）
-    const dashMatch = trimmed.match(dashRegex);
-    if (dashMatch && steps.length < 10) {
-      // 检查是否看起来像步骤描述
-      const desc = dashMatch[1].trim();
-      if (desc.length > 5 && desc.length < 100 && 
-          /^(实现|创建|编写|设计|测试|添加|修改|配置|分析|完成|构建)/.test(desc)) {
-        steps.push({
-          id: `step-${steps.length + 1}`,
-          description: desc,
-          status: 'pending',
-        });
+    // 匹配破折号/星号列表
+    const listMatch = trimmed.match(listRegex);
+    if (listMatch && steps.length < 15) {
+      const desc = listMatch[1].trim();
+      // 检查是否看起来像步骤描述（更宽松的条件）
+      if (desc.length > 3 && desc.length < 150) {
+        // 排除一些明显不是步骤的内容
+        if (!/^(是|否|注意|提示|警告|说明|参考|来源)/.test(desc)) {
+          steps.push({
+            id: `step-${steps.length + 1}`,
+            description: desc,
+            status: 'pending',
+          });
+        }
       }
     }
   }
   
-  if (steps.length === 0) {
+  // 如果步骤太少，可能不是真正的计划
+  if (steps.length < 2) {
     return null;
   }
   

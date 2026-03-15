@@ -230,7 +230,7 @@ describe('parseTaskPlan', () => {
   });
 
   it('should create timestamps', () => {
-    const content = '- [ ] Task';
+    const content = '- [ ] Task 1\n- [ ] Task 2';
     const plan = parseTaskPlan(content);
 
     expect(plan?.createdAt).toBeInstanceOf(Date);

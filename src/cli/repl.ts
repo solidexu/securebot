@@ -243,23 +243,25 @@ async function processMessage(
   
   // 如果是复杂任务，添加规划引导
   if (complexity === 'complex') {
-    systemPrompt += '\n\n## 重要提示\n' +
-      '这是一个复杂任务，请先制定详细的执行计划。\n' +
-      '计划格式要求（必须严格遵守）：\n' +
+    systemPrompt += '\n\n## 重要提示 - 任务规划\n' +
+      '这是一个复杂任务，请按以下步骤执行：\n\n' +
+      '**第一步：制定执行计划（必须先完成这一步）**\n' +
+      '在回复的最前面，先用以下格式输出任务计划：\n' +
       '```\n' +
-      '# 任务计划\n' +
-      '1. 步骤一描述\n' +
-      '2. 步骤二描述\n' +
-      '3. 步骤三描述\n' +
+      '# 执行计划\n\n' +
+      '1. [步骤一描述]\n' +
+      '2. [步骤二描述]\n' +
+      '3. [步骤三描述]\n' +
       '...\n' +
-      '```\n' +
-      '或使用 TODO 格式：\n' +
-      '```\n' +
-      '# 任务计划\n' +
-      '- [ ] 步骤一\n' +
-      '- [ ] 步骤二\n' +
-      '```\n' +
-      '制定计划后，逐步执行每个步骤。\n';
+      '```\n\n' +
+      '**第二步：逐步执行**\n' +
+      '- 按计划顺序，一次只执行一个步骤\n' +
+      '- 每完成一步，简要说明结果\n' +
+      '- 然后进入下一步\n\n' +
+      '⚠️ **必须先输出计划，再调用工具执行！**\n';
+    
+    // 对于复杂任务，第一次调用时禁用工具，强制模型先生成计划
+    // 之后启用工具执行
   }
 
   // 多轮工具调用循环
@@ -369,11 +371,18 @@ async function processMessage(
           lastPlanRender = newRender;
         }
       } else {
-        // 解析失败，提示用户
+        // 解析失败，显示模型输出的前几行帮助调试
         console.log();
-        console.log(chalk.yellow('⚠️ 无法解析任务计划格式'));
-        console.log(chalk.gray('模型可能没有使用标准格式输出计划'));
-        console.log(chalk.gray('建议: 提醒模型使用数字列表或 TODO 格式'));
+        console.log(chalk.yellow('⚠️ 未能从模型输出中解析出任务计划'));
+        console.log(chalk.gray('模型输出的前 200 字符:'));
+        console.log(chalk.gray('─'.repeat(40)));
+        console.log(chalk.gray(result.content.slice(0, 200)));
+        if (result.content.length > 200) {
+          console.log(chalk.gray('...'));
+        }
+        console.log(chalk.gray('─'.repeat(40)));
+        console.log(chalk.gray('提示: 模型可能直接开始执行而没有输出计划'));
+        console.log();
       }
     }
 
