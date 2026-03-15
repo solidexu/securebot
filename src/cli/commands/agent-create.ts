@@ -61,7 +61,7 @@ export async function createAgentInteractive(): Promise<void> {
   }
   
   // 显示预览
-  const confirmed = await showPreview(agentInfo);
+  const confirmed = await showPreview(agentInfo, config);
   if (!confirmed) {
     console.log(chalk.gray('已取消'));
     return;
@@ -149,13 +149,16 @@ async function collectAgentInfo(existingIds: string[]): Promise<AgentConfig | nu
 
 // ============ 预览确认 ============
 
-async function showPreview(agent: AgentConfig): Promise<boolean> {
+async function showPreview(agent: AgentConfig, config: Config): Promise<boolean> {
+  const agentsDir = getAgentsDir(config);
+  const workspacePath = join(agentsDir, agent.workspace);
+  
   console.log();
   console.log(chalk.cyan('━━━ Agent 配置预览 ━━━'));
   console.log(chalk.white(`  ID:        ${agent.id}`));
   console.log(chalk.white(`  名称:      ${agent.name}`));
   console.log(chalk.white(`  权限:      ${TOOL_PROFILES[agent.tools?.profile ?? 'minimal']?.name ?? agent.tools?.profile}`));
-  console.log(chalk.white(`  工作空间:  ./agents/${agent.workspace}`));
+  console.log(chalk.white(`  工作空间:  ${workspacePath}`));
   if (agent.default) {
     console.log(chalk.white(`  默认:      ✓`));
   }

@@ -240,8 +240,38 @@ export function getConfigPath(config?: Config): string {
 /**
  * 加载配置
  */
+/**
+ * 查找配置文件路径（按优先级）
+ * 1. 环境变量 SECUREBOT_CONFIG_PATH
+ * 2. 环境变量 SECUREBOT_CONFIG_DIR
+ * 3. 当前目录 .securebot/config.json
+ * 4. 默认 ~/.securebot/config.json
+ */
+export function findConfigPath(): string {
+  // 1. 环境变量 SECUREBOT_CONFIG_PATH
+  const envPath = process.env['SECUREBOT_CONFIG_PATH'];
+  if (envPath && existsSync(envPath)) {
+    return resolve(envPath);
+  }
+  
+  // 2. 环境变量 SECUREBOT_CONFIG_DIR
+  const envDir = process.env['SECUREBOT_CONFIG_DIR'];
+  if (envDir) {
+    return join(resolve(envDir), DEFAULT_CONFIG_FILE);
+  }
+  
+  // 3. 当前目录 .securebot/config.json
+  const localConfigPath = join(process.cwd(), '.securebot', DEFAULT_CONFIG_FILE);
+  if (existsSync(localConfigPath)) {
+    return localConfigPath;
+  }
+  
+  // 4. 默认 ~/.securebot/config.json
+  return join(homedir(), DEFAULT_CONFIG_DIR, DEFAULT_CONFIG_FILE);
+}
+
 export function loadConfig(): Config {
-  const configPath = getConfigPath();
+  const configPath = findConfigPath();
   
   // 如果配置文件不存在，创建默认配置
   if (!existsSync(configPath)) {
@@ -265,33 +295,35 @@ export function loadConfig(): Config {
  * 创建默认配置
  */
 export function createDefaultConfig(): void {
-  const configDir = getConfigDir();
-  const configPath = getConfigPath();
+  const configPath = findConfigPath();
+  const configDir = dirname(configPath);
   
   // 创建配置目录
   if (!existsSync(configDir)) {
     mkdirSync(configDir, { recursive: true });
   }
   
+  // 写入默认配置
+  writeFileSync(configPath, JSON5.stringify(DEFAULT_CONFIG, null, 2), 'utf-8');
+  console.log(`默认配置已创建: ${configPath}`);
+  
   // 创建工作空间目录
+  const agentsDir = join(configDir, 'agents');
   for (const agent of DEFAULT_AGENTS) {
-    const workspace = resolveWorkspace(agent.workspace);
+    const workspace = join(agentsDir, agent.workspace);
     if (!existsSync(workspace)) {
       mkdirSync(workspace, { recursive: true });
     }
   }
-  
-  // 写入默认配置
-  writeFileSync(configPath, JSON5.stringify(DEFAULT_CONFIG, null, 2), 'utf-8');
-  console.log(`默认配置已创建: ${configPath}`);
 }
 
 /**
  * 保存配置
  */
 export function saveConfig(config: Config): void {
-  // 获取配置文件路径（考虑 rootDir）
-  const configPath = getConfigPath(config);
+  // 使用配置文件的实际位置（优先环境变量/当前目录/默认）
+  // 这样即使 config.rootDir 设置了新值，也保存到当前配置文件位置
+  const configPath = findConfigPath();
   
   // 确保配置目录存在
   const configDir = dirname(configPath);
