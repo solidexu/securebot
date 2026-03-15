@@ -222,6 +222,10 @@ async function processMessage(
   // 添加用户消息
   addUserMessage(session, message);
   
+  // 记录用户请求到记忆
+  const memoryManager = getMemoryManager();
+  await memoryManager.remember(agent.id, `用户请求: ${message}`, 'conversation', 3);
+  
   // 判断任务复杂度
   const complexity = assessComplexity(message);
   let currentPlan: TaskPlan | null = null;
@@ -413,10 +417,19 @@ async function processMessage(
         if (isTaskCompleted) {
           addAssistantMessage(session, result.content);
           
+          // 记录任务完成到记忆
+          await memoryManager.remember(agent.id, `完成任务: ${message}`, 'task', 4);
+          
           if (currentPlan) {
             console.log();
             console.log(chalk.green('✓ 任务完成'));
             console.log(getPlanSummary(currentPlan));
+            
+            // 记录计划完成
+            await memoryManager.remember(agent.id, 
+              `计划完成: ${currentPlan.steps.length} 个步骤`, 
+              'task', 4
+            );
           }
           
           if (sessionStorage) {
@@ -452,6 +465,9 @@ async function processMessage(
       
       // 简单任务：没有工具调用，直接返回
       addAssistantMessage(session, result.content);
+      
+      // 记录简单任务完成
+      await memoryManager.remember(agent.id, `完成任务: ${message}`, 'conversation', 3);
       
       // 如果有任务计划，显示最终状态
       if (currentPlan) {
@@ -652,6 +668,18 @@ async function processMessage(
           ? toolResult.content.slice(0, 200) + '...'
           : toolResult.content;
         console.log(chalk.gray(preview));
+      }
+      
+      // 记录重要工具调用到记忆
+      if (toolResult.success && ['write', 'edit', 'exec'].includes(toolCall.name)) {
+        const toolDesc = toolCall.name === 'write' ? '写入文件' :
+                        toolCall.name === 'edit' ? '编辑文件' : '执行命令';
+        const target = toolCall.arguments['path'] || toolCall.arguments['command'] || '';
+        await memoryManager.remember(agent.id, 
+          `${toolDesc}: ${String(target).slice(0, 100)}`, 
+          'task', 
+          3
+        );
       }
     }
     
