@@ -247,13 +247,11 @@ async function processMessage(
   // 如果是复杂任务，在提示词最前面添加强制规划指令
   if (complexity === 'complex') {
     const planInstruction = `
-╔══════════════════════════════════════════════════════════════════╗
-║                    ⚠️  必须遵守的规划流程                           ║
-╚══════════════════════════════════════════════════════════════════╝
+══════════════════════════════════════════════════════════════════
+                   ⚠️  复杂任务规划模式
+══════════════════════════════════════════════════════════════════
 
-【当前模式】复杂任务规划模式
-
-你必须按以下格式输出任务计划（这是强制要求，不能跳过）：
+你必须先输出任务计划，格式如下：
 
 # 执行计划
 
@@ -262,10 +260,10 @@ async function processMessage(
 3. 步骤描述
 ...
 
-重要提示：
-- 本轮回复必须输出上述格式的计划
-- 不要输出其他内容（如介绍、解释等）
-- 计划生成后，等待下一轮系统提供工具执行
+要求：
+- 只输出计划，不要输出介绍、解释或其他内容
+- 不要调用任何工具
+- 计划输出后等待系统指示
 
 `;
     systemPrompt = planInstruction + systemPrompt;
@@ -385,35 +383,33 @@ async function processMessage(
           console.log(newRender);
           lastPlanRender = newRender;
         }
-      } else if (round === 1) {
-        // 第一轮解析失败，显示模型输出的前几行帮助调试
-        console.log();
-        console.log(chalk.yellow('⚠️ 未能从模型输出中解析出任务计划'));
-        console.log(chalk.gray('模型输出的前 200 字符:'));
-        console.log(chalk.gray('─'.repeat(40)));
-        console.log(chalk.gray(result.content.slice(0, 200)));
-        if (result.content.length > 200) {
-          console.log(chalk.gray('...'));
-        }
-        console.log(chalk.gray('─'.repeat(40)));
-        console.log();
       }
+      // 解析失败时不显示警告，让后续流程处理
     }
 
-    // 没有工具调用，返回最终结果
+    // 没有工具调用，检查是否应该继续
     if (!result.toolCalls || result.toolCalls.length === 0) {
-      // 如果是复杂任务且第一轮没有工具调用（只有计划），继续第二轮执行
-      if (complexity === 'complex' && round === 1) {
-        // 检查是否解析到计划
+      // 复杂任务处理
+      if (complexity === 'complex') {
+        // 情况1：有计划但没有工具调用 → 提示模型开始执行
         if (currentPlan) {
           console.log(chalk.green('\n✓ 计划已生成，开始执行...'));
+          addAssistantMessage(session, result.content);
+          // 添加提示让模型开始执行第一步
+          addUserMessage(session, 
+            '计划已确认。现在请开始执行第一步：\n' +
+            `"${currentPlan.steps[0]?.description}"\n\n` +
+            '使用可用工具完成这个步骤。'
+          );
+          continue;
         }
-        // 无论是否解析到计划，都继续下一轮（有工具）
+        
+        // 情况2：没有计划，继续尝试
         addAssistantMessage(session, result.content);
         continue;
       }
       
-      // 添加助手消息
+      // 简单任务：没有工具调用，直接返回
       addAssistantMessage(session, result.content);
       
       // 如果有任务计划，显示最终状态
@@ -490,14 +486,13 @@ async function processMessage(
       // 添加警告到历史
       addAssistantMessage(session, result.content);
       addUserMessage(session, 
-        '【系统警告】你仍然没有输出计划！\n\n' +
-        '这是复杂任务，必须先输出计划才能使用工具。\n\n' +
-        '请立即输出以下格式的计划：\n\n' +
-        '# 执行计划\n\n' +
-        '1. 第一步描述\n' +
-        '2. 第二步描述\n' +
-        '3. 第三步描述\n\n' +
-        '输出计划后才能继续。不要调用任何工具！'
+        '【系统提示】请只输出计划，不要调用工具！\n\n' +
+        '输出格式：\n' +
+        '# 执行计划\n' +
+        '1. 步骤一\n' +
+        '2. 步骤二\n' +
+        '...\n\n' +
+        '输出计划后等待系统指示。'
       );
       continue;
     }
