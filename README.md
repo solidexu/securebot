@@ -58,29 +58,31 @@ ollama serve
 ollama pull qwen3.5-35b-a3b
 ```
 
-### 2. 启动 SecureBot
+### 3. 启动 SecureBot
 
 ```bash
-# 普通模式
+# 推荐使用普通模式
 npm run dev
-
-# TUI 分屏模式（左侧聊天，右侧文件浏览器）
-npm run dev -- --tui
 
 # 或构建后运行
 npm run build
 npm start
 
 # 或全局安装后
-securebot chat           # 普通模式
-securebot chat --tui     # TUI 分屏模式
+securebot chat
 ```
 
-## 使用
+> ⚠️ **TUI 分屏模式目前还在开发中，存在一些已知问题，建议使用普通的 `securebot chat` 模式。**
 
-### TUI 分屏界面
+<details>
+<summary>📑 TUI 分屏模式（实验性功能）</summary>
 
-使用 `--tui` 参数启动分屏界面：
+```bash
+# TUI 分屏模式（左侧聊天，右侧文件浏览器）
+npm run dev -- --tui
+# 或
+securebot chat --tui
+```
 
 ```
 ┌─────────────────────────────┬─────────────────┐
@@ -105,6 +107,10 @@ securebot chat --tui     # TUI 分屏模式
 - `F2` - 切换 Agent
 - `F5` - 刷新文件树
 - `Q/Esc` - 退出
+
+</details>
+
+## 使用
 
 ### 基本对话
 
