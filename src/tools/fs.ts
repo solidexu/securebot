@@ -171,7 +171,12 @@ export const writeTool: Tool = {
 
 export const editTool: Tool = {
   name: 'edit',
-  description: '编辑文件，替换指定文本。精确匹配，包括空白字符。',
+  description: `编辑文件，替换指定文本。
+重要提示：
+1. oldText 必须与文件内容完全匹配（包括空白、缩进、换行）
+2. 如果不确定文件内容，请先用 read 工具读取
+3. 替换所有匹配项（不只是第一个）
+4. 建议使用较小的文本块进行替换，避免匹配失败`,
   parameters: {
     type: 'object',
     properties: {
@@ -181,7 +186,7 @@ export const editTool: Tool = {
       },
       oldText: {
         type: 'string',
-        description: '要替换的文本（必须精确匹配）',
+        description: '要替换的文本（必须精确匹配，包括所有空白字符）',
       },
       newText: {
         type: 'string',
@@ -211,25 +216,67 @@ export const editTool: Tool = {
       
       // 检查 oldText 是否存在
       if (!content.includes(oldText)) {
+        // 提供更详细的错误信息
+        const lines = content.split('\n');
+        const oldTextLines = oldText.split('\n');
+        const oldTextPreview = oldText.slice(0, 150);
+        
+        // 尝试查找相似文本
+        const suggestions: string[] = [];
+        const oldTextLower = oldText.toLowerCase().trim();
+        
+        for (let i = 0; i < lines.length; i++) {
+          const lineLower = lines[i]?.toLowerCase().trim() ?? '';
+          // 检查是否包含部分匹配
+          if (oldTextLower.length > 10 && lineLower.includes(oldTextLower.slice(0, 30))) {
+            suggestions.push(`第 ${i + 1} 行: "${lines[i]?.slice(0, 80)}..."`);
+          }
+        }
+        
+        let errorMsg = `未找到要替换的文本。\n\n`;
+        errorMsg += `要查找的文本 (前150字符):\n---\n${oldTextPreview}${oldText.length > 150 ? '...' : ''}\n---\n\n`;
+        
+        if (suggestions.length > 0) {
+          errorMsg += `可能匹配的位置:\n${suggestions.slice(0, 3).join('\n')}\n\n`;
+        }
+        
+        // 返回文件部分内容帮助模型理解
+        errorMsg += `文件当前内容 (前30行):\n---\n`;
+        errorMsg += lines.slice(0, 30).join('\n');
+        if (lines.length > 30) {
+          errorMsg += `\n... (共 ${lines.length} 行)`;
+        }
+        errorMsg += `\n---\n\n`;
+        errorMsg += `建议: 请根据文件当前内容，提供正确的 oldText 进行替换。`;
+        
         return { 
           success: false, 
-          error: `未找到要替换的文本。请确保 oldText 完全匹配，包括空白字符。` 
+          error: errorMsg
         };
       }
       
-      // 执行替换
-      const newContent = content.replace(oldText, newText);
+      // 计算匹配次数
+      const matchCount = (content.match(new RegExp(escapeRegExp(oldText), 'g')) || []).length;
+      
+      // 执行替换（替换所有匹配项）
+      const newContent = content.split(oldText).join(newText);
       
       // 写入文件
       await writeFile(validation.resolved, newContent, 'utf-8');
       
+      let resultMsg = `文件已编辑: ${path}`;
+      if (matchCount > 1) {
+        resultMsg += ` (替换了 ${matchCount} 处)`;
+      }
+      
       return {
         success: true,
-        content: `文件已编辑: ${path}`,
+        content: resultMsg,
         metadata: {
           path: validation.resolved,
           replaced: oldText.length,
           with: newText.length,
+          matchCount,
         },
       };
     } catch (error) {
@@ -238,3 +285,8 @@ export const editTool: Tool = {
     }
   },
 };
+
+// 辅助函数：转义正则特殊字符
+function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
