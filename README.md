@@ -231,6 +231,8 @@ SecureBot 支持技能系统，可以为 Agent 添加专业技能。
 
 ### 内置公共技能
 
+首次运行 `securebot chat` 时，系统会自动初始化以下公共技能：
+
 | 技能 | 说明 |
 |------|------|
 | code-review | 代码审查，发现代码问题和改进建议 |
@@ -238,6 +240,13 @@ SecureBot 支持技能系统，可以为 Agent 添加专业技能。
 | api-designer | RESTful API 设计 |
 | debugger | 调试专家，帮助定位代码问题 |
 | doc-writer | 技术文档撰写 |
+
+### 查看技能
+
+```bash
+# 在聊天中查看当前 Agent 的技能
+/skills
+```
 
 ### 管理技能
 

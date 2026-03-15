@@ -94,6 +94,14 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
   const memoryStats = memoryManager.getStats();
   console.log(chalk.green(`✓ 记忆系统就绪 (${memoryStats.totalEntries} 条记忆)`));
 
+  // 初始化技能系统
+  const skillManager = getSkillManager();
+  await skillManager.initialize();
+  const publicSkills = await skillManager.listPublicSkills();
+  if (publicSkills.length > 0) {
+    console.log(chalk.green(`✓ 技能系统就绪 (${publicSkills.length} 个公共技能)`));
+  }
+
   // 初始化确认管理器
   const confirmationManager = getConfirmationManager();
   
