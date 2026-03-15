@@ -2,17 +2,26 @@
  * RAG 工具
  * 
  * 为 Agent 提供知识库检索能力
+ * 支持三阶段：Embedding + Reranking + Query Expansion
  */
 
 import type { Tool, ToolContext, ToolResult, Agent } from '../core/types.js';
-import { createRAGStore, createOllamaEmbedder, RAGStore, type RAGConfig } from './store.js';
+import { 
+  createAdvancedRAGStore, 
+  createOllamaEmbedder,
+  createOllamaReranker,
+  createOllamaQueryExpander,
+  AdvancedRAGStore,
+  type RAGConfig,
+  type AdvancedRAGConfig,
+} from './store.js';
 
 // ============ RAG 管理器 ============
 
 /**
  * Agent RAG 配置
  */
-export interface AgentRAGConfig extends Partial<RAGConfig> {
+export interface AgentRAGConfig extends Partial<AdvancedRAGConfig> {
   /** 是否启用 */
   enabled: boolean;
   /** 知识库目录 */
@@ -23,13 +32,13 @@ export interface AgentRAGConfig extends Partial<RAGConfig> {
  * RAG 管理器
  */
 class RAGManager {
-  private stores: Map<string, RAGStore> = new Map();
+  private stores: Map<string, AdvancedRAGStore> = new Map();
   private agentConfigs: Map<string, AgentRAGConfig> = new Map();
 
   /**
    * 获取或创建 Agent 的 RAG 存储
    */
-  async getStore(agent: Agent, config?: AgentRAGConfig): Promise<RAGStore | null> {
+  async getStore(agent: Agent, config?: AgentRAGConfig): Promise<AdvancedRAGStore | null> {
     const ragConfig = config ?? this.agentConfigs.get(agent.id);
     
     if (!ragConfig?.enabled) {
@@ -39,7 +48,7 @@ class RAGManager {
     let store = this.stores.get(agent.id);
     
     if (!store) {
-      store = createRAGStore({
+      store = createAdvancedRAGStore({
         storageDir: `${agent.workspace}/.rag`,
         ...ragConfig,
       });
@@ -49,6 +58,22 @@ class RAGManager {
         model: ragConfig.embeddingModel,
       });
       store.setEmbedder(embedder);
+
+      // 设置重排序器（如果启用）
+      if (ragConfig.enableRerank && ragConfig.rerankModel) {
+        const reranker = createOllamaReranker({
+          model: ragConfig.rerankModel,
+        });
+        store.setReranker(reranker);
+      }
+
+      // 设置查询扩展器（如果启用）
+      if (ragConfig.enableQueryExpansion && ragConfig.queryExpansionModel) {
+        const expander = createOllamaQueryExpander({
+          model: ragConfig.queryExpansionModel,
+        });
+        store.setQueryExpander(expander);
+      }
 
       // 初始化
       await store.initialize();
@@ -89,7 +114,7 @@ export const ragManager = new RAGManager();
 
 export const ragSearchTool: Tool = {
   name: 'rag_search',
-  description: '在知识库中搜索相关信息。返回与查询最匹配的内容片段。',
+  description: '在知识库中搜索相关信息。支持三阶段检索：查询扩展、向量搜索、重排序。返回与查询最匹配的内容片段。',
   parameters: {
     type: 'object',
     properties: {
@@ -118,7 +143,8 @@ export const ragSearchTool: Tool = {
         };
       }
 
-      const results = await store.search(query, top_k);
+      // 使用高级搜索（支持三阶段）
+      const results = await store.advancedSearch(query, top_k);
 
       if (results.length === 0) {
         return {
@@ -234,21 +260,65 @@ export const ragStatusTool: Tool = {
       if (!store) {
         return {
           success: true,
-          content: 'RAG 未为此 Agent 启用。\n\n可在配置中设置:\n```json\n{\n  "rag": {\n    "enabled": true,\n    "knowledgeDirs": ["./docs"]\n  }\n}\n```',
+          content: `RAG 未为此 Agent 启用。
+
+## 配置示例
+
+\`\`\`json
+{
+  "rag": {
+    "enabled": true,
+    "knowledgeDirs": ["./docs"],
+    "embeddingModel": "all-minilm",
+    "rerankModel": "qwen3-reranker",
+    "queryExpansionModel": "qmd-query-expansion",
+    "enableRerank": true,
+    "enableQueryExpansion": true
+  }
+}
+\`\`\`
+
+## 三阶段检索
+
+| 阶段 | 功能 | 模型 |
+|------|------|------|
+| 1. Embedding | 向量嵌入 | all-minilm (46MB) |
+| 2. Reranking | 重排序 | qwen3-reranker |
+| 3. Query Expansion | 查询扩展 | qmd-query-expansion |
+
+提示: 使用 OLLAMA_NO_GPU=1 强制 CPU 运行`,
         };
       }
 
       const stats = store.getStats();
+      const ragConfig = context.agent.rag;
+
+      // 构建状态信息
+      const stages: string[] = [];
+      stages.push(`✓ Embedding: ${ragConfig?.embeddingModel || 'default'} (${stats.hasEmbeddings ? '已索引' : '未索引'})`);
+      
+      if (ragConfig?.enableRerank) {
+        stages.push(`✓ Reranking: ${ragConfig.rerankModel || 'default'}`);
+      }
+      
+      if (ragConfig?.enableQueryExpansion) {
+        stages.push(`✓ Query Expansion: ${ragConfig.queryExpansionModel || 'default'}`);
+      }
 
       const content = `## RAG 知识库状态
 
+### 文档统计
 - 文档数量: ${stats.documentCount}
 - 内容块数量: ${stats.chunkCount}
-- 向量嵌入: ${stats.hasEmbeddings ? '已生成' : '未生成'}
 - 嵌入维度: ${stats.embeddingDimension ?? 'N/A'}
 
-使用 \`rag_search\` 搜索知识库。
-使用 \`rag_index\` 添加新文档。`;
+### 检索阶段
+${stages.join('\n')}
+
+### 可用命令
+- \`rag_search <query>\` - 搜索知识库
+- \`rag_index <path>\` - 添加新文档
+- \`rag_status\` - 查看状态`;
 
       return {
         success: true,

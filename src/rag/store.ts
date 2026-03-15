@@ -638,3 +638,258 @@ export function createOllamaEmbedder(options?: {
 }): OllamaEmbedder {
   return new OllamaEmbedder(options);
 }
+
+// ============ Reranker ============
+
+/**
+ * 重排序器接口
+ */
+export interface Reranker {
+  rerank(query: string, documents: string[]): Promise<number[]>;
+}
+
+/**
+ * Ollama 重排序器
+ * 使用交叉编码器模型对检索结果进行重排序
+ */
+export class OllamaReranker implements Reranker {
+  private baseUrl: string;
+  private model: string;
+
+  constructor(options: { baseUrl?: string; model?: string } = {}) {
+    this.baseUrl = options.baseUrl ?? 'http://localhost:11434';
+    this.model = options.model ?? 'qwen3-reranker';
+  }
+
+  /**
+   * 对文档进行重排序，返回相关性分数
+   */
+  async rerank(query: string, documents: string[]): Promise<number[]> {
+    if (documents.length === 0) {
+      return [];
+    }
+
+    // 使用 Ollama 的 generate 接口进行重排序
+    // 为每个文档计算相关性分数
+    const scores: number[] = [];
+    
+    for (const doc of documents) {
+      const prompt = `判断以下文档与查询的相关性，只返回一个0到1之间的数字，不要其他内容。
+
+查询: ${query}
+
+文档: ${doc.slice(0, 500)}
+
+相关性分数:`;
+
+      try {
+        const response = await fetch(`${this.baseUrl}/api/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: this.model,
+            prompt,
+            stream: false,
+            options: {
+              temperature: 0,
+              num_predict: 10,
+            },
+          }),
+        });
+
+        if (!response.ok) {
+          scores.push(0.5); // 默认分数
+          continue;
+        }
+
+        const data = await response.json() as { response: string };
+        const scoreStr = data.response?.trim() || '0.5';
+        const score = parseFloat(scoreStr);
+        scores.push(isNaN(score) ? 0.5 : Math.max(0, Math.min(1, score)));
+      } catch {
+        scores.push(0.5);
+      }
+    }
+
+    return scores;
+  }
+}
+
+// ============ Query Expander ============
+
+/**
+ * 查询扩展器接口
+ */
+export interface QueryExpander {
+  expand(query: string): Promise<string[]>;
+}
+
+/**
+ * Ollama 查询扩展器
+ * 生成多个相关查询以改进检索效果
+ */
+export class OllamaQueryExpander implements QueryExpander {
+  private baseUrl: string;
+  private model: string;
+
+  constructor(options: { baseUrl?: string; model?: string } = {}) {
+    this.baseUrl = options.baseUrl ?? 'http://localhost:11434';
+    this.model = options.model ?? 'qmd-query-expansion';
+  }
+
+  /**
+   * 扩展查询，返回原始查询和相关变体
+   */
+  async expand(query: string): Promise<string[]> {
+    const prompt = `为以下查询生成3个语义相似但表述不同的查询，用于改进搜索效果。
+
+原始查询: ${query}
+
+要求：
+1. 保持原始意图
+2. 使用不同词汇
+3. 每行一个查询
+4. 只输出查询，不要编号或其他内容
+
+扩展查询:`;
+
+    try {
+      const response = await fetch(`${this.baseUrl}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: this.model,
+          prompt,
+          stream: false,
+          options: {
+            temperature: 0.3,
+            num_predict: 200,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        return [query];
+      }
+
+      const data = await response.json() as { response: string };
+      const expanded = data.response
+        ?.split('\n')
+        .map((line: string) => line.trim())
+        .filter((line: string) => line.length > 0 && !line.startsWith('扩展'))
+        .slice(0, 3) || [];
+
+      // 始终包含原始查询
+      return [query, ...expanded];
+    } catch {
+      return [query];
+    }
+  }
+}
+
+// ============ 高级 RAG 存储 ============
+
+/**
+ * 高级 RAG 存储配置
+ */
+export interface AdvancedRAGConfig extends RAGConfig {
+  /** 是否启用重排序 */
+  enableRerank?: boolean;
+  /** 是否启用查询扩展 */
+  enableQueryExpansion?: boolean;
+  /** 重排序模型 */
+  rerankModel?: string;
+  /** 查询扩展模型 */
+  queryExpansionModel?: string;
+}
+
+/**
+ * 高级 RAG 存储（支持三阶段）
+ */
+export class AdvancedRAGStore extends RAGStore {
+  private reranker: Reranker | null = null;
+  private queryExpander: QueryExpander | null = null;
+  private advancedConfig: AdvancedRAGConfig;
+
+  constructor(config: Partial<AdvancedRAGConfig> = {}) {
+    super(config);
+    this.advancedConfig = {
+      ...DEFAULT_RAG_CONFIG,
+      ...config,
+    };
+  }
+
+  /**
+   * 设置重排序器
+   */
+  setReranker(reranker: Reranker): void {
+    this.reranker = reranker;
+  }
+
+  /**
+   * 设置查询扩展器
+   */
+  setQueryExpander(expander: QueryExpander): void {
+    this.queryExpander = expander;
+  }
+
+  /**
+   * 高级搜索（支持三阶段）
+   */
+  async advancedSearch(query: string, topK?: number): Promise<SearchResult[]> {
+    // 阶段 1: 查询扩展
+    let queries = [query];
+    if (this.advancedConfig.enableQueryExpansion && this.queryExpander) {
+      queries = await this.queryExpander.expand(query);
+    }
+
+    // 阶段 2: 向量检索（对所有扩展查询）
+    const allResults: Map<string, SearchResult> = new Map();
+    for (const q of queries) {
+      const results = await this.search(q, topK ?? this.advancedConfig.topK);
+      for (const r of results) {
+        const existing = allResults.get(r.chunk.id);
+        if (!existing || r.score > existing.score) {
+          allResults.set(r.chunk.id, r);
+        }
+      }
+    }
+
+    let results = Array.from(allResults.values());
+
+    // 阶段 3: 重排序
+    if (this.advancedConfig.enableRerank && this.reranker && results.length > 0) {
+      const documents = results.map(r => r.chunk.content);
+      const scores = await this.reranker.rerank(query, documents);
+      
+      // 更新分数并重新排序
+      results = results.map((r, i) => ({
+        ...r,
+        score: scores[i] ?? r.score,
+      })).sort((a, b) => b.score - a.score);
+    }
+
+    // 返回 topK 结果
+    return results.slice(0, topK ?? this.advancedConfig.topK);
+  }
+}
+
+// ============ 工厂函数 ============
+
+export function createAdvancedRAGStore(config?: Partial<AdvancedRAGConfig>): AdvancedRAGStore {
+  return new AdvancedRAGStore(config);
+}
+
+export function createOllamaReranker(options?: {
+  baseUrl?: string;
+  model?: string;
+}): OllamaReranker {
+  return new OllamaReranker(options);
+}
+
+export function createOllamaQueryExpander(options?: {
+  baseUrl?: string;
+  model?: string;
+}): OllamaQueryExpander {
+  return new OllamaQueryExpander(options);
+}
