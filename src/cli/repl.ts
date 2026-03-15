@@ -5,7 +5,6 @@
  */
 
 import * as readlinePromises from 'node:readline/promises';
-import * as readline from 'node:readline';
 import chalk from 'chalk';
 import type { ReplState, Agent, Message, ChatParams } from '../core/types.js';
 import { loadConfig, createDefaultConfig } from '../core/config.js';
@@ -192,7 +191,7 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
         
         // 如果有消息，继续处理
         if (message.trim()) {
-          await processMessage(state, targetAgent, message.trim(), sessionStorage);
+          await processMessage(state, targetAgent, message.trim(), rl, sessionStorage);
         }
       } else {
         console.log(chalk.red(`Agent 不存在: ${agentId}`));
@@ -200,7 +199,7 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
       }
     } else {
       // 使用当前 Agent 处理消息
-      await processMessage(state, agent, message, sessionStorage);
+      await processMessage(state, agent, message, rl, sessionStorage);
     }
   }
 
@@ -215,6 +214,7 @@ async function processMessage(
   state: ReplState,
   agent: Agent,
   message: string,
+  rl: readlinePromises.Interface,
   sessionStorage?: ReturnType<typeof getSessionStorage>
 ): Promise<void> {
   const session = getOrCreateMainSession(agent);
@@ -510,16 +510,8 @@ async function processMessage(
         console.log(chalk.gray('  2. 跳过规划，直接执行（输入 s）'));
         console.log(chalk.gray('  3. 取消任务（输入其他）'));
         
-        // 使用 readline 获取用户输入
-        const rl = readline.createInterface({
-          input: process.stdin,
-          output: process.stdout,
-        });
-        
-        const answer = await new Promise<string>((resolve) => {
-          rl.question(chalk.cyan('\n请选择 [y/s/N]: '), resolve);
-        });
-        rl.close();
+        // 使用主循环的 readline 获取用户输入
+        const answer = await rl.question(chalk.cyan('\n请选择 [y/s/N]: '));
         
         if (answer.toLowerCase() === 'y') {
           planAttempts = 0;  // 重置尝试次数
@@ -707,7 +699,7 @@ async function processMessage(
 async function handleCommand(
   state: ReplState,
   command: string,
-  _rl: readline.Interface,
+  _rl: readlinePromises.Interface,
   sessionStorage: ReturnType<typeof getSessionStorage>
 ): Promise<void> {
   const parts = command.slice(1).split(/\s+/);
@@ -1467,7 +1459,7 @@ async function saveAllSessions(
  */
 async function showConfirmationDialog(
   request: ConfirmationRequest,
-  rl: readline.Interface
+  rl: readlinePromises.Interface
 ): Promise<{ confirmed: boolean; remember?: boolean; rememberScope?: 'tool' | 'pattern' }> {
   console.log();
   console.log(chalk.yellow.bold('⚠️  敏感操作确认'));
