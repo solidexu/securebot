@@ -939,12 +939,22 @@ async function handleCommand(
         console.log(chalk.cyan.bold('\n📚 RAG 知识库初始化\n'));
         console.log(chalk.white('RAG (检索增强生成) 让 Agent 可以搜索你的文档库。'));
         console.log();
-        console.log(chalk.cyan('初始化步骤：'));
-        console.log(chalk.white('  1. 准备知识库目录（存放 .md/.txt/.json 文件）'));
-        console.log(chalk.white('  2. 安装嵌入模型: ollama pull nomic-embed-text'));
-        console.log(chalk.white('  3. 配置 Agent 的 RAG 设置'));
+        console.log(chalk.cyan.bold('推荐配置 (CPU 友好)：'));
+        console.log(chalk.gray('─'.repeat(50)));
+        console.log(chalk.white('  Embedding:     embeddinggemma-300M-GGUF'));
+        console.log(chalk.white('  Reranking:     Qwen3-Reranker-0.6B-Q8_0-GGUF'));
+        console.log(chalk.white('  Query Expand:  qmd-query-expansion-1.7B-gguf'));
+        console.log(chalk.gray('─'.repeat(50)));
         console.log();
-        console.log(chalk.cyan('配置示例 (config.json)：'));
+        console.log(chalk.cyan('步骤 1: 导入 GGUF 模型到 Ollama'));
+        console.log(chalk.gray('  # 下载 GGUF 文件后创建 Modelfile'));
+        console.log(chalk.gray('  ollama create embeddinggemma -f Modelfile'));
+        console.log();
+        console.log(chalk.cyan('步骤 2: 准备知识库目录'));
+        console.log(chalk.white('  mkdir -p ./knowledge'));
+        console.log(chalk.white('  # 放入 .md/.txt/.json 文档'));
+        console.log();
+        console.log(chalk.cyan('步骤 3: 配置 Agent (config.json)'));
         console.log(chalk.gray('─'.repeat(50)));
         console.log(chalk.white(`{
   "agents": [{
@@ -953,19 +963,26 @@ async function handleCommand(
     "workspace": "${agent.workspace}",
     "rag": {
       "enabled": true,
-      "knowledgeDirs": ["./docs", "./knowledge"],
-      "embeddingModel": "nomic-embed-text"
+      "knowledgeDirs": ["./knowledge"],
+      "embeddingModel": "embeddinggemma",
+      "rerankModel": "qwen3-reranker",
+      "queryExpansionModel": "qmd-query-expansion",
+      "enableRerank": true,
+      "enableQueryExpansion": true
     }
   }]
 }`));
         console.log(chalk.gray('─'.repeat(50)));
+        console.log();
+        console.log(chalk.cyan('步骤 4: 重新加载配置'));
+        console.log(chalk.white('  /reload'));
         console.log();
         console.log(chalk.cyan('可用工具（启用 RAG 后）：'));
         console.log(chalk.gray('  • rag_search <query>  - 搜索知识库'));
         console.log(chalk.gray('  • rag_index <path>    - 添加文档到知识库'));
         console.log(chalk.gray('  • rag_status          - 查看知识库状态'));
         console.log();
-        console.log(chalk.yellow('提示: 修改配置后使用 /reload 重新加载'));
+        console.log(chalk.yellow('提示: 使用 OLLAMA_NO_GPU=1 强制 CPU 运行'));
       }
       break;
     }

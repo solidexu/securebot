@@ -97,8 +97,12 @@ export interface RAGConfig {
   enabled: boolean;
   /** 知识库目录 */
   knowledgeDirs: string[];
-  /** 嵌入模型 */
+  /** 嵌入模型 (用于向量嵌入) */
   embeddingModel?: string;
+  /** 重排序模型 (可选，用于提高检索精度) */
+  rerankModel?: string;
+  /** 查询扩展模型 (可选，用于改写查询) */
+  queryExpansionModel?: string;
   /** 块大小 */
   chunkSize?: number;
   /** 块重叠 */
@@ -107,6 +111,10 @@ export interface RAGConfig {
   topK?: number;
   /** 最小相似度 */
   minScore?: number;
+  /** 是否启用重排序 */
+  enableRerank?: boolean;
+  /** 是否启用查询扩展 */
+  enableQueryExpansion?: boolean;
 }
 
 // ============ Agent Types ============
