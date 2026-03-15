@@ -339,6 +339,84 @@ npm run typecheck
 }
 ```
 
+## RAG 知识库
+
+SecureBot 支持三阶段 RAG 检索增强，让 Agent 可以搜索你的文档库。
+
+### 三阶段流程
+
+```
+用户查询 → 查询扩展 → 向量检索 → 重排序 → 返回结果
+```
+
+### 配置 RAG
+
+```json
+{
+  "agents": [{
+    "id": "dev",
+    "name": "开发助手",
+    "workspace": "dev",
+    "rag": {
+      "enabled": true,
+      "knowledgeDirs": ["./docs", "./knowledge"],
+      "embeddingModel": "all-minilm",
+      "rerankModel": "qwen3-reranker",
+      "queryExpansionModel": "qmd-query-expansion",
+      "enableRerank": true,
+      "enableQueryExpansion": true
+    }
+  }]
+}
+```
+
+### 推荐 CPU 友好模型
+
+| 阶段 | 模型 | 大小 | 安装命令 |
+|------|------|------|----------|
+| Embedding | `all-minilm` | 46MB | `ollama pull all-minilm` |
+| Reranking | `qwen3-reranker` | 600MB | 导入 GGUF |
+| Query Expansion | `qmd-query-expansion` | 1.7GB | 导入 GGUF |
+
+### 使用 RAG
+
+```bash
+# 1. 安装嵌入模型
+ollama pull all-minilm
+
+# 2. 准备知识库
+mkdir -p ./knowledge
+# 放入 .md、.txt、.json 文档
+
+# 3. 配置 Agent（编辑 config.json）
+
+# 4. 启动对话
+securebot chat
+
+# Agent 会自动索引知识库
+[开发助手] > 帮我查一下 API 文档
+```
+
+### RAG 工具
+
+启用 RAG 后，Agent 可使用以下工具：
+
+| 工具 | 功能 |
+|------|------|
+| `rag_search <query>` | 搜索知识库 |
+| `rag_index <path>` | 添加文档到知识库 |
+| `rag_status` | 查看知识库状态 |
+
+### 强制 CPU 运行
+
+```bash
+# 环境变量
+export OLLAMA_NO_GPU=1
+
+# 或启动时
+OLLAMA_NO_GPU=1 ollama serve
+```
+
 ## 常见问题
 
 ### 1. Ollama 连接失败
@@ -362,6 +440,14 @@ ollama serve
 ### 4. 切换根目录
 
 修改 `config.json` 中的 `rootDir`，或设置环境变量 `SECUREBOT_CONFIG_DIR`。
+
+### 5. RAG 模型未安装
+
+使用 `/init-rag` 查看初始化指引，或直接安装：
+
+```bash
+ollama pull all-minilm
+```
 
 ## License
 

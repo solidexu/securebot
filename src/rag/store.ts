@@ -361,26 +361,66 @@ export class RAGStore {
   /**
    * 添加目录下的所有文档
    */
-  async addDirectory(dirPath: string, extensions: string[] = ['.md', '.txt', '.json']): Promise<number> {
+  async addDirectory(
+    dirPath: string, 
+    extensions: string[] = ['.md', '.txt', '.json'],
+    onProgress?: (file: string, index: number, total: number) => void
+  ): Promise<number> {
     if (!existsSync(dirPath)) {
+      console.warn(`⚠️ 目录不存在: ${dirPath}`);
       return 0;
     }
 
+    // 先收集所有文件
+    const allFiles: string[] = [];
+    const collectFiles = (dir: string) => {
+      const files = readdirSync(dir);
+      for (const file of files) {
+        const filePath = join(dir, file);
+        const stat = statSync(filePath);
+        if (stat.isDirectory()) {
+          collectFiles(filePath);
+        } else if (extensions.includes(extname(file).toLowerCase())) {
+          allFiles.push(filePath);
+        }
+      }
+    };
+    
+    collectFiles(dirPath);
+    
+    if (allFiles.length === 0) {
+      console.log(`未在 ${dirPath} 中找到文档（支持: ${extensions.join(', ')}）`);
+      return 0;
+    }
+    
+    console.log(`找到 ${allFiles.length} 个文档，开始索引...`);
+    
     let count = 0;
-    const files = readdirSync(dirPath);
-
-    for (const file of files) {
-      const filePath = join(dirPath, file);
-      const stat = statSync(filePath);
-
-      if (stat.isDirectory()) {
-        count += await this.addDirectory(filePath, extensions);
-      } else if (extensions.includes(extname(file).toLowerCase())) {
+    for (let i = 0; i < allFiles.length; i++) {
+      const filePath = allFiles[i]!;
+      try {
         await this.addFile(filePath);
         count++;
+        
+        // 报告进度
+        if (onProgress) {
+          onProgress(filePath, i + 1, allFiles.length);
+        } else {
+          // 默认进度显示
+          process.stdout.write(`\r索引进度: ${i + 1}/${allFiles.length} (${((i + 1) / allFiles.length * 100).toFixed(0)}%)`);
+        }
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        console.warn(`\n⚠️ 索引失败 ${filePath}: ${errMsg}`);
       }
     }
-
+    
+    // 换行
+    if (!onProgress) {
+      process.stdout.write('\n');
+    }
+    
+    console.log(`✓ 已索引 ${count}/${allFiles.length} 个文档`);
     return count;
   }
 
@@ -589,6 +629,7 @@ export class OllamaEmbedder implements Embedder {
   private baseUrl: string;
   private model: string;
   private _dimension: number = 768; // nomic-embed-text 默认维度
+  private modelAvailable: boolean | null = null;
 
   constructor(options: { baseUrl?: string; model?: string } = {}) {
     this.baseUrl = options.baseUrl ?? 'http://localhost:11434';
@@ -599,7 +640,50 @@ export class OllamaEmbedder implements Embedder {
     return this._dimension;
   }
 
+  /**
+   * 检查模型是否可用
+   */
+  async checkModelAvailable(): Promise<{ available: boolean; error?: string }> {
+    if (this.modelAvailable !== null) {
+      return { available: this.modelAvailable };
+    }
+
+    try {
+      const response = await fetch(`${this.baseUrl}/api/tags`);
+      if (!response.ok) {
+        this.modelAvailable = false;
+        return { available: false, error: 'Ollama 服务未运行' };
+      }
+
+      const data = await response.json() as { models?: Array<{ name: string }> };
+      const models = data.models || [];
+      const hasModel = models.some(m => m.name.includes(this.model));
+
+      if (!hasModel) {
+        this.modelAvailable = false;
+        return { 
+          available: false, 
+          error: `模型 ${this.model} 未安装。安装命令: ollama pull ${this.model}` 
+        };
+      }
+
+      this.modelAvailable = true;
+      return { available: true };
+    } catch {
+      this.modelAvailable = false;
+      return { available: false, error: '无法连接到 Ollama 服务' };
+    }
+  }
+
   async embed(text: string): Promise<number[]> {
+    // 检查模型可用性（首次）
+    if (this.modelAvailable === null) {
+      const status = await this.checkModelAvailable();
+      if (!status.available) {
+        throw new Error(status.error || '嵌入模型不可用');
+      }
+    }
+
     const response = await fetch(`${this.baseUrl}/api/embeddings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -607,7 +691,8 @@ export class OllamaEmbedder implements Embedder {
     });
 
     if (!response.ok) {
-      throw new Error(`Ollama embedding failed: ${response.statusText}`);
+      const errorText = await response.text();
+      throw new Error(`嵌入失败: ${response.statusText} - ${errorText}`);
     }
 
     const data = await response.json() as { embedding: number[] };
@@ -615,13 +700,27 @@ export class OllamaEmbedder implements Embedder {
     return data.embedding;
   }
 
-  async embedBatch(texts: string[]): Promise<number[][]> {
-    // Ollama 不支持批量嵌入，逐个处理
+  async embedBatch(texts: string[], onProgress?: (done: number, total: number) => void): Promise<number[][]> {
     const embeddings: number[][] = [];
-    for (const text of texts) {
-      const embedding = await this.embed(text);
-      embeddings.push(embedding);
+    const total = texts.length;
+    
+    for (let i = 0; i < texts.length; i++) {
+      try {
+        const embedding = await this.embed(texts[i]!);
+        embeddings.push(embedding);
+        
+        // 报告进度
+        if (onProgress) {
+          onProgress(i + 1, total);
+        }
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        console.warn(`⚠️ 嵌入第 ${i + 1}/${total} 个文档失败: ${errMsg}`);
+        // 跳过失败的文档
+        embeddings.push([]);
+      }
     }
+    
     return embeddings;
   }
 }
@@ -649,16 +748,81 @@ export interface Reranker {
 }
 
 /**
+ * 重排序结果缓存
+ */
+class RerankCache {
+  private cache: Map<string, number> = new Map();
+  private maxSize: number = 1000;
+
+  private hash(query: string, doc: string): string {
+    return createHash('md5').update(query + doc).digest('hex');
+  }
+
+  get(query: string, doc: string): number | undefined {
+    return this.cache.get(this.hash(query, doc));
+  }
+
+  set(query: string, doc: string, score: number): void {
+    if (this.cache.size >= this.maxSize) {
+      // 清理一半缓存
+      const keys = Array.from(this.cache.keys()).slice(0, this.maxSize / 2);
+      for (const key of keys) {
+        this.cache.delete(key);
+      }
+    }
+    this.cache.set(this.hash(query, doc), score);
+  }
+}
+
+const rerankCache = new RerankCache();
+
+/**
  * Ollama 重排序器
  * 使用交叉编码器模型对检索结果进行重排序
  */
 export class OllamaReranker implements Reranker {
   private baseUrl: string;
   private model: string;
+  private modelAvailable: boolean | null = null;
 
   constructor(options: { baseUrl?: string; model?: string } = {}) {
     this.baseUrl = options.baseUrl ?? 'http://localhost:11434';
     this.model = options.model ?? 'qwen3-reranker';
+  }
+
+  /**
+   * 检查模型是否可用
+   */
+  async checkModelAvailable(): Promise<{ available: boolean; error?: string }> {
+    if (this.modelAvailable !== null) {
+      return { available: this.modelAvailable };
+    }
+
+    try {
+      const response = await fetch(`${this.baseUrl}/api/tags`);
+      if (!response.ok) {
+        this.modelAvailable = false;
+        return { available: false, error: 'Ollama 服务未运行' };
+      }
+
+      const data = await response.json() as { models?: Array<{ name: string }> };
+      const models = data.models || [];
+      const hasModel = models.some(m => m.name.includes(this.model));
+
+      if (!hasModel) {
+        this.modelAvailable = false;
+        return { 
+          available: false, 
+          error: `模型 ${this.model} 未安装。安装命令: ollama pull ${this.model}` 
+        };
+      }
+
+      this.modelAvailable = true;
+      return { available: true };
+    } catch (error) {
+      this.modelAvailable = false;
+      return { available: false, error: '无法连接到 Ollama 服务' };
+    }
   }
 
   /**
@@ -669,49 +833,92 @@ export class OllamaReranker implements Reranker {
       return [];
     }
 
-    // 使用 Ollama 的 generate 接口进行重排序
-    // 为每个文档计算相关性分数
+    // 检查缓存
     const scores: number[] = [];
-    
-    for (const doc of documents) {
-      const prompt = `判断以下文档与查询的相关性，只返回一个0到1之间的数字，不要其他内容。
+    const uncachedIndices: number[] = [];
+    const uncachedDocs: string[] = [];
 
-查询: ${query}
-
-文档: ${doc.slice(0, 500)}
-
-相关性分数:`;
-
-      try {
-        const response = await fetch(`${this.baseUrl}/api/generate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: this.model,
-            prompt,
-            stream: false,
-            options: {
-              temperature: 0,
-              num_predict: 10,
-            },
-          }),
-        });
-
-        if (!response.ok) {
-          scores.push(0.5); // 默认分数
-          continue;
-        }
-
-        const data = await response.json() as { response: string };
-        const scoreStr = data.response?.trim() || '0.5';
-        const score = parseFloat(scoreStr);
-        scores.push(isNaN(score) ? 0.5 : Math.max(0, Math.min(1, score)));
-      } catch {
-        scores.push(0.5);
+    for (let i = 0; i < documents.length; i++) {
+      const cached = rerankCache.get(query, documents[i]!);
+      if (cached !== undefined) {
+        scores[i] = cached;
+      } else {
+        uncachedIndices.push(i);
+        uncachedDocs.push(documents[i]!);
       }
     }
 
-    return scores;
+    // 如果所有结果都在缓存中
+    if (uncachedDocs.length === 0) {
+      return scores;
+    }
+
+    // 检查模型可用性
+    const modelStatus = await this.checkModelAvailable();
+    if (!modelStatus.available) {
+      console.warn(`⚠️ 重排序模型不可用: ${modelStatus.error}`);
+      // 返回默认分数
+      for (const idx of uncachedIndices) {
+        scores[idx] = 0.5;
+      }
+      return scores;
+    }
+
+    // 批量处理重排序（一次请求处理所有文档）
+    try {
+      const batchPrompt = `判断以下文档与查询的相关性，每行返回一个0到1之间的数字，按顺序对应每个文档。
+
+查询: ${query}
+
+${uncachedDocs.map((doc, i) => `文档${i + 1}: ${doc.slice(0, 200)}`).join('\n\n')}
+
+相关性分数（每行一个数字）:`;
+
+      const response = await fetch(`${this.baseUrl}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: this.model,
+          prompt: batchPrompt,
+          stream: false,
+          options: {
+            temperature: 0,
+            num_predict: uncachedDocs.length * 10,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        for (const idx of uncachedIndices) {
+          scores[idx] = 0.5;
+        }
+        return scores;
+      }
+
+      const data = await response.json() as { response: string };
+      const scoreLines = data.response?.trim().split('\n') || [];
+
+      for (let i = 0; i < uncachedIndices.length; i++) {
+        const idx = uncachedIndices[i]!;
+        const scoreStr = scoreLines[i]?.trim() || '0.5';
+        const score = parseFloat(scoreStr);
+        const finalScore = isNaN(score) ? 0.5 : Math.max(0, Math.min(1, score));
+        scores[idx] = finalScore;
+        
+        // 缓存结果
+        rerankCache.set(query, uncachedDocs[i]!, finalScore);
+      }
+
+      return scores;
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.warn(`⚠️ 重排序失败: ${errMsg}`);
+      
+      for (const idx of uncachedIndices) {
+        scores[idx] = 0.5;
+      }
+      return scores;
+    }
   }
 }
 
@@ -725,12 +932,18 @@ export interface QueryExpander {
 }
 
 /**
+ * 查询扩展缓存
+ */
+const queryExpansionCache = new Map<string, string[]>();
+
+/**
  * Ollama 查询扩展器
  * 生成多个相关查询以改进检索效果
  */
 export class OllamaQueryExpander implements QueryExpander {
   private baseUrl: string;
   private model: string;
+  private modelAvailable: boolean | null = null;
 
   constructor(options: { baseUrl?: string; model?: string } = {}) {
     this.baseUrl = options.baseUrl ?? 'http://localhost:11434';
@@ -738,9 +951,57 @@ export class OllamaQueryExpander implements QueryExpander {
   }
 
   /**
+   * 检查模型是否可用
+   */
+  async checkModelAvailable(): Promise<{ available: boolean; error?: string }> {
+    if (this.modelAvailable !== null) {
+      return { available: this.modelAvailable };
+    }
+
+    try {
+      const response = await fetch(`${this.baseUrl}/api/tags`);
+      if (!response.ok) {
+        this.modelAvailable = false;
+        return { available: false, error: 'Ollama 服务未运行' };
+      }
+
+      const data = await response.json() as { models?: Array<{ name: string }> };
+      const models = data.models || [];
+      const hasModel = models.some(m => m.name.includes(this.model));
+
+      if (!hasModel) {
+        this.modelAvailable = false;
+        return { 
+          available: false, 
+          error: `模型 ${this.model} 未安装。安装命令: ollama pull ${this.model}` 
+        };
+      }
+
+      this.modelAvailable = true;
+      return { available: true };
+    } catch {
+      this.modelAvailable = false;
+      return { available: false, error: '无法连接到 Ollama 服务' };
+    }
+  }
+
+  /**
    * 扩展查询，返回原始查询和相关变体
    */
   async expand(query: string): Promise<string[]> {
+    // 检查缓存
+    const cached = queryExpansionCache.get(query);
+    if (cached) {
+      return cached;
+    }
+
+    // 检查模型可用性
+    const modelStatus = await this.checkModelAvailable();
+    if (!modelStatus.available) {
+      console.warn(`⚠️ 查询扩展模型不可用: ${modelStatus.error}`);
+      return [query];
+    }
+
     const prompt = `为以下查询生成3个语义相似但表述不同的查询，用于改进搜索效果。
 
 原始查询: ${query}
@@ -780,8 +1041,15 @@ export class OllamaQueryExpander implements QueryExpander {
         .slice(0, 3) || [];
 
       // 始终包含原始查询
-      return [query, ...expanded];
-    } catch {
+      const result = [query, ...expanded];
+      
+      // 缓存结果
+      queryExpansionCache.set(query, result);
+      
+      return result;
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.warn(`⚠️ 查询扩展失败: ${errMsg}`);
       return [query];
     }
   }
