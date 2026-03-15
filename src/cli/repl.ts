@@ -389,9 +389,42 @@ async function processMessage(
 
     // 没有工具调用，检查是否应该继续
     if (!result.toolCalls || result.toolCalls.length === 0) {
+      // 检查是否任务已完成（模型输出总结/完成信号）
+      const completionSignals = [
+        '任务完成', '开发完成', '实现完成', '已完成', 
+        '开发完毕', '实现完毕', '总结', '总结一下',
+        '项目完成', '功能完成', '全部完成', '完整实现'
+      ];
+      const isTaskCompleted = completionSignals.some(signal => 
+        result.content?.includes(signal)
+      );
+      
       // 复杂任务处理
       if (complexity === 'complex') {
-        // 情况1：有计划但没有工具调用 → 提示模型开始执行
+        // 情况1：任务已完成 → 返回结果，等待用户指示
+        if (isTaskCompleted) {
+          addAssistantMessage(session, result.content);
+          
+          if (currentPlan) {
+            console.log();
+            console.log(chalk.green('✓ 任务完成'));
+            console.log(getPlanSummary(currentPlan));
+          }
+          
+          if (sessionStorage) {
+            await sessionStorage.saveSession(session);
+          }
+          
+          if (result.usage) {
+            console.log(chalk.gray(
+              `\nToken: 输入 ${result.usage.promptTokens} / 输出 ${result.usage.completionTokens} / 总计 ${result.usage.totalTokens}`
+            ));
+          }
+          console.log();
+          return;
+        }
+        
+        // 情况2：有计划但没有工具调用 → 提示模型开始执行
         if (currentPlan) {
           console.log(chalk.green('\n✓ 计划已生成，开始执行...'));
           addAssistantMessage(session, result.content);
@@ -404,7 +437,7 @@ async function processMessage(
           continue;
         }
         
-        // 情况2：没有计划，继续尝试
+        // 情况3：没有计划，继续尝试
         addAssistantMessage(session, result.content);
         continue;
       }
