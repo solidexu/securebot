@@ -176,11 +176,12 @@ async function showPreview(agent: AgentConfig, config: Config): Promise<boolean>
 // ============ 保存 Agent ============
 
 async function saveAgent(agent: AgentConfig, config: Config): Promise<void> {
-  // 如果设为默认，取消其他 Agent 的默认标记
+  // 如果设为默认，取消其他 Agent 的默认标记，并更新 defaultAgent
   if (agent.default) {
     for (const a of config.agents) {
       a.default = false;
     }
+    config.defaultAgent = agent.id;
   }
   
   // 添加新 Agent
@@ -293,6 +294,7 @@ export async function deleteAgentInteractive(): Promise<void> {
     // 如果删除的是默认 Agent，设置第一个为默认
     if (config.agents.length > 0 && !config.agents.some((a: AgentConfig) => a.default)) {
       config.agents[0]!.default = true;
+      config.defaultAgent = config.agents[0]!.id;
     }
     
     // 保存配置
