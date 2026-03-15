@@ -243,22 +243,16 @@ async function processMessage(
   
   // 如果是复杂任务，添加规划引导
   if (complexity === 'complex') {
-    systemPrompt += '\n\n## 重要提示 - 任务规划\n' +
-      '这是一个复杂任务，请按以下步骤执行：\n\n' +
-      '**第一步：制定执行计划（必须先完成这一步）**\n' +
-      '在回复的最前面，先用以下格式输出任务计划：\n' +
-      '```\n' +
+    systemPrompt += '\n\n## ⚠️ 重要提示 - 任务规划\n\n' +
+      '这是一个复杂任务，你需要按以下方式回复：\n\n' +
+      '**本轮回复只需要输出计划，不要调用任何工具！**\n\n' +
+      '请用以下格式输出任务计划：\n' +
       '# 执行计划\n\n' +
-      '1. [步骤一描述]\n' +
-      '2. [步骤二描述]\n' +
-      '3. [步骤三描述]\n' +
-      '...\n' +
-      '```\n\n' +
-      '**第二步：逐步执行**\n' +
-      '- 按计划顺序，一次只执行一个步骤\n' +
-      '- 每完成一步，简要说明结果\n' +
-      '- 然后进入下一步\n\n' +
-      '⚠️ **必须先输出计划，再调用工具执行！**\n';
+      '1. [第一个步骤]\n' +
+      '2. [第二个步骤]\n' +
+      '3. [第三个步骤]\n' +
+      '...\n\n' +
+      '输出计划后等待下一轮，系统会提供工具让你执行。\n';
     
     // 对于复杂任务，第一次调用时禁用工具，强制模型先生成计划
     // 之后启用工具执行
@@ -267,6 +261,7 @@ async function processMessage(
   // 多轮工具调用循环
   let round = 0;
   let lastContent = '';
+  let planGenerated = false;  // 跟踪是否已生成计划
   
   while (round < MAX_TOOL_ROUNDS) {
     round++;
@@ -282,6 +277,12 @@ async function processMessage(
       process.stdout.write(chalk.gray('思考中... '));
     } else {
       process.stdout.write(chalk.gray(`继续思考 (轮次 ${round})... `));
+    }
+    
+    // 复杂任务：第一轮不传工具，强制模型先输出计划
+    let toolsForThisRound = availableTools;
+    if (complexity === 'complex' && round === 1 && !planGenerated) {
+      toolsForThisRound = [];  // 第一轮不给工具，强制输出计划
     }
     
     let result;
@@ -326,7 +327,7 @@ async function processMessage(
         result = await state.modelAdapter.chatWithStream({
           model: state.config.model.model,
           messages,
-          tools: availableTools.length > 0 ? availableTools : undefined,
+          tools: toolsForThisRound.length > 0 ? toolsForThisRound : undefined,
           onStream,
         } as ChatParams & { onStream: StreamCallback });
       } else {
@@ -334,7 +335,7 @@ async function processMessage(
         result = await state.modelAdapter.chat({
           model: state.config.model.model,
           messages,
-          tools: availableTools.length > 0 ? availableTools : undefined,
+          tools: toolsForThisRound.length > 0 ? toolsForThisRound : undefined,
         } as ChatParams);
       }
       
@@ -363,6 +364,7 @@ async function processMessage(
       const parsedPlan = parseTaskPlan(result.content);
       if (parsedPlan && parsedPlan.steps.length > 0) {
         currentPlan = parsedPlan;
+        planGenerated = true;  // 标记计划已生成
         const newRender = renderTaskProgress(currentPlan);
         if (newRender !== lastPlanRender) {
           console.log();
@@ -388,6 +390,13 @@ async function processMessage(
 
     // 没有工具调用，返回最终结果
     if (!result.toolCalls || result.toolCalls.length === 0) {
+      // 如果是复杂任务且第一轮没有工具调用（只有计划），继续第二轮执行
+      if (complexity === 'complex' && round === 1 && !planGenerated) {
+        // 模型没有输出计划，也没有调用工具，继续下一轮
+        addAssistantMessage(session, result.content);
+        continue;
+      }
+      
       // 添加助手消息
       addAssistantMessage(session, result.content);
       
