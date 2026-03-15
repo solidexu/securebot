@@ -57,11 +57,11 @@ export function createAgents(config: Config): Map<string, Agent> {
  * 解析 @ 前缀
  */
 export function parseAgentPrefix(input: string): { agentId: string | null; message: string } {
-  // 匹配 @agentId message 格式
-  const match = input.match(/^@(\w+)\s+(.+)$/s);
+  // 匹配 @agentId message 或 @agentId 格式
+  const match = input.match(/^@(\w+)(?:\s+(.+))?$/s);
   if (match) {
     const [, agentId, message] = match;
-    return { agentId: agentId ?? null, message: message ?? input };
+    return { agentId: agentId ?? null, message: message ?? '' };
   }
   return { agentId: null, message: input };
 }
