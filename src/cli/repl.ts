@@ -4,8 +4,7 @@
  * 交互式聊天界面，支持流式输出和会话持久化
  */
 
-import * as readline from 'node:readline/promises';
-import { stdin as input, stdout as output } from 'node:process';
+import * as readline from 'node:readline';
 import chalk from 'chalk';
 import type { ReplState, Agent, Message, ChatParams } from '../core/types.js';
 import { loadConfig, createDefaultConfig } from '../core/config.js';
@@ -122,7 +121,10 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
   printWelcome(state);
 
   // 创建 readline 接口
-  const rl = readline.createInterface({ input, output });
+  const rl = readline.createInterface({ 
+    input: process.stdin, 
+    output: process.stdout 
+  });
 
   // 注册退出处理
   const exitHandler = async () => {
@@ -271,6 +273,8 @@ async function processMessage(
   // 多轮工具调用循环
   let round = 0;
   let lastContent = '';
+  let planAttempts = 0;  // 规划尝试次数
+  const MAX_PLAN_ATTEMPTS = 3;  // 最大规划尝试次数
   
   while (round < MAX_TOOL_ROUNDS) {
     round++;
@@ -288,10 +292,10 @@ async function processMessage(
       process.stdout.write(chalk.gray(`继续思考 (轮次 ${round})... `));
     }
     
-    // 复杂任务：第一轮不传工具，强制模型先输出计划
+    // 复杂任务：有计划之前不传工具
     let toolsForThisRound = availableTools;
-    if (complexity === 'complex' && round === 1) {
-      toolsForThisRound = [];  // 第一轮不给工具，强制输出计划
+    if (complexity === 'complex' && !currentPlan) {
+      toolsForThisRound = [];  // 没有计划不给工具
     }
     
     let result;
@@ -436,10 +440,53 @@ async function processMessage(
     // 有工具调用
     // 复杂任务：必须先有计划才能执行工具
     if (complexity === 'complex' && !currentPlan) {
-      console.log(chalk.yellow('\n⚠️ 检测到模型尝试直接执行工具'));
-      console.log(chalk.gray('复杂任务需要先输出计划，已阻止工具执行'));
+      planAttempts++;
       
-      // 添加更强的提示到历史中
+      console.log(chalk.yellow('\n⚠️ 检测到模型尝试直接执行工具'));
+      console.log(chalk.gray(`复杂任务需要先输出计划 (尝试 ${planAttempts}/${MAX_PLAN_ATTEMPTS})`));
+      
+      // 检查是否超过最大尝试次数
+      if (planAttempts >= MAX_PLAN_ATTEMPTS) {
+        console.log();
+        console.log(chalk.red('❌ 规划阶段已达到最大尝试次数'));
+        console.log(chalk.gray('模型多次尝试直接执行工具，未能输出计划'));
+        console.log(chalk.gray('您可以选择：'));
+        console.log(chalk.gray('  1. 继续尝试（输入 y）'));
+        console.log(chalk.gray('  2. 跳过规划，直接执行（输入 s）'));
+        console.log(chalk.gray('  3. 取消任务（输入其他）'));
+        
+        // 使用 readline 获取用户输入
+        const rl = readline.createInterface({
+          input: process.stdin,
+          output: process.stdout,
+        });
+        
+        const answer = await new Promise<string>((resolve) => {
+          rl.question(chalk.cyan('\n请选择 [y/s/N]: '), resolve);
+        });
+        rl.close();
+        
+        if (answer.toLowerCase() === 'y') {
+          planAttempts = 0;  // 重置尝试次数
+          console.log(chalk.gray('继续尝试规划...'));
+        } else if (answer.toLowerCase() === 's') {
+          console.log(chalk.yellow('⏭️  跳过规划阶段，直接执行'));
+          // 创建一个默认计划
+          currentPlan = {
+            title: '直接执行模式',
+            steps: [
+              { id: 'step-1', description: '执行任务', status: 'in_progress' },
+            ],
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+        } else {
+          console.log(chalk.red('✗ 任务已取消'));
+          return;
+        }
+      }
+      
+      // 添加警告到历史
       addAssistantMessage(session, result.content);
       addUserMessage(session, 
         '【系统警告】你仍然没有输出计划！\n\n' +
