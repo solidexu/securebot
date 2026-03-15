@@ -10,12 +10,14 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync, rmSync, readdirSync
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import JSON5 from 'json5';
+import { 
+  loadConfig, 
+  saveConfig, 
+  getConfigPath, 
+  getRootDir, 
+  getAgentsDir 
+} from '../../core/config.js';
 import type { Config, AgentConfig, ToolPolicy } from '../../core/types.js';
-
-// ============ 常量 ============
-
-const CONFIG_DIR = join(homedir(), '.securebot');
-const CONFIG_PATH = join(CONFIG_DIR, 'config.json');
 
 // ============ 工具预设 ============
 
@@ -181,43 +183,33 @@ async function saveAgent(agent: AgentConfig, config: Config): Promise<void> {
   // 添加新 Agent
   config.agents.push(agent);
   
-  // 创建工作空间（相对于当前工作目录）
-  const workspaceDir = join(process.cwd(), 'agents', agent.workspace);
+  // 创建工作空间（使用配置的 rootDir）
+  const agentsDir = getAgentsDir(config);
+  const workspaceDir = join(agentsDir, agent.workspace);
   if (!existsSync(workspaceDir)) {
     mkdirSync(workspaceDir, { recursive: true });
   }
   
-  // 保存配置
-  if (!existsSync(CONFIG_DIR)) {
-    mkdirSync(CONFIG_DIR, { recursive: true });
+  // 确保配置目录存在
+  const configPath = getConfigPath(config);
+  const configDir = resolve(configPath, '..');
+  if (!existsSync(configDir)) {
+    mkdirSync(configDir, { recursive: true });
   }
   
-  writeFileSync(CONFIG_PATH, JSON5.stringify(config, null, 2), 'utf-8');
+  // 保存配置
+  saveConfig(config);
+  
+  console.log(chalk.gray(`工作空间: ${workspaceDir}`));
 }
 
 // ============ 加载现有配置 ============
 
 function loadExistingConfig(): Config {
-  if (!existsSync(CONFIG_PATH)) {
-    // 返回默认配置
-    return {
-      model: {
-        model: 'qwen3.5:35b-a3b',
-        baseUrl: 'http://localhost:11434',
-      },
-      defaultAgent: 'dev',
-      tools: {
-        profile: 'minimal',
-        deny: ['group:web'],
-      },
-      agents: [],
-    };
-  }
-  
   try {
-    const content = readFileSync(CONFIG_PATH, 'utf-8');
-    return JSON5.parse(content);
+    return loadConfig();
   } catch {
+    // 返回默认配置
     return {
       model: {
         model: 'qwen3.5:35b-a3b',
@@ -301,14 +293,12 @@ export async function deleteAgentInteractive(): Promise<void> {
     }
     
     // 保存配置
-    writeFileSync(CONFIG_PATH, JSON5.stringify(config, null, 2), 'utf-8');
+    saveConfig(config);
     
     // 删除工作空间目录
     if (deletedAgent) {
-      const dataDir = config.dataDir ?? join(homedir(), '.securebot');
-      const agentsDir = config.workspaceBaseDir 
-        ? resolve(config.workspaceBaseDir)
-        : join(dataDir, 'agents');
+      const rootDir = getRootDir(config);
+      const agentsDir = getAgentsDir(config);
       const workspacePath = deletedAgent.workspace.startsWith('/')
         ? deletedAgent.workspace
         : join(agentsDir, deletedAgent.workspace);
@@ -324,7 +314,7 @@ export async function deleteAgentInteractive(): Promise<void> {
       }
       
       // 删除会话数据
-      const sessionsPath = join(dataDir, 'sessions');
+      const sessionsPath = join(rootDir, 'sessions');
       if (existsSync(sessionsPath)) {
         try {
           const sessionFiles = readdirSync(sessionsPath)
