@@ -4,6 +4,7 @@
  * 交互式聊天界面，支持流式输出和会话持久化
  */
 
+import * as readlinePromises from 'node:readline/promises';
 import * as readline from 'node:readline';
 import chalk from 'chalk';
 import type { ReplState, Agent, Message, ChatParams } from '../core/types.js';
@@ -120,8 +121,8 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
   // 打印欢迎信息
   printWelcome(state);
 
-  // 创建 readline 接口
-  const rl = readline.createInterface({ 
+  // 创建 readline 接口 (使用 promises 版本)
+  const rl = readlinePromises.createInterface({ 
     input: process.stdin, 
     output: process.stdout 
   });
