@@ -374,19 +374,9 @@ async function processMessage(
       // 使用流式输出
       let streamStarted = false;
       let hasContent = false;
-      let interrupted = false;
-      
-      // 设置中断监听
-      const handleInterrupt = () => {
-        interrupted = true;
-        process.stdout.write('\n' + chalk.yellow('[已打断]') + '\n');
-      };
-      
-      // 监听 Ctrl+C
-      process.once('SIGINT', handleInterrupt);
       
       const onStream: StreamCallback = (chunk) => {
-        if (interrupted) return;
+        if (state.interrupted) return;
         
         if (!streamStarted && chunk.content) {
           // 首次收到内容，显示 Agent 名称后开始输出
@@ -423,11 +413,8 @@ async function processMessage(
         } as ChatParams);
       }
       
-      // 恢复原始监听器
-      process.removeListener('SIGINT', handleInterrupt);
-      
       // 如果被打断，直接返回
-      if (interrupted) {
+      if (state.interrupted) {
         return;
       }
       
