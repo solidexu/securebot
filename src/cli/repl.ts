@@ -418,8 +418,10 @@ async function processMessage(
           
           // 如果用户选择了"总是允许"，记住这个决定
           if (confirmResult.remember) {
-            confirmationManager.rememberDecision(toolCall.name, toolCall.arguments);
-            console.log(chalk.gray('✓ 已记住选择，后续同类操作不再询问'));
+            const scope = confirmResult.rememberScope ?? 'tool';
+            confirmationManager.rememberDecision(toolCall.name, toolCall.arguments, scope);
+            const scopeText = scope === 'tool' ? '所有操作' : '此目录的操作';
+            console.log(chalk.gray(`✓ 已记住选择，后续 ${toolCall.name} ${scopeText}不再询问`));
           }
         }
         
@@ -1275,7 +1277,7 @@ async function saveAllSessions(
 async function showConfirmationDialog(
   request: ConfirmationRequest,
   rl: readline.Interface
-): Promise<{ confirmed: boolean; remember?: boolean }> {
+): Promise<{ confirmed: boolean; remember?: boolean; rememberScope?: 'tool' | 'pattern' }> {
   console.log();
   console.log(chalk.yellow.bold('⚠️  敏感操作确认'));
   console.log(chalk.gray('─'.repeat(40)));
@@ -1311,7 +1313,11 @@ async function showConfirmationDialog(
   console.log(chalk.cyan('请选择:'));
   console.log(chalk.white('  y = 本次确认'));
   console.log(chalk.white('  N = 拒绝执行（默认）'));
-  console.log(chalk.white('  a = 总是允许，不再询问此类操作'));
+  console.log(chalk.white('  a = 总是允许此工具的所有操作'));
+  // 如果有路径参数，显示目录选项
+  if (request.params['path']) {
+    console.log(chalk.white('  p = 总是允许此目录的操作'));
+  }
   console.log();
   
   const answer = await rl.question(
@@ -1325,7 +1331,11 @@ async function showConfirmationDialog(
   }
   
   if (input === 'a' || input === 'always') {
-    return { confirmed: true, remember: true };
+    return { confirmed: true, remember: true, rememberScope: 'tool' };
+  }
+  
+  if (input === 'p' && request.params['path']) {
+    return { confirmed: true, remember: true, rememberScope: 'pattern' };
   }
   
   console.log(chalk.red('✗ 操作已取消'));

@@ -74,6 +74,14 @@ export interface ConfirmationRequest {
 }
 
 /**
+ * 记忆范围
+ */
+export type RememberScope = 
+  | 'once'      // 仅本次（不记住）
+  | 'tool'      // 记住整个工具的所有操作
+  | 'pattern';  // 记住特定模式（如路径前缀）
+
+/**
  * 确认结果
  */
 export interface ConfirmationResult {
@@ -81,6 +89,8 @@ export interface ConfirmationResult {
   confirmed: boolean;
   /** 是否记住选择 */
   remember?: boolean;
+  /** 记忆范围 */
+  rememberScope?: RememberScope;
   /** 备注 */
   note?: string;
 }
@@ -374,10 +384,35 @@ export class ConfirmationManager {
   /**
    * 记住决策（用于 "总是允许" 选项）
    */
-  rememberDecision(tool: string, params: Record<string, unknown>): void {
-    const key = this.getDecisionKey(tool, params);
+  rememberDecision(tool: string, params: Record<string, unknown>, scope: RememberScope = 'tool'): void {
+    let key: string;
+    
+    if (scope === 'tool') {
+      // 工具级别：记住整个工具的所有操作
+      key = tool;
+    } else if (scope === 'pattern') {
+      // 模式级别：记住特定模式（如目录前缀）
+      key = this.getPatternKey(tool, params);
+    } else {
+      // 单次：记录具体参数
+      key = this.getDecisionKey(tool, params);
+    }
+    
     this.rememberedDecisions.set(key, true);
     this.saveRememberedDecisions();
+  }
+
+  /**
+   * 获取模式级别的 key（目录前缀）
+   */
+  private getPatternKey(tool: string, params: Record<string, unknown>): string {
+    const path = params['path'] as string;
+    if (path) {
+      // 提取目录前缀
+      const dirPath = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+      return `${tool}:dir=${dirPath}`;
+    }
+    return this.getDecisionKey(tool, params);
   }
 
   /**
@@ -424,7 +459,20 @@ export class ConfirmationManager {
       return true;
     }
 
-    // 检查记住的决定
+    // 检查记住的决定（多个级别）
+    
+    // 1. 工具级别（最高优先级）
+    if (this.rememberedDecisions.has(tool)) {
+      return false;
+    }
+    
+    // 2. 模式级别（目录前缀）
+    const patternKey = this.getPatternKey(tool, params);
+    if (this.rememberedDecisions.has(patternKey)) {
+      return false;
+    }
+    
+    // 3. 具体级别（精确匹配）
     const decisionKey = this.getDecisionKey(tool, params);
     if (this.rememberedDecisions.has(decisionKey)) {
       return false;
@@ -468,7 +516,22 @@ export class ConfirmationManager {
       return { confirmed: true };
     }
 
-    // 检查记住的决定
+    // 检查记住的决定（多个级别）
+    
+    // 1. 工具级别
+    const toolRemembered = this.rememberedDecisions.get(tool);
+    if (toolRemembered !== undefined) {
+      return { confirmed: toolRemembered, remember: true, rememberScope: 'tool' };
+    }
+    
+    // 2. 模式级别
+    const patternKey = this.getPatternKey(tool, params);
+    const patternRemembered = this.rememberedDecisions.get(patternKey);
+    if (patternRemembered !== undefined) {
+      return { confirmed: patternRemembered, remember: true, rememberScope: 'pattern' };
+    }
+    
+    // 3. 具体级别
     const decisionKey = this.getDecisionKey(tool, params);
     const remembered = this.rememberedDecisions.get(decisionKey);
     if (remembered !== undefined) {
