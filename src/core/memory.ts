@@ -724,6 +724,82 @@ export class MemoryManager {
     };
   }
 
+  /**
+   * 检查 Agent 是否已初始化记忆
+   */
+  async isAgentInitialized(agentId: string): Promise<{
+    initialized: boolean;
+    hasProfile: boolean;
+    hasMemory: boolean;
+    missing: string[];
+  }> {
+    if (!this.initialized) await this.initialize();
+
+    const missing: string[] = [];
+    let hasProfile = false;
+    let hasMemory = false;
+
+    // 检查 Agent 档案
+    const profilePath = join(this.config.rootDir, 'profiles', `agent_${agentId}.json`);
+    if (existsSync(profilePath)) {
+      hasProfile = true;
+    } else {
+      missing.push('Agent 档案');
+    }
+
+    // 检查工作记忆
+    const dates = this.getRecentDates(this.config.workingMemoryDays);
+    for (const date of dates) {
+      const memory = await this.loadDailyMemory(date, agentId);
+      if (memory && memory.entries.length > 0) {
+        hasMemory = true;
+        break;
+      }
+    }
+    if (!hasMemory) {
+      missing.push('工作记忆');
+    }
+
+    return {
+      initialized: hasProfile || hasMemory,
+      hasProfile,
+      hasMemory,
+      missing,
+    };
+  }
+
+  /**
+   * 初始化 Agent 记忆
+   */
+  async initializeAgentMemory(agentId: string, agentName: string, role?: string): Promise<void> {
+    if (!this.initialized) await this.initialize();
+
+    // 创建 Agent 档案
+    const profile = await this.getAgentProfile(agentId, agentName);
+    if (role) {
+      profile.role = role;
+    }
+    await this.saveAgentProfile(profile);
+
+    // 创建初始工作记忆
+    const today = new Date().toISOString().split('T')[0] ?? new Date().toISOString().slice(0, 10);
+    const memory: DailyMemory = {
+      date: today,
+      agentId,
+      entries: [
+        {
+          timestamp: new Date().toISOString(),
+          type: 'event',
+          content: `Agent ${agentName} 记忆系统初始化`,
+          importance: 3,
+          tags: ['init'],
+          agentId,
+        },
+      ],
+    };
+    await this.saveDailyMemory(memory);
+  }
+
   // ============ 自动摘要系统 ============
 
   /**

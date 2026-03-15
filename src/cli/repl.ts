@@ -210,6 +210,23 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
         console.log(chalk.cyan('└─────────────────────────────────────┘'));
         console.log();
         
+        // 检查 Agent 记忆是否已初始化
+        const memStatus = await memoryManager.isAgentInitialized(agentId);
+        if (!memStatus.initialized) {
+          console.log(chalk.yellow('💡 检测到该 Agent 尚未初始化记忆系统'));
+          console.log(chalk.gray('─'.repeat(45)));
+          console.log(chalk.white('初始化后 Agent 可以：'));
+          console.log(chalk.gray('  • 记住你的偏好和重要信息'));
+          console.log(chalk.gray('  • 保持跨会话的上下文'));
+          console.log(chalk.gray('  • 学习和适应用户习惯'));
+          console.log();
+          console.log(chalk.white('初始化方法：'));
+          console.log(chalk.cyan('  /init-memory'));
+          console.log(chalk.gray('  或告诉 Agent："记住我的名字是xxx"'));
+          console.log(chalk.gray('─'.repeat(45)));
+          console.log();
+        }
+        
         // 如果有消息，继续处理
         if (message.trim()) {
           await processMessage(state, targetAgent, message.trim(), rl, sessionStorage);
@@ -824,6 +841,30 @@ async function handleCommand(
       break;
     }
 
+    case 'init-memory': {
+      const agent = state.agents.get(state.currentAgentId);
+      if (agent) {
+        const memStatus = await memoryManager.isAgentInitialized(agent.id);
+        if (memStatus.initialized) {
+          console.log(chalk.green('✓ 该 Agent 记忆系统已初始化'));
+          console.log(chalk.gray(`  Agent 档案: ${memStatus.hasProfile ? '✓' : '✗'}`));
+          console.log(chalk.gray(`  工作记忆: ${memStatus.hasMemory ? '✓' : '✗'}`));
+        } else {
+          console.log(chalk.cyan('正在初始化记忆系统...'));
+          await memoryManager.initializeAgentMemory(agent.id, agent.name, agent.systemPrompt);
+          console.log(chalk.green('✓ 记忆系统初始化完成'));
+          console.log();
+          console.log(chalk.white('现在你可以：'));
+          console.log(chalk.gray('  • 说"记住我的名字是xxx"记录个人信息'));
+          console.log(chalk.gray('  • 说"记住项目路径是/xxx"记录重要路径'));
+          console.log(chalk.gray('  • 说"我喜欢xxx"记录偏好'));
+          console.log();
+          console.log(chalk.gray('使用 /memory stats 查看记忆状态'));
+        }
+      }
+      break;
+    }
+
     case 'model':
       if (arg) {
         // 动态切换模型
@@ -1389,6 +1430,7 @@ function printHelp(): void {
   console.log('  /exit, /quit, /q  退出');
   console.log('  /agent [name]    显示/切换当前 Agent');
   console.log('  /agents          列出所有 Agent');
+  console.log('  /init-memory     初始化当前 Agent 的记忆系统');
   console.log('  /skills          显示当前 Agent 的技能');
   console.log('  /history         显示对话历史');
   console.log('  /model [name]    显示/切换当前模型');
@@ -1402,6 +1444,12 @@ function printHelp(): void {
   console.log('  /export [format] 导出会话 (markdown/json/txt)');
   console.log('  /confirm [on/off/always]  敏感操作确认设置');
   console.log('  /clear           清屏');
+  console.log();
+  console.log(chalk.cyan('记忆系统:'));
+  console.log('  /init-memory     初始化当前 Agent 的记忆');
+  console.log('  /memory stats    显示记忆统计');
+  console.log('  /memory search   搜索记忆内容');
+  console.log(chalk.gray('  提示: 告诉 Agent "记住xxx" 会自动记录'));
   console.log();
   console.log(chalk.cyan('任务管理:'));
   console.log('  /checkpoint list          列出检查点');
