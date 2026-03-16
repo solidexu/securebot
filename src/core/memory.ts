@@ -193,6 +193,77 @@ const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
   ragSyncThreshold: 4,   // 重要性 >= 4 时同步到 RAG
 };
 
+// ============ 智能重要性评估 ============
+
+/**
+ * 重要性评估规则
+ */
+interface ImportanceRule {
+  /** 规则名称 */
+  name: string;
+  /** 匹配函数 */
+  match: (content: string, type: MemoryEntry['type']) => boolean;
+  /** 分数调整 */
+  score: number;
+}
+
+const IMPORTANCE_RULES: ImportanceRule[] = [
+  // 类型加权
+  { name: 'knowledge_type', match: (_, type) => type === 'knowledge', score: 2 },
+  { name: 'preference_type', match: (_, type) => type === 'preference', score: 2 },
+  { name: 'event_type', match: (_, type) => type === 'event', score: 1 },
+  { name: 'task_type', match: (_, type) => type === 'task', score: 1 },
+  
+  // 关键词：明确要求记住
+  { name: 'explicit_remember', match: (c) => /^(记住|记得|保存|记录|别忘了)/.test(c), score: 2 },
+  { name: 'important_keywords', match: (c) => /重要|关键|必须|一定要/.test(c), score: 1 },
+  
+  // 配置/偏好相关
+  { name: 'preference_keywords', match: (c) => /我喜欢|我偏好|我习惯|我的/.test(c), score: 1 },
+  { name: 'config_keywords', match: (c) => /配置|设置|选项|参数/.test(c), score: 1 },
+  
+  // 项目/路径相关
+  { name: 'project_keywords', match: (c) => /项目|工程|仓库/.test(c), score: 1 },
+  { name: 'path_pattern', match: (c) => /[\/\\][\w\-\.]+/.test(c), score: 1 },
+  
+  // 高风险操作
+  { name: 'dangerous_keywords', match: (c) => /删除|移除|清空|格式化/.test(c), score: 1 },
+  
+  // 决策相关
+  { name: 'decision_keywords', match: (c) => /决定|选择|方案|架构/.test(c), score: 1 },
+  
+  // 复杂任务
+  { name: 'complex_keywords', match: (c) => /重构|迁移|部署|设计|实现/.test(c), score: 1 },
+  
+  // 时间相关
+  { name: 'schedule_keywords', match: (c) => /明天|下周|日期|时间|计划/.test(c), score: 1 },
+];
+
+/**
+ * 智能评估记忆重要性
+ * 
+ * @param content 记忆内容
+ * @param type 记忆类型
+ * @returns 重要性分数 (1-5)
+ */
+export function assessImportance(content: string, type: MemoryEntry['type']): number {
+  let score = 3; // 基础分
+
+  // 应用规则
+  for (const rule of IMPORTANCE_RULES) {
+    if (rule.match(content, type)) {
+      score += rule.score;
+    }
+  }
+
+  // 内容长度加权（长内容可能更重要）
+  if (content.length > 500) score += 1;
+  if (content.length < 50) score -= 1;
+
+  // 限制在 1-5 范围
+  return Math.min(5, Math.max(1, score));
+}
+
 /**
  * 重要信息提取模式
  */
@@ -290,15 +361,23 @@ export class MemoryManager {
 
   /**
    * 记录记忆条目
+   * @param agentId Agent ID
+   * @param content 记忆内容
+   * @param type 记忆类型
+   * @param importance 重要性（可选，默认智能评估）
+   * @param tags 标签
    */
   async remember(
     agentId: string,
     content: string,
     type: MemoryEntry['type'] = 'conversation',
-    importance: number = 3,
+    importance?: number,
     tags?: string[]
   ): Promise<void> {
     if (!this.initialized) await this.initialize();
+
+    // 智能评估重要性（如果未指定）
+    const finalImportance = importance ?? assessImportance(content, type);
 
     const today = new Date().toISOString().split('T')[0] ?? new Date().toISOString().slice(0, 10);
     const memory = await this.getDailyMemory(today, agentId);
@@ -307,7 +386,7 @@ export class MemoryManager {
       timestamp: new Date().toISOString(),
       type,
       content,
-      importance,
+      importance: finalImportance,
       tags,
       agentId,
     };
@@ -330,7 +409,7 @@ export class MemoryManager {
     }
     
     // 自动同步到 RAG（重要性 >= 阈值）
-    if (this.config.enableRAGSync && importance >= this.config.ragSyncThreshold && this.ragStore) {
+    if (this.config.enableRAGSync && finalImportance >= this.config.ragSyncThreshold && this.ragStore) {
       await this.syncToRAG(entry);
     }
     
