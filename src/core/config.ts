@@ -260,13 +260,19 @@ export function findConfigPath(): string {
     return join(resolve(envDir), DEFAULT_CONFIG_FILE);
   }
   
-  // 3. 当前目录 .securebot/config.json
+  // 3. 当前目录 config.json（直接在当前目录下）
+  const directConfigPath = join(process.cwd(), DEFAULT_CONFIG_FILE);
+  if (existsSync(directConfigPath)) {
+    return directConfigPath;
+  }
+  
+  // 4. 当前目录 .securebot/config.json
   const localConfigPath = join(process.cwd(), '.securebot', DEFAULT_CONFIG_FILE);
   if (existsSync(localConfigPath)) {
     return localConfigPath;
   }
   
-  // 4. 默认 ~/.securebot/config.json
+  // 5. 默认 ~/.securebot/config.json
   return join(homedir(), DEFAULT_CONFIG_DIR, DEFAULT_CONFIG_FILE);
 }
 
@@ -298,14 +304,24 @@ export function createDefaultConfig(): void {
   const configPath = findConfigPath();
   const configDir = dirname(configPath);
   
-  // 创建配置目录
-  if (!existsSync(configDir)) {
-    mkdirSync(configDir, { recursive: true });
+  // 创建配置目录（如果不是直接在当前目录下的 config.json）
+  if (!configPath.endsWith(join(process.cwd(), DEFAULT_CONFIG_FILE))) {
+    if (!existsSync(configDir)) {
+      mkdirSync(configDir, { recursive: true });
+    }
   }
   
+  // 创建带有 rootDir 的默认配置
+  // 如果配置文件直接在当前目录下，设置 rootDir 为当前目录
+  const configWithRootDir: Config = {
+    ...DEFAULT_CONFIG,
+    rootDir: configDir,
+  };
+  
   // 写入默认配置
-  writeFileSync(configPath, JSON5.stringify(DEFAULT_CONFIG, null, 2), 'utf-8');
+  writeFileSync(configPath, JSON5.stringify(configWithRootDir, null, 2), 'utf-8');
   console.log(`默认配置已创建: ${configPath}`);
+  console.log(`根目录设置为: ${configDir}`);
   
   // 创建工作空间目录
   const agentsDir = join(configDir, 'agents');
