@@ -69,29 +69,33 @@ securebot chat
 SecureBot 使用统一的根目录管理所有数据：
 
 ```
-~/.securebot/              # 默认根目录（可自定义）
+{rootDir}/                 # 默认 ~/.securebot/（可自定义）
 ├── config.json            # 配置文件
 ├── agents/                # Agent 工作空间
 │   ├── dev/               # 开发助手工作空间
-│   ├── support/           # 客服助手工作空间
-│   └── python_dev/        # Python 开发助手
-├── memory/                # 记忆数据
-│   ├── daily/             # 每日记忆
-│   ├── profiles/          # 用户档案
-│   └── summaries/         # 记忆摘要
+│   └── py/                # Python 助手工作空间
+├── memory/                # 记忆数据（三层架构）
+│   ├── daily/             # Layer 1: 每日工作记忆
+│   ├── profiles/          # Layer 2: 用户/Agent 档案
+│   ├── events/            # Layer 2: 重要事件记录
+│   └── summaries/         # Layer 2: 记忆摘要
+├── knowledges/            # RAG 知识库
+│   ├── dev/               # 开发助手知识库
+│   └── py/                # Python 助手知识库
 ├── skills/                # 技能定义
-│   └── public/            # 公共技能
+│   ├── public/            # 公共技能（所有 Agent 可用）
+│   └── private/           # 个人技能（仅特定 Agent）
 ├── sessions/              # 会话持久化
 └── audit/                 # 审计日志
 ```
 
 ### 自定义根目录
 
-在 `~/.securebot/config.json` 中设置：
+在 `config.json` 中设置：
 
 ```json
 {
-  "rootDir": "/data/securebot",
+  "rootDir": "/data/mybot",
   "model": {
     "model": "qwen3.5:35b-a3b",
     "baseUrl": "http://localhost:11434"
@@ -368,13 +372,13 @@ securebot chat
 ### 目录结构
 
 ```
-~/.securebot/
+{rootDir}/
 ├── agents/              # Agent 工作空间
 │   ├── dev/
-│   └── my-agent/
-├── knowledges/          # Agent 知识库（自动创建）
+│   └── py/
+├── knowledges/          # RAG 知识库（自动创建）
 │   ├── dev/
-│   └── my-agent/        # 每个 Agent 独立的知识库目录
+│   └── py/              # 每个 Agent 独立的知识库目录
 └── config.json
 ```
 

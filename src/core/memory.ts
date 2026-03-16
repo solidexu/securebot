@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, append
 import { join } from 'node:path';
 import { getMemoryDir } from './config.js';
 import type { Config } from './types.js';
+import { homedir } from 'node:os';
 import type { AdvancedRAGStore } from '../rag/store.js';
 
 // ============ RAG 同步接口 ============
@@ -340,12 +341,18 @@ export class MemoryManager {
   async initialize(): Promise<void> {
     if (this.initialized) return;
 
-    // 确保目录存在
-    const dirs = ['daily', 'profiles', 'events', 'knowledge', 'summaries'];
+    // 确保记忆目录存在
+    // 所有记忆文件都在 rootDir/memory/ 下
+    const memoryDir = this.config.rootDir;
+    const dirs = [
+      join(memoryDir, 'daily'),
+      join(memoryDir, 'profiles'),
+      join(memoryDir, 'events'),
+      join(memoryDir, 'summaries'),
+    ];
     for (const dir of dirs) {
-      const fullPath = join(this.config.rootDir, dir);
-      if (!existsSync(fullPath)) {
-        mkdirSync(fullPath, { recursive: true });
+      if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true });
       }
     }
 
@@ -415,8 +422,15 @@ export class MemoryManager {
       await this.extractKeyInfoFromContent(content);
     }
     
-    // 自动同步到 RAG（重要性 >= 阈值）
-    if (this.config.enableRAGSync && finalImportance >= this.config.ragSyncThreshold && this.ragStore) {
+    // 自动同步到 RAG（仅限重要记忆）
+    // 只同步 knowledge/preference/event 类型，避免琐碎操作污染 RAG
+    const shouldSyncToRAG = 
+      this.config.enableRAGSync &&
+      finalImportance >= this.config.ragSyncThreshold &&
+      this.ragStore &&
+      ['knowledge', 'preference', 'event'].includes(type);
+    
+    if (shouldSyncToRAG) {
       await this.syncToRAG(entry);
     }
     
@@ -1371,21 +1385,25 @@ let globalMemoryManager: MemoryManager | null = null;
 
 /**
  * 获取记忆管理器
- * @param configOrRootDir 可选：Config 对象或 rootDir 字符串
+ * @param configOrRootDir 可选：Config 对象、MemoryConfig 或 memory 目录路径
  */
 export function getMemoryManager(configOrRootDir?: Partial<MemoryConfig> | Config | string): MemoryManager {
   if (!globalMemoryManager) {
     let memoryConfig: Partial<MemoryConfig> = {};
     
     if (typeof configOrRootDir === 'string') {
-      // 直接传入 rootDir 字符串
+      // 直接传入 memory 目录路径
       memoryConfig = { rootDir: configOrRootDir };
-    } else if (configOrRootDir && 'rootDir' in configOrRootDir) {
-      // 传入 Config 对象
-      memoryConfig = { rootDir: configOrRootDir.rootDir };
+    } else if (configOrRootDir && 'agents' in configOrRootDir && 'model' in configOrRootDir) {
+      // 传入 Config 对象，计算 memory 目录
+      const config = configOrRootDir as Config;
+      memoryConfig = { rootDir: getMemoryDir(config) };
     } else if (configOrRootDir) {
       // 传入 MemoryConfig
       memoryConfig = configOrRootDir as Partial<MemoryConfig>;
+    } else {
+      // 没有传入参数，使用默认 memory 目录
+      memoryConfig = { rootDir: join(homedir(), '.securebot', 'memory') };
     }
     
     globalMemoryManager = new MemoryManager(memoryConfig);
