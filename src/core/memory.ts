@@ -9,6 +9,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getMemoryDir } from './config.js';
+import type { Config } from './types.js';
 import type { AdvancedRAGStore } from '../rag/store.js';
 
 // ============ RAG 同步接口 ============
@@ -1370,16 +1371,30 @@ let globalMemoryManager: MemoryManager | null = null;
 
 /**
  * 获取记忆管理器
+ * @param configOrRootDir 可选：Config 对象或 rootDir 字符串
  */
-export function getMemoryManager(config?: Partial<MemoryConfig>): MemoryManager {
+export function getMemoryManager(configOrRootDir?: Partial<MemoryConfig> | Config | string): MemoryManager {
   if (!globalMemoryManager) {
-    globalMemoryManager = new MemoryManager(config);
+    let memoryConfig: Partial<MemoryConfig> = {};
+    
+    if (typeof configOrRootDir === 'string') {
+      // 直接传入 rootDir 字符串
+      memoryConfig = { rootDir: configOrRootDir };
+    } else if (configOrRootDir && 'rootDir' in configOrRootDir) {
+      // 传入 Config 对象
+      memoryConfig = { rootDir: configOrRootDir.rootDir };
+    } else if (configOrRootDir) {
+      // 传入 MemoryConfig
+      memoryConfig = configOrRootDir as Partial<MemoryConfig>;
+    }
+    
+    globalMemoryManager = new MemoryManager(memoryConfig);
   }
   return globalMemoryManager;
 }
 
 /**
- * 重置记忆管理器
+ * 重置记忆管理器（用于重新加载配置）
  */
 export function resetMemoryManager(): void {
   globalMemoryManager = null;

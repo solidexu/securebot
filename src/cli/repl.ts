@@ -88,11 +88,12 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
   const sessionStorage = getSessionStorage();
   await sessionStorage.initialize();
 
-  // 初始化记忆系统
-  const memoryManager = getMemoryManager();
+  // 初始化记忆系统（使用配置中的 rootDir）
+  const memoryManager = getMemoryManager(config);
   await memoryManager.initialize();
   const memoryStats = memoryManager.getStats();
   console.log(chalk.green(`✓ 记忆系统就绪 (${memoryStats.totalEntries} 条记忆)`));
+  console.log(chalk.gray(`  记忆目录: ${getRootDir(config)}/memory`));
 
   // 初始化 RAG 并连接到记忆系统
   for (const agent of agents.values()) {
