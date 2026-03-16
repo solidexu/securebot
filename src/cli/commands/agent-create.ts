@@ -6,10 +6,9 @@
 
 import * as p from '@clack/prompts';
 import chalk from 'chalk';
-import { existsSync, mkdirSync, writeFileSync, readFileSync, rmSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
-import JSON5 from 'json5';
 import { 
   loadConfig, 
   saveConfig, 
@@ -18,6 +17,44 @@ import {
   getAgentsDir 
 } from '../../core/config.js';
 import type { Config, AgentConfig, ToolPolicy } from '../../core/types.js';
+
+// ============ Ollama 检测 ============
+
+/** 支持的嵌入模型列表（按优先级排序） */
+const EMBEDDING_MODELS = [
+  'all-minilm',
+  'nomic-embed-text',
+  'mxbai-embed-large',
+  'snowflake-arctic-embed',
+];
+
+/**
+ * 检测 Ollama 是否运行并返回可用的嵌入模型
+ */
+async function detectEmbeddingModel(ollamaUrl: string = 'http://localhost:11434'): Promise<string | null> {
+  try {
+    const response = await fetch(`${ollamaUrl}/api/tags`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(3000),
+    });
+    
+    if (!response.ok) return null;
+    
+    const data = await response.json() as { models?: Array<{ name: string }> };
+    const models = data.models?.map(m => m.name.toLowerCase()) ?? [];
+    
+    // 按优先级查找可用的嵌入模型
+    for (const model of EMBEDDING_MODELS) {
+      if (models.some(m => m.includes(model))) {
+        return model;
+      }
+    }
+    
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 // ============ 工具预设 ============
 
@@ -53,8 +90,8 @@ export async function createAgentInteractive(): Promise<void> {
   const config = loadExistingConfig();
   const existingIds = config.agents.map((a: AgentConfig) => a.id);
   
-  // 收集 Agent 信息
-  const agentInfo = await collectAgentInfo(existingIds);
+  // 收集 Agent 信息（传入 config 以检测 Ollama）
+  const agentInfo = await collectAgentInfo(existingIds, config);
   if (!agentInfo) {
     console.log(chalk.gray('已取消'));
     return;
@@ -74,12 +111,19 @@ export async function createAgentInteractive(): Promise<void> {
   console.log(chalk.gray(`使用方式：`));
   console.log(chalk.white(`  @${agentInfo.id} <消息>`));
   console.log(chalk.white(`  /agent ${agentInfo.id}`));
+  
+  if (agentInfo.rag?.enabled) {
+    console.log();
+    console.log(chalk.gray(`添加文档到知识库：`));
+    const kbPath = agentInfo.rag.knowledgeDirs?.[0] ?? `~/.securebot/knowledges/${agentInfo.id}`;
+    console.log(chalk.white(`  cp *.md ${kbPath}`));
+  }
   console.log();
 }
 
 // ============ 收集信息 ============
 
-async function collectAgentInfo(existingIds: string[]): Promise<AgentConfig | null> {
+async function collectAgentInfo(existingIds: string[], config: Config): Promise<AgentConfig | null> {
   // Agent ID
   const id = await p.text({
     message: 'Agent ID（仅字母、数字、下划线）',
@@ -144,6 +188,32 @@ async function collectAgentInfo(existingIds: string[]): Promise<AgentConfig | nu
     agentConfig.default = true;
   }
   
+  // 自动检测并创建知识库
+  const spinner = p.spinner();
+  spinner.start('检测 Ollama 嵌入模型...');
+  
+  const embeddingModel = await detectEmbeddingModel(config.model.baseUrl);
+  
+  if (embeddingModel) {
+    spinner.stop(`检测到嵌入模型: ${embeddingModel}`);
+    
+    // 自动为 Agent 启用 RAG
+    agentConfig.rag = {
+      enabled: true,
+      knowledgeDirs: [`~/.securebot/knowledges/${id}`],
+      embeddingModel,
+      chunkSize: 1000,
+      chunkOverlap: 200,
+      topK: 5,
+      minScore: 0.5,
+    };
+    
+    console.log(chalk.gray(`  ✓ 已自动配置知识库: ~/.securebot/knowledges/${id}`));
+  } else {
+    spinner.stop('未检测到嵌入模型，跳过知识库配置');
+    console.log(chalk.gray(`  提示: 安装嵌入模型后可启用知识库: ollama pull all-minilm`));
+  }
+  
   return agentConfig;
 }
 
@@ -159,6 +229,14 @@ async function showPreview(agent: AgentConfig, config: Config): Promise<boolean>
   console.log(chalk.white(`  名称:      ${agent.name}`));
   console.log(chalk.white(`  权限:      ${TOOL_PROFILES[agent.tools?.profile ?? 'minimal']?.name ?? agent.tools?.profile}`));
   console.log(chalk.white(`  工作空间:  ${workspacePath}`));
+  
+  // 显示知识库信息
+  if (agent.rag?.enabled) {
+    const kbPath = agent.rag.knowledgeDirs?.[0] ?? `~/.securebot/knowledges/${agent.id}`;
+    console.log(chalk.white(`  知识库:    ${kbPath}`));
+    console.log(chalk.white(`  嵌入模型:  ${agent.rag.embeddingModel}`));
+  }
+  
   if (agent.default) {
     console.log(chalk.white(`  默认:      ✓`));
   }
@@ -192,6 +270,15 @@ async function saveAgent(agent: AgentConfig, config: Config): Promise<void> {
   const workspaceDir = join(agentsDir, agent.workspace);
   if (!existsSync(workspaceDir)) {
     mkdirSync(workspaceDir, { recursive: true });
+  }
+  
+  // 创建知识库目录
+  if (agent.rag?.enabled && agent.rag.knowledgeDirs?.[0]) {
+    const kbPath = agent.rag.knowledgeDirs[0].replace(/^~/, homedir());
+    if (!existsSync(kbPath)) {
+      mkdirSync(kbPath, { recursive: true });
+      console.log(chalk.gray(`知识库: ${kbPath}`));
+    }
   }
   
   // 确保配置目录存在
@@ -247,6 +334,13 @@ export async function listAgents(): Promise<void> {
     console.log(chalk.white(`  ${agent.id}${defaultTag}`));
     console.log(chalk.gray(`    名称: ${agent.name}`));
     console.log(chalk.gray(`    权限: ${profileName}`));
+    
+    // 显示知识库信息
+    if (agent.rag?.enabled) {
+      const kbPath = agent.rag.knowledgeDirs?.[0] ?? `~/.securebot/knowledges/${agent.id}`;
+      console.log(chalk.gray(`    知识库: ${kbPath} (${agent.rag.embeddingModel})`));
+    }
+    
     console.log();
   }
 }
@@ -273,7 +367,7 @@ export async function deleteAgentInteractive(): Promise<void> {
   }
   
   const confirmed = await p.confirm({
-    message: `确认删除 Agent "${selectedId}"？`,
+    message: `确认删除 Agent "${selectedId}"？（包括知识库）`,
     initialValue: false,
   });
   
@@ -315,6 +409,20 @@ export async function deleteAgentInteractive(): Promise<void> {
         } catch (error) {
           const msg = error instanceof Error ? error.message : String(error);
           console.log(chalk.yellow(`  工作空间删除失败: ${msg}`));
+        }
+      }
+      
+      // 删除知识库目录
+      if (deletedAgent.rag?.knowledgeDirs?.[0]) {
+        const kbPath = deletedAgent.rag.knowledgeDirs[0].replace(/^~/, homedir());
+        if (existsSync(kbPath)) {
+          try {
+            rmSync(kbPath, { recursive: true, force: true });
+            console.log(chalk.gray(`  已删除知识库: ${kbPath}`));
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            console.log(chalk.yellow(`  知识库删除失败: ${msg}`));
+          }
         }
       }
       

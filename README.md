@@ -343,13 +343,50 @@ npm run typecheck
 
 SecureBot 支持三阶段 RAG 检索增强，让 Agent 可以搜索你的文档库。
 
+### 自动配置（推荐）
+
+创建 Agent 时，系统会自动检测 Ollama 是否安装了嵌入模型。如果检测到，会自动为 Agent 创建独立的知识库。
+
+```bash
+# 1. 先安装嵌入模型
+ollama pull all-minilm
+
+# 2. 创建 Agent
+securebot agent create
+
+# 按提示输入信息后，系统会显示：
+# ✓ 检测到嵌入模型: all-minilm
+# ✓ 已自动配置知识库: ~/.securebot/knowledges/my-agent
+
+# 3. 添加文档到知识库
+cp *.md ~/.securebot/knowledges/my-agent/
+
+# 4. 启动对话，Agent 会自动索引知识库
+securebot chat
+```
+
+### 目录结构
+
+```
+~/.securebot/
+├── agents/              # Agent 工作空间
+│   ├── dev/
+│   └── my-agent/
+├── knowledges/          # Agent 知识库（自动创建）
+│   ├── dev/
+│   └── my-agent/        # 每个 Agent 独立的知识库目录
+└── config.json
+```
+
 ### 三阶段流程
 
 ```
 用户查询 → 查询扩展 → 向量检索 → 重排序 → 返回结果
 ```
 
-### 配置 RAG
+### 手动配置 RAG
+
+也可以在 `config.json` 中手动配置：
 
 ```json
 {
@@ -359,12 +396,10 @@ SecureBot 支持三阶段 RAG 检索增强，让 Agent 可以搜索你的文档�
     "workspace": "dev",
     "rag": {
       "enabled": true,
-      "knowledgeDirs": ["./docs", "./knowledge"],
+      "knowledgeDirs": ["~/.securebot/knowledges/dev"],
       "embeddingModel": "all-minilm",
       "rerankModel": "qwen3-reranker",
-      "queryExpansionModel": "qmd-query-expansion",
-      "enableRerank": true,
-      "enableQueryExpansion": true
+      "enableRerank": true
     }
   }]
 }
@@ -375,27 +410,8 @@ SecureBot 支持三阶段 RAG 检索增强，让 Agent 可以搜索你的文档�
 | 阶段 | 模型 | 大小 | 安装命令 |
 |------|------|------|----------|
 | Embedding | `all-minilm` | 46MB | `ollama pull all-minilm` |
+| Embedding | `nomic-embed-text` | 274MB | `ollama pull nomic-embed-text` |
 | Reranking | `qwen3-reranker` | 600MB | 导入 GGUF |
-| Query Expansion | `qmd-query-expansion` | 1.7GB | 导入 GGUF |
-
-### 使用 RAG
-
-```bash
-# 1. 安装嵌入模型
-ollama pull all-minilm
-
-# 2. 准备知识库
-mkdir -p ./knowledge
-# 放入 .md、.txt、.json 文档
-
-# 3. 配置 Agent（编辑 config.json）
-
-# 4. 启动对话
-securebot chat
-
-# Agent 会自动索引知识库
-[开发助手] > 帮我查一下 API 文档
-```
 
 ### RAG 工具
 
@@ -451,4 +467,17 @@ ollama pull all-minilm
 
 ## License
 
-MIT
+本软件采用 **CC BY-NC 4.0** 许可协议。
+
+- [LICENSE.md](LICENSE.md) - English Version
+- [LICENSE_CN.md](LICENSE_CN.md) - 中文版
+
+**摘要**：可自由共享和演绎，但须署名且不得用于商业目的。
+
+---
+
+## 支持作者
+
+如果这个项目对你有帮助，欢迎请作者喝杯咖啡：
+
+![微信收款码](assets/wechat-pay.jpg)
