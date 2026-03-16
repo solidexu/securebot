@@ -21,10 +21,36 @@ function validatePath(
   workspace: string, 
   allowedPaths?: string[]
 ): { valid: boolean; resolved: string; error?: string } {
-  // 解析绝对路径
-  const resolved = path.startsWith('/') 
-    ? resolve(path) 
-    : resolve(workspace, path);
+  // 判断是否为绝对路径
+  // 1. 以 / 开头（Unix 绝对路径）
+  // 2. 以 ~ 开头（用户目录）
+  // 3. Windows 驱动器路径（C:\ 等）
+  let normalizedPath = path;
+  const isAbsolute = path.startsWith('/') || 
+                     path.startsWith('~') ||
+                     /^[A-Za-z]:[/\\]/.test(path);
+  
+  // 如果不是绝对路径，检查是否"看起来像"绝对路径
+  // 例如：disk0/repo/... 应该是 /disk0/repo/...
+  if (!isAbsolute && !path.startsWith('.')) {
+    // 尝试添加 / 前缀
+    const withSlash = '/' + path;
+    if (existsSync(withSlash) || existsSync(resolve(withSlash))) {
+      normalizedPath = withSlash;
+    }
+  }
+  
+  // 解析路径
+  let resolved: string;
+  if (normalizedPath.startsWith('/') || normalizedPath.startsWith('~') || /^[A-Za-z]:[/\\]/.test(normalizedPath)) {
+    // 绝对路径直接解析
+    resolved = normalizedPath.startsWith('~') 
+      ? resolve(normalizedPath.replace('~', process.env.HOME || ''))
+      : resolve(normalizedPath);
+  } else {
+    // 相对路径：拼接 workspace
+    resolved = resolve(workspace, normalizedPath);
+  }
   
   // 检查是否在 workspace 内
   const relativePath = relative(workspace, resolved);
