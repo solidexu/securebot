@@ -931,7 +931,12 @@ async function handleCommand(
         console.log(chalk.white('3. 检查用户档案...'));
         const userProfile = memoryManager.getUserProfile();
         if (userProfile) {
-          console.log(chalk.gray(`   ✓ memory/profiles/user.json`));
+          const keyInfoCount = Object.keys(userProfile.keyInfo || {}).length;
+          if (keyInfoCount > 0) {
+            console.log(chalk.gray(`   ✓ memory/profiles/user.json (${keyInfoCount} 条信息)`));
+          } else {
+            console.log(chalk.gray(`   ✓ memory/profiles/user.json (暂无用户信息)`));
+          }
         }
         
         console.log();
@@ -941,7 +946,13 @@ async function handleCommand(
         const memStatus = await memoryManager.isAgentInitialized(agent.id);
         console.log(chalk.gray(`  Agent 档案: ${memStatus.hasProfile ? '✓' : '✗'}`));
         console.log(chalk.gray(`  工作记忆: ${memStatus.hasMemory ? '✓' : '✗'}`));
-        console.log(chalk.gray(`  用户信息: ${memStatus.hasKeyInfo ? '✓' : '✗'}`));
+        
+        // 用户信息状态提示
+        if (!memStatus.hasKeyInfo) {
+          console.log(chalk.gray(`  用户信息: ✗ (说"记住我的名字是xxx"添加信息)`));
+        } else {
+          console.log(chalk.gray(`  用户信息: ✓`));
+        }
         
         // 同时检查 RAG 配置
         const ragConfig = agent.rag;
