@@ -389,13 +389,22 @@ async function processMessage(
   let round = 0;
   let lastContent = '';
   let planAttempts = 0;  // 规划尝试次数
+  let noToolCallRounds = 0;  // 连续无工具调用的轮数
   const MAX_PLAN_ATTEMPTS = 3;  // 最大规划尝试次数
+  const MAX_NO_TOOL_CALL_ROUNDS = 3;  // 最大连续无工具调用轮数
   
   while (round < MAX_TOOL_ROUNDS) {
     // 检查是否被打断
     if (state.interrupted) {
       console.log(chalk.yellow('\n[操作已打断]'));
       return;
+    }
+    
+    // 检查是否连续多轮无工具调用（防止无限循环）
+    if (noToolCallRounds >= MAX_NO_TOOL_CALL_ROUNDS) {
+      console.log(chalk.yellow('\n⚠️ 检测到连续多轮无工具调用，结束对话'));
+      console.log(chalk.gray('如果需要继续，请发送新消息'));
+      break;
     }
     
     round++;
@@ -499,6 +508,8 @@ async function processMessage(
 
     // 没有工具调用，检查是否应该继续
     if (!result.toolCalls || result.toolCalls.length === 0) {
+      noToolCallRounds++;  // 增加无工具调用计数
+      
       // 检查是否任务已完成（模型输出总结/完成信号）
       const completionSignals = [
         '任务完成', '开发完成', '实现完成', '已完成', 
@@ -646,6 +657,7 @@ async function processMessage(
 
     // 正常执行工具
     addAssistantMessage(session, result.content, result.toolCalls);
+    noToolCallRounds = 0;  // 重置无工具调用计数
     
     // 执行所有工具
     for (const toolCall of result.toolCalls) {
