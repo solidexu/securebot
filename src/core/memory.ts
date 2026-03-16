@@ -9,6 +9,16 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getMemoryDir } from './config.js';
+import type { AdvancedRAGStore } from '../rag/store.js';
+
+// ============ RAG 同步接口 ============
+
+/**
+ * RAG 同步处理器
+ */
+export interface RAGSyncHandler {
+  syncToRAG(entry: MemoryEntry): Promise<void>;
+}
 
 // ============ 类型定义 ============
 
@@ -28,6 +38,8 @@ export interface MemoryEntry {
   tags?: string[];
   /** 关联的 Agent */
   agentId?: string;
+  /** 是否已同步到 RAG */
+  ragSynced?: boolean;
 }
 
 /**
@@ -124,6 +136,10 @@ export interface MemoryConfig {
   decayFactor: number;
   /** 自动提取重要信息 */
   autoExtractKeyInfo: boolean;
+  /** 是否启用 RAG 自动同步 */
+  enableRAGSync: boolean;
+  /** RAG 同步最小重要性阈值 (1-5) */
+  ragSyncThreshold: number;
 }
 
 /**
@@ -173,6 +189,8 @@ const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
   enableDecay: true,
   decayFactor: 0.9,      // 每天衰减 10%
   autoExtractKeyInfo: true,
+  enableRAGSync: true,   // 默认启用 RAG 同步
+  ragSyncThreshold: 4,   // 重要性 >= 4 时同步到 RAG
 };
 
 /**
@@ -218,9 +236,24 @@ export class MemoryManager {
   private agentProfiles: Map<string, AgentProfile> = new Map();
   private initialized: boolean = false;
   private summaryHistory: Map<string, SummaryRecord[]> = new Map();
+  private ragStore: AdvancedRAGStore | null = null;
 
   constructor(config: Partial<MemoryConfig> = {}) {
     this.config = { ...DEFAULT_MEMORY_CONFIG, ...config };
+  }
+
+  /**
+   * 设置 RAG 存储（用于自动同步重要记忆）
+   */
+  setRAGStore(store: AdvancedRAGStore | null): void {
+    this.ragStore = store;
+  }
+
+  /**
+   * 获取 RAG 存储
+   */
+  getRAGStore(): AdvancedRAGStore | null {
+    return this.ragStore;
   }
 
   /**
@@ -296,9 +329,109 @@ export class MemoryManager {
       await this.extractKeyInfoFromContent(content);
     }
     
+    // 自动同步到 RAG（重要性 >= 阈值）
+    if (this.config.enableRAGSync && importance >= this.config.ragSyncThreshold && this.ragStore) {
+      await this.syncToRAG(entry);
+    }
+    
     // 检查是否需要自动摘要
     if (this.config.autoSummary && memory.entries.length >= this.config.summaryThreshold) {
       await this.autoSummarize(today, agentId);
+    }
+  }
+
+  /**
+   * 同步记忆条目到 RAG
+   */
+  private async syncToRAG(entry: MemoryEntry): Promise<void> {
+    if (!this.ragStore) return;
+
+    try {
+      // 格式化为文档
+      const doc = this.formatEntryAsDocument(entry);
+      
+      await this.ragStore.addDocument(doc.content, {
+        source: `memory://${entry.type}/${entry.timestamp}`,
+        title: doc.title,
+      });
+      
+      // 标记已同步
+      entry.ragSynced = true;
+      
+      console.log(`[Memory] 已同步到 RAG: ${doc.title}`);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.warn(`[Memory] RAG 同步失败: ${msg}`);
+    }
+  }
+
+  /**
+   * 格式化记忆条目为文档
+   */
+  private formatEntryAsDocument(entry: MemoryEntry): { title: string; content: string } {
+    const typeLabels: Record<string, string> = {
+      conversation: '对话',
+      task: '任务',
+      knowledge: '知识',
+      event: '事件',
+      preference: '偏好',
+    };
+
+    const typeLabel = typeLabels[entry.type] || entry.type;
+    const tags = entry.tags?.length ? ` [${entry.tags.join(', ')}]` : '';
+    const title = `[${typeLabel}]${tags} ${entry.content.slice(0, 50)}...`;
+
+    const content = `# ${typeLabel}记忆
+
+**时间**: ${entry.timestamp}
+**重要性**: ${entry.importance}/5
+**Agent**: ${entry.agentId || '未知'}
+${entry.tags?.length ? `**标签**: ${entry.tags.join(', ')}` : ''}
+
+## 内容
+
+${entry.content}
+`;
+
+    return { title, content };
+  }
+
+  /**
+   * 手动将内容存入 RAG
+   */
+  async rememberToRAG(
+    content: string,
+    title?: string,
+    tags?: string[]
+  ): Promise<{ success: boolean; message: string }> {
+    if (!this.ragStore) {
+      return { success: false, message: 'RAG 存储未配置' };
+    }
+
+    try {
+      const docTitle = title || `用户记忆 - ${new Date().toLocaleDateString('zh-CN')}`;
+      const docContent = tags?.length 
+        ? `标签: ${tags.join(', ')}\n\n${content}`
+        : content;
+
+      await this.ragStore.addDocument(docContent, {
+        source: `user-memory://${Date.now()}`,
+        title: docTitle,
+      });
+
+      // 同时记录到记忆系统
+      await this.remember(
+        'system',
+        content,
+        'knowledge',
+        5,  // 最高重要性
+        tags
+      );
+
+      return { success: true, message: `已记住: ${docTitle}` };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return { success: false, message: `存储失败: ${msg}` };
     }
   }
 

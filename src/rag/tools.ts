@@ -12,7 +12,6 @@ import {
   createOllamaReranker,
   createOllamaQueryExpander,
   AdvancedRAGStore,
-  type RAGConfig,
   type AdvancedRAGConfig,
 } from './store.js';
 
@@ -335,9 +334,86 @@ ${stages.join('\n')}
   },
 };
 
+// ============ RAG 记忆工具 ============
+
+export const ragRememberTool: Tool = {
+  name: 'rag_remember',
+  description: '将重要知识存储到知识库，以后可以检索到。用于记住用户偏好、重要事实、学习到的知识等。',
+  parameters: {
+    type: 'object',
+    properties: {
+      content: {
+        type: 'string',
+        description: '要记住的内容',
+      },
+      title: {
+        type: 'string',
+        description: '知识标题（可选）',
+      },
+      tags: {
+        type: 'string',
+        description: '标签，用逗号分隔（可选）',
+      },
+    },
+    required: ['content'],
+  },
+
+  async execute(params, context: ToolContext): Promise<ToolResult> {
+    const { content, title, tags } = params as { 
+      content: string; 
+      title?: string; 
+      tags?: string 
+    };
+
+    try {
+      const store = await ragManager.getStore(context.agent);
+      
+      if (!store) {
+        return {
+          success: false,
+          error: 'RAG 未为此 Agent 启用',
+        };
+      }
+
+      // 生成文档标题
+      const docTitle = title || `知识记忆 - ${new Date().toLocaleDateString('zh-CN')}`;
+      
+      // 解析标签
+      const tagList = tags?.split(',').map(t => t.trim()).filter(Boolean) || [];
+      
+      // 构建文档内容
+      const docContent = tagList.length 
+        ? `标签: ${tagList.join(', ')}\n\n${content}`
+        : content;
+
+      // 添加到 RAG 存储
+      await store.addDocument(docContent, {
+        source: `user-memory://${Date.now()}`,
+        title: docTitle,
+      });
+
+      return {
+        success: true,
+        content: `✓ 已记住这条知识：\n\n**${docTitle}**\n\n${content.slice(0, 200)}${content.length > 200 ? '...' : ''}`,
+        metadata: {
+          title: docTitle,
+          tags: tagList,
+          timestamp: new Date().toISOString(),
+        },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        error: `记忆存储失败: ${message}`,
+      };
+    }
+  },
+};
+
 // ============ 导出 ============
 
-export const ragTools = [ragSearchTool, ragIndexTool, ragStatusTool];
+export const ragTools = [ragSearchTool, ragIndexTool, ragStatusTool, ragRememberTool];
 
 /**
  * 注册 RAG 工具（延迟调用）

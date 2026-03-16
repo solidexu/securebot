@@ -421,7 +421,32 @@ securebot chat
 |------|------|
 | `rag_search <query>` | 搜索知识库 |
 | `rag_index <path>` | 添加文档到知识库 |
+| `rag_remember <content>` | 记住重要知识（自动存入 RAG） |
 | `rag_status` | 查看知识库状态 |
+
+### 记忆 → RAG 自动同步
+
+重要的记忆会自动同步到 RAG 知识库：
+
+- **触发条件**：记忆条目重要性 >= 4（满分 5）
+- **同步内容**：对话记忆、任务完成、学习到的知识
+- **可检索**：后续可通过 `rag_search` 检索到
+
+```bash
+# 示例：Agent 自动记住重要信息
+用户: 记住我喜欢用深色主题
+Agent: 好的，我已经记住了。（importance=5，自动同步到 RAG）
+
+# 后续可以检索
+用户: 我喜欢什么主题？
+Agent: [rag_search "主题偏好"] 根据记录，您喜欢用深色主题。
+```
+
+**手动存储**：
+```
+用户: 帮我记住项目路径是 /home/user/my-project
+Agent: [rag_remember "项目路径: /home/user/my-project"] 已记住。
+```
 
 ### 强制 CPU 运行
 
