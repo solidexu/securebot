@@ -11,7 +11,7 @@ import { getMemoryManager } from '../core/memory.js';
 
 export const rememberTool: Tool = {
   name: 'remember',
-  description: '存储重要信息到记忆中。用于记录用户偏好、关键事实、任务进度等。',
+  description: '存储重要信息到记忆中。用于记录用户偏好、关键事实、任务进度等。重要性会自动评估。',
   parameters: {
     type: 'object',
     properties: {
@@ -23,42 +23,41 @@ export const rememberTool: Tool = {
         type: 'string',
         description: '记忆类型: knowledge, preference, task, event',
       },
-      importance: {
-        type: 'number',
-        description: '重要性 (1-5，5 最重要)',
-      },
       tags: {
-        type: 'array',
-        description: '标签，便于检索',
+        type: 'string',
+        description: '标签，用逗号分隔',
       },
     },
     required: ['content'],
   },
 
   async execute(params, context: ToolContext): Promise<ToolResult> {
-    const { content, type = 'knowledge', importance = 3, tags } = params as {
+    const { content, type = 'knowledge', tags } = params as {
       content: string;
       type?: 'knowledge' | 'preference' | 'task' | 'event';
-      importance?: number;
-      tags?: string[];
+      tags?: string;
     };
 
     try {
       const memoryManager = getMemoryManager();
       await memoryManager.initialize();
       
+      // 解析标签
+      const tagList = tags?.split(',').map(t => t.trim()).filter(Boolean);
+      
+      // 记忆重要性由系统自动评估
       await memoryManager.remember(
         context.agent.id,
         content,
         type,
-        importance,
-        tags
+        undefined, // 让系统自动评估
+        tagList
       );
 
       return {
         success: true,
         content: `已记住: ${content.slice(0, 100)}${content.length > 100 ? '...' : ''}`,
-        metadata: { type, importance, tags },
+        metadata: { type, tags: tagList },
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

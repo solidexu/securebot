@@ -271,27 +271,33 @@ const KEY_INFO_PATTERNS: KeyInfoPattern[] = [
   {
     name: 'remember_explicit',
     pattern: /(?:记住|记得|保存|记录)[：:]\s*(.+?)\s*[是为]\s*(.+)/i,
-    extract: (match) => ({ key: match[1].trim(), value: match[2].trim() }),
+    extract: (match) => ({ 
+      key: (match[1] ?? '').trim(), 
+      value: (match[2] ?? '').trim() 
+    }),
   },
   {
     name: 'project_path',
     pattern: /(?:项目|工程)(?:路径|目录|位置)[是为：:]\s*(\/[^\s]+)/i,
-    extract: (match) => ({ key: '项目路径', value: match[1].trim() }),
+    extract: (match) => ({ key: '项目路径', value: (match[1] ?? '').trim() }),
   },
   {
     name: 'preference',
     pattern: /(?:我喜欢|我偏好|我习惯)(.+?)(?:，|。|$)/i,
-    extract: (match) => ({ key: '用户偏好', value: match[1].trim() }),
+    extract: (match) => ({ key: '用户偏好', value: (match[1] ?? '').trim() }),
   },
   {
     name: 'config',
     pattern: /(?:配置|设置)[是为：:]\s*(.+?)\s*=\s*(.+)/i,
-    extract: (match) => ({ key: match[1].trim(), value: match[2].trim() }),
+    extract: (match) => ({ 
+      key: (match[1] ?? '').trim(), 
+      value: (match[2] ?? '').trim() 
+    }),
   },
   {
     name: 'deadline',
     pattern: /(?:截止|到期|最后)日期[是为：:]\s*(.+)/i,
-    extract: (match) => ({ key: '截止日期', value: match[1].trim() }),
+    extract: (match) => ({ key: '截止日期', value: (match[1] ?? '').trim() }),
   },
 ];
 
@@ -1251,7 +1257,7 @@ ${entry.content}
     const now = Date.now();
     const dayMs = 24 * 60 * 60 * 1000;
 
-    for (const [key, memory] of this.dailyCache) {
+    for (const [, memory] of this.dailyCache) {
       let modified = false;
       
       for (const entry of memory.entries) {

@@ -15,6 +15,7 @@ import { getAvailableTools, executeTool, getAvailableToolNames } from '../tools/
 import { getSessionStorage } from '../core/session-storage.js';
 import { getAuditLogger } from '../core/audit.js';
 import { getMemoryManager } from '../core/memory.js';
+import { ragManager } from '../rag/tools.js';
 import { getSkillManager } from '../core/skills.js';
 import { getTaskManager, type TaskManager } from '../core/task-manager.js';
 import {
@@ -92,6 +93,28 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
   await memoryManager.initialize();
   const memoryStats = memoryManager.getStats();
   console.log(chalk.green(`✓ 记忆系统就绪 (${memoryStats.totalEntries} 条记忆)`));
+
+  // 初始化 RAG 并连接到记忆系统
+  for (const agent of agents.values()) {
+    if (agent.rag?.enabled) {
+      try {
+        const ragStore = await ragManager.getStore(agent, {
+          enabled: true,
+          knowledgeDirs: agent.rag.knowledgeDirs || [],
+          embeddingModel: agent.rag.embeddingModel || 'all-minilm',
+        });
+        
+        if (ragStore) {
+          memoryManager.setRAGStore(ragStore);
+          console.log(chalk.green(`✓ RAG 已连接到记忆系统 (Agent: ${agent.id})`));
+          break; // 只需要设置一次（所有 Agent 共享一个 MemoryManager）
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        console.log(chalk.yellow(`⚠ RAG 初始化失败: ${msg}`));
+      }
+    }
+  }
 
   // 初始化技能系统
   const skillManager = getSkillManager();
