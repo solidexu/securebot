@@ -165,21 +165,40 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
   // Ctrl+C 处理：第一次提示，第二次退出
   let ctrlCount = 0;
   let ctrlTimer: ReturnType<typeof setTimeout> | null = null;
+  let isExiting = false;
   
   process.on('SIGINT', async () => {
+    // 防止重复处理
+    if (isExiting) return;
+    
     // 如果在执行中，打断执行
     if (state.executing) {
       console.log(chalk.yellow('\n[已打断当前操作]'));
       state.interrupted = true;
+      ctrlCount = 0;  // 重置计数
       return;
     }
     
     // 在等待输入时
     ctrlCount++;
     if (ctrlCount >= 2) {
+      isExiting = true;
       console.log(chalk.gray('\n正在退出...'));
-      await exitHandler();
-      process.exit(0);
+      state.running = false;
+      
+      // 关闭 readline 以中断正在等待的 question
+      rl.close();
+      
+      // 保存会话
+      try {
+        await exitHandler();
+      } catch {
+        // 忽略退出时的错误
+      }
+      
+      // 使用 setImmediate 确保资源清理
+      setImmediate(() => process.exit(0));
+      return;
     }
     
     console.log(chalk.gray('\n按 Ctrl+C 再次退出，或输入 /help 查看帮助'));
