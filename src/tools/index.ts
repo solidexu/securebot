@@ -11,6 +11,7 @@ import { readTool, writeTool, editTool } from './fs.js';
 import { execTool } from './exec.js';
 import { ragTools } from '../rag/tools.js';
 import { memoryTools } from './memory.js';
+import { skillTools } from './skill.js';
 
 // ============ 工具注册表 ============
 
@@ -201,3 +202,6 @@ registerTools(memoryTools);
 
 // RAG 工具
 registerTools(ragTools);
+
+// 技能工具
+registerTools(skillTools);

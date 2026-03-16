@@ -4,6 +4,10 @@
  * 支持公共技能和个人技能
  * - 公共技能: 所有 Agent 可用，存储在 ~/.securebot/skills/public/
  * - 个人技能: 仅特定 Agent 可用，存储在 ~/.securebot/skills/private/
+ * 
+ * 智能唤醒：
+ * - 关键词匹配：快速匹配
+ * - 语义匹配：使用向量相似度匹配
  */
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
@@ -20,8 +24,10 @@ export interface Skill {
   id: string;
   /** 技能名称 */
   name: string;
-  /** 描述 */
+  /** 描述（用于语义匹配） */
   description: string;
+  /** 关键词（用于快速匹配） */
+  keywords?: string[];
   /** 系统提示词模板 */
   systemPrompt: string;
   /** 需要的工具列表 */
@@ -39,6 +45,18 @@ export interface Skill {
   createdAt: string;
   /** 更新时间 */
   updatedAt: string;
+}
+
+/**
+ * 技能匹配结果
+ */
+export interface SkillMatchResult {
+  /** 匹配到的技能 */
+  skill: Skill;
+  /** 匹配分数 (0-1) */
+  score: number;
+  /** 匹配方式 */
+  method: 'keyword' | 'semantic';
 }
 
 /**
@@ -61,6 +79,7 @@ export const BUILTIN_SKILLS: Skill[] = [
     id: 'code-review',
     name: '代码审查',
     description: '专业的代码审查技能，帮助发现代码问题和改进建议',
+    keywords: ['审查', 'review', '检查代码', '代码质量', '优化代码', '代码问题'],
     systemPrompt: `你是一位专业的代码审查专家。在审查代码时，请关注：
 
 1. **代码质量**
@@ -91,6 +110,7 @@ export const BUILTIN_SKILLS: Skill[] = [
     id: 'translator',
     name: '翻译助手',
     description: '多语言翻译技能，支持中英日韩等主流语言',
+    keywords: ['翻译', 'translate', '中译', '英译', '日语', '韩语'],
     systemPrompt: `你是一位专业的翻译专家。翻译时请遵循：
 
 1. **准确性**：确保翻译准确，不遗漏信息
@@ -110,6 +130,7 @@ export const BUILTIN_SKILLS: Skill[] = [
     id: 'api-designer',
     name: 'API 设计师',
     description: 'RESTful API 设计技能，帮助设计规范的 API 接口',
+    keywords: ['API', '接口设计', 'RESTful', 'REST', 'endpoint', '接口'],
     systemPrompt: `你是一位 API 设计专家。设计 API 时请遵循 RESTful 规范：
 
 1. **URL 设计**
@@ -142,6 +163,7 @@ export const BUILTIN_SKILLS: Skill[] = [
     id: 'debugger',
     name: '调试专家',
     description: '帮助分析和定位代码问题',
+    keywords: ['调试', 'debug', '报错', '错误', 'bug', '异常', '崩溃'],
     systemPrompt: `你是一位调试专家。在帮助用户调试问题时，请：
 
 1. **问题定位**
@@ -173,6 +195,7 @@ export const BUILTIN_SKILLS: Skill[] = [
     id: 'doc-writer',
     name: '文档撰写',
     description: '帮助编写清晰的技术文档',
+    keywords: ['文档', 'doc', 'readme', '注释', '说明', '文档编写'],
     systemPrompt: `你是一位技术文档专家。编写文档时请遵循：
 
 1. **文档结构**
@@ -460,4 +483,148 @@ export function getSkillManager(): SkillManager {
  */
 export function resetSkillManager(): void {
   globalSkillManager = null;
+}
+
+// ============ 技能检测器 ============
+
+/**
+ * 技能检测器
+ * 
+ * 支持关键词匹配和语义匹配
+ */
+export class SkillDetector {
+  private skillManager: SkillManager;
+  private semanticThreshold: number;
+
+  constructor(skillManager: SkillManager, options?: { semanticThreshold?: number }) {
+    this.skillManager = skillManager;
+    this.semanticThreshold = options?.semanticThreshold ?? 0.6;
+  }
+
+  /**
+   * 检测匹配的技能
+   * 
+   * @param message 用户消息
+   * @param agentId Agent ID（用于获取可用技能）
+   * @returns 匹配结果，按分数排序
+   */
+  async detect(message: string, agentId: string): Promise<SkillMatchResult[]> {
+    const skills = await this.skillManager.getAgentSkills(agentId);
+    const results: SkillMatchResult[] = [];
+
+    for (const skill of skills) {
+      // 1. 先尝试关键词匹配
+      const keywordScore = this.matchByKeywords(message, skill);
+      if (keywordScore > 0) {
+        results.push({
+          skill,
+          score: keywordScore,
+          method: 'keyword',
+        });
+        continue;
+      }
+
+      // 2. 再尝试语义匹配
+      const semanticScore = await this.matchBySemantic(message, skill);
+      if (semanticScore >= this.semanticThreshold) {
+        results.push({
+          skill,
+          score: semanticScore,
+          method: 'semantic',
+        });
+      }
+    }
+
+    // 按分数排序
+    results.sort((a, b) => b.score - a.score);
+    return results;
+  }
+
+  /**
+   * 检测并返回最佳匹配
+   */
+  async detectBest(message: string, agentId: string): Promise<SkillMatchResult | null> {
+    const results = await this.detect(message, agentId);
+    return results.length > 0 ? results[0]! : null;
+  }
+
+  /**
+   * 关键词匹配
+   * 
+   * @returns 匹配分数 (0-1)
+   */
+  private matchByKeywords(message: string, skill: Skill): number {
+    if (!skill.keywords || skill.keywords.length === 0) {
+      return 0;
+    }
+
+    const lowerMessage = message.toLowerCase();
+    let matchCount = 0;
+
+    for (const keyword of skill.keywords) {
+      if (lowerMessage.includes(keyword.toLowerCase())) {
+        matchCount++;
+      }
+    }
+
+    if (matchCount === 0) {
+      return 0;
+    }
+
+    // 分数 = 匹配关键词数 / 总关键词数
+    return Math.min(1, matchCount / skill.keywords.length * 2);
+  }
+
+  /**
+   * 语义匹配（简化版：基于词重叠）
+   * 
+   * 生产环境建议使用向量嵌入
+   */
+  private async matchBySemantic(message: string, skill: Skill): Promise<number> {
+    const messageWords = this.tokenize(message.toLowerCase());
+    const descWords = this.tokenize(skill.description.toLowerCase());
+
+    // 计算词重叠
+    const intersection = messageWords.filter(w => descWords.includes(w));
+    
+    if (intersection.length === 0) {
+      return 0;
+    }
+
+    // Jaccard 相似度
+    const union = new Set([...messageWords, ...descWords]);
+    return intersection.length / union.size;
+  }
+
+  /**
+   * 分词
+   */
+  private tokenize(text: string): string[] {
+    // 简单分词：按空格和标点分割
+    return text
+      .replace(/[，。！？、；：""''（）【】]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 1);
+  }
+}
+
+// ============ 全局技能检测器 ============
+
+let globalSkillDetector: SkillDetector | null = null;
+
+/**
+ * 获取技能检测器
+ */
+export function getSkillDetector(): SkillDetector {
+  if (!globalSkillDetector) {
+    globalSkillDetector = new SkillDetector(getSkillManager());
+  }
+  return globalSkillDetector;
+}
+
+/**
+ * 重置技能检测器
+ */
+export function resetSkillDetector(): void {
+  globalSkillDetector = null;
 }

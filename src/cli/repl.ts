@@ -16,7 +16,7 @@ import { getSessionStorage } from '../core/session-storage.js';
 import { getAuditLogger } from '../core/audit.js';
 import { getMemoryManager } from '../core/memory.js';
 import { ragManager } from '../rag/tools.js';
-import { getSkillManager } from '../core/skills.js';
+import { getSkillManager, getSkillDetector } from '../core/skills.js';
 import { getTaskManager, type TaskManager } from '../core/task-manager.js';
 import {
   assessComplexity,
@@ -321,9 +321,23 @@ async function processMessage(
   // 获取可用工具
   const availableTools = getAvailableTools(agent, state.config.tools);
 
+  // 智能检测技能
+  const skillDetector = getSkillDetector();
+  const skillMatch = await skillDetector.detectBest(message, agent.id);
+  
   // 加载技能提示词
   const skillManager = getSkillManager();
-  const skillsPrompt = await skillManager.buildSkillsPrompt(agent.id, agent.skills);
+  
+  // 如果检测到技能，动态添加到技能列表
+  let activeSkills = agent.skills || [];
+  if (skillMatch && skillMatch.score >= 0.5) {
+    if (!activeSkills.includes(skillMatch.skill.id)) {
+      activeSkills = [...activeSkills, skillMatch.skill.id];
+      console.log(chalk.cyan(`🎯 激活技能: ${skillMatch.skill.name} (${skillMatch.method})`));
+    }
+  }
+  
+  const skillsPrompt = await skillManager.buildSkillsPrompt(agent.id, activeSkills);
 
   // 构建系统提示
   let systemPrompt = await buildSystemPrompt(
