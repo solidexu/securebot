@@ -8,7 +8,6 @@ import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import { existsSync, mkdirSync, rmSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { homedir } from 'node:os';
 import { 
   loadConfig, 
   saveConfig, 
@@ -115,7 +114,7 @@ export async function createAgentInteractive(): Promise<void> {
   if (agentInfo.rag?.enabled) {
     console.log();
     console.log(chalk.gray(`添加文档到知识库：`));
-    const kbPath = agentInfo.rag.knowledgeDirs?.[0] ?? `~/.securebot/knowledges/${agentInfo.id}`;
+    const kbPath = agentInfo.rag.knowledgeDirs?.[0] ?? join(getRootDir(config), 'knowledges', agentInfo.id);
     console.log(chalk.white(`  cp *.md ${kbPath}`));
   }
   console.log();
@@ -197,10 +196,14 @@ async function collectAgentInfo(existingIds: string[], config: Config): Promise<
   if (embeddingModel) {
     spinner.stop(`检测到嵌入模型: ${embeddingModel}`);
     
+    // 使用配置的 rootDir 作为知识库根目录
+    const rootDir = getRootDir(config);
+    const knowledgeBasePath = join(rootDir, 'knowledges', id as string);
+    
     // 自动为 Agent 启用 RAG
     agentConfig.rag = {
       enabled: true,
-      knowledgeDirs: [`~/.securebot/knowledges/${id}`],
+      knowledgeDirs: [knowledgeBasePath],
       embeddingModel,
       chunkSize: 1000,
       chunkOverlap: 200,
@@ -208,7 +211,7 @@ async function collectAgentInfo(existingIds: string[], config: Config): Promise<
       minScore: 0.5,
     };
     
-    console.log(chalk.gray(`  ✓ 已自动配置知识库: ~/.securebot/knowledges/${id}`));
+    console.log(chalk.gray(`  ✓ 已自动配置知识库: ${knowledgeBasePath}`));
   } else {
     spinner.stop('未检测到嵌入模型，跳过知识库配置');
     console.log(chalk.gray(`  提示: 安装嵌入模型后可启用知识库: ollama pull all-minilm`));
@@ -221,6 +224,7 @@ async function collectAgentInfo(existingIds: string[], config: Config): Promise<
 
 async function showPreview(agent: AgentConfig, config: Config): Promise<boolean> {
   const agentsDir = getAgentsDir(config);
+  const rootDir = getRootDir(config);
   const workspacePath = join(agentsDir, agent.workspace);
   
   console.log();
@@ -232,7 +236,7 @@ async function showPreview(agent: AgentConfig, config: Config): Promise<boolean>
   
   // 显示知识库信息
   if (agent.rag?.enabled) {
-    const kbPath = agent.rag.knowledgeDirs?.[0] ?? `~/.securebot/knowledges/${agent.id}`;
+    const kbPath = agent.rag.knowledgeDirs?.[0] ?? join(rootDir, 'knowledges', agent.id);
     console.log(chalk.white(`  知识库:    ${kbPath}`));
     console.log(chalk.white(`  嵌入模型:  ${agent.rag.embeddingModel}`));
   }
@@ -274,7 +278,7 @@ async function saveAgent(agent: AgentConfig, config: Config): Promise<void> {
   
   // 创建知识库目录
   if (agent.rag?.enabled && agent.rag.knowledgeDirs?.[0]) {
-    const kbPath = agent.rag.knowledgeDirs[0].replace(/^~/, homedir());
+    const kbPath = agent.rag.knowledgeDirs[0];
     if (!existsSync(kbPath)) {
       mkdirSync(kbPath, { recursive: true });
       console.log(chalk.gray(`知识库: ${kbPath}`));
@@ -320,6 +324,7 @@ function loadExistingConfig(): Config {
 
 export async function listAgents(): Promise<void> {
   const config = loadExistingConfig();
+  const rootDir = getRootDir(config);
   
   console.log(chalk.cyan.bold('\n📋 Agent 列表\n'));
   
@@ -337,7 +342,7 @@ export async function listAgents(): Promise<void> {
     
     // 显示知识库信息
     if (agent.rag?.enabled) {
-      const kbPath = agent.rag.knowledgeDirs?.[0] ?? `~/.securebot/knowledges/${agent.id}`;
+      const kbPath = agent.rag.knowledgeDirs?.[0] ?? join(rootDir, 'knowledges', agent.id);
       console.log(chalk.gray(`    知识库: ${kbPath} (${agent.rag.embeddingModel})`));
     }
     
@@ -414,7 +419,7 @@ export async function deleteAgentInteractive(): Promise<void> {
       
       // 删除知识库目录
       if (deletedAgent.rag?.knowledgeDirs?.[0]) {
-        const kbPath = deletedAgent.rag.knowledgeDirs[0].replace(/^~/, homedir());
+        const kbPath = deletedAgent.rag.knowledgeDirs[0];
         if (existsSync(kbPath)) {
           try {
             rmSync(kbPath, { recursive: true, force: true });
