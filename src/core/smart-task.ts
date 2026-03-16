@@ -373,6 +373,20 @@ export function assessComplexityAdvanced(
   let complexity: TaskComplexity = 'simple';
   let confidence = 0.5;
   
+  // 0. 特殊处理：记忆操作关键词直接返回简单
+  // 这些操作不需要复杂规划
+  const memoryKeywords = ['记住', '记得', '保存', '记录', '记住我', '记得我'];
+  const isMemoryOperation = memoryKeywords.some(kw => input.includes(kw));
+  
+  if (isMemoryOperation) {
+    return {
+      complexity: 'simple',
+      confidence: 0.9,
+      reasons: ['记忆操作，直接执行'],
+      taskType: 'query',
+    };
+  }
+  
   // 1. 关键词分析
   const hasComplexKeywords = COMPLEX_TASK_KEYWORDS.some(kw => input.includes(kw));
   const hasSimpleKeywords = SIMPLE_TASK_KEYWORDS.some(kw => input.includes(kw));
