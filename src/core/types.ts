@@ -38,6 +38,8 @@ export interface ToolContext {
   session: Session;
   workspace: string;
   logger: Logger;
+  /** 额外允许访问的路径列表 */
+  allowedPaths?: string[];
 }
 
 /**

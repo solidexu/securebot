@@ -7,7 +7,7 @@
 import * as readlinePromises from 'node:readline/promises';
 import chalk from 'chalk';
 import type { ReplState, Agent, Message, ChatParams } from '../core/types.js';
-import { loadConfig, createDefaultConfig } from '../core/config.js';
+import { loadConfig, createDefaultConfig, getRootDir } from '../core/config.js';
 import { createAgents, parseAgentPrefix, getDefaultAgent, getOrCreateMainSession } from '../core/agent.js';
 import { addUserMessage, addAssistantMessage, addToolResultMessage, buildSystemPrompt, clearSessionHistory } from '../core/session.js';
 import { OllamaAdapter, type StreamCallback } from '../model/ollama.js';
@@ -693,11 +693,18 @@ async function processMessage(
         }
         
         // 执行工具
+        const rootDir = getRootDir(state.config);
         toolResult = await executeTool(toolCall.name, toolCall.arguments, {
           agent,
           session,
           workspace: agent.workspace,
           logger: console,
+          allowedPaths: [
+            rootDir,                          // 根目录
+            `${rootDir}/memory`,              // 记忆系统
+            `${rootDir}/knowledges`,          // 知识库
+            `${rootDir}/skills`,              // 技能
+          ],
         });
         
         // 显示结果

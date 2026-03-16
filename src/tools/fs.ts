@@ -14,9 +14,13 @@ import type { Tool, ToolContext, ToolResult } from '../core/types.js';
 // ============ 安全检查 ============
 
 /**
- * 验证路径是否在 workspace 内
+ * 验证路径是否在 workspace 或允许的路径内
  */
-function validatePath(path: string, workspace: string): { valid: boolean; resolved: string; error?: string } {
+function validatePath(
+  path: string, 
+  workspace: string, 
+  allowedPaths?: string[]
+): { valid: boolean; resolved: string; error?: string } {
   // 解析绝对路径
   const resolved = path.startsWith('/') 
     ? resolve(path) 
@@ -26,15 +30,28 @@ function validatePath(path: string, workspace: string): { valid: boolean; resolv
   const relativePath = relative(workspace, resolved);
   const isWithinWorkspace = !relativePath.startsWith('..') && !relativePath.startsWith('/');
   
-  if (!isWithinWorkspace) {
-    return {
-      valid: false,
-      resolved,
-      error: `路径超出 workspace 范围: ${path}`,
-    };
+  if (isWithinWorkspace) {
+    return { valid: true, resolved };
   }
   
-  return { valid: true, resolved };
+  // 检查是否在允许的额外路径内
+  if (allowedPaths && allowedPaths.length > 0) {
+    for (const allowedPath of allowedPaths) {
+      const allowedResolved = resolve(allowedPath);
+      const relativeToAllowed = relative(allowedResolved, resolved);
+      const isWithinAllowed = !relativeToAllowed.startsWith('..') && !relativeToAllowed.startsWith('/');
+      
+      if (isWithinAllowed) {
+        return { valid: true, resolved };
+      }
+    }
+  }
+  
+  return {
+    valid: false,
+    resolved,
+    error: `路径超出 workspace 范围: ${path}`,
+  };
 }
 
 // ============ read 工具 ============
@@ -73,7 +90,7 @@ export const readTool: Tool = {
     }
     
     // 验证路径
-    const validation = validatePath(path, context.workspace);
+    const validation = validatePath(path, context.workspace, context.allowedPaths);
     if (!validation.valid) {
       return { success: false, error: validation.error };
     }
@@ -144,7 +161,7 @@ export const writeTool: Tool = {
     const { path, content } = params as { path: string; content: string };
     
     // 验证路径
-    const validation = validatePath(path, context.workspace);
+    const validation = validatePath(path, context.workspace, context.allowedPaths);
     if (!validation.valid) {
       return { success: false, error: validation.error };
     }
@@ -200,7 +217,7 @@ export const editTool: Tool = {
     const { path, oldText, newText } = params as { path: string; oldText: string; newText: string };
     
     // 验证路径
-    const validation = validatePath(path, context.workspace);
+    const validation = validatePath(path, context.workspace, context.allowedPaths);
     if (!validation.valid) {
       return { success: false, error: validation.error };
     }
