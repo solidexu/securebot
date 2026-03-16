@@ -252,31 +252,16 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
         console.log(chalk.cyan('└─────────────────────────────────────┘'));
         console.log();
         
-        // 检查 Agent 记忆是否已初始化
+        // 检查 Agent 记忆是否已初始化（简化提示）
         const memStatus = await memoryManager.isAgentInitialized(agentId);
         if (!memStatus.initialized) {
-          console.log(chalk.yellow('💡 检测到该 Agent 尚未初始化记忆系统'));
-          console.log(chalk.gray('─'.repeat(45)));
-          console.log(chalk.white('初始化后 Agent 可以：'));
-          console.log(chalk.gray('  • 记住你的偏好和重要信息'));
-          console.log(chalk.gray('  • 保持跨会话的上下文'));
-          console.log(chalk.gray('  • 学习和适应用户习惯'));
-          console.log();
-          console.log(chalk.white('初始化方法：'));
-          console.log(chalk.cyan('  /init-memory'));
-          console.log(chalk.gray('  或告诉 Agent："记住我的名字是xxx"'));
-          
-          // 显示 RAG 配置状态
-          const ragConfig = targetAgent.rag;
-          if (ragConfig?.enabled) {
-            console.log();
-            console.log(chalk.white('RAG 知识库已配置：'));
-            console.log(chalk.gray(`  嵌入模型: ${ragConfig.embeddingModel || 'nomic-embed-text'}`));
-            console.log(chalk.gray(`  知识目录: ${(ragConfig.knowledgeDirs || []).join(', ') || '未设置'}`));
-          }
-          
-          console.log(chalk.gray('─'.repeat(45)));
-          console.log();
+          console.log(chalk.gray(`💡 使用 /init-memory 初始化记忆系统`));
+        }
+        
+        // 显示 RAG 配置状态（如果有）
+        const ragConfig = targetAgent.rag;
+        if (ragConfig?.enabled) {
+          console.log(chalk.gray(`📚 RAG 已配置: ${ragConfig.embeddingModel || 'all-minilm'}`));
         }
         
         // 如果有消息，继续处理
@@ -897,47 +882,36 @@ async function handleCommand(
       const memoryManager = getMemoryManager();
       const agent = state.agents.get(state.currentAgentId);
       if (agent) {
-        const memStatus = await memoryManager.isAgentInitialized(agent.id);
-        if (memStatus.initialized) {
-          console.log(chalk.green('✓ 该 Agent 记忆系统已初始化'));
-          console.log(chalk.gray(`  Agent 档案: ${memStatus.hasProfile ? '✓' : '✗'}`));
-          console.log(chalk.gray(`  工作记忆: ${memStatus.hasMemory ? '✓' : '✗'}`));
-          console.log(chalk.gray(`  用户信息: ${memStatus.hasKeyInfo ? '✓' : '✗'}`));
-        } else {
-          console.log(chalk.cyan.bold('\n🧠 初始化 Agent 记忆系统\n'));
-          
-          // 1. 初始化 Agent 档案
-          console.log(chalk.white('1. 创建 Agent 档案...'));
-          const profile = await memoryManager.getAgentProfile(agent.id, agent.name);
-          if (agent.systemPrompt) {
-            profile.role = agent.systemPrompt;
-          }
-          await memoryManager.saveAgentProfile(profile);
-          console.log(chalk.gray(`   ✓ memory/profiles/agent_${agent.id}.json`));
-          
-          // 2. 创建工作记忆
-          console.log(chalk.white('2. 创建工作记忆...'));
-          const today = new Date().toISOString().split('T')[0]!;
-          await memoryManager.remember(agent.id, '记忆系统初始化', 'event', 3, ['init']);
-          console.log(chalk.gray(`   ✓ memory/daily/${today}_${agent.id}.json`));
-          
-          // 3. 确保用户档案存在
-          console.log(chalk.white('3. 检查用户档案...'));
-          const userProfile = memoryManager.getUserProfile();
-          if (userProfile) {
-            console.log(chalk.gray(`   ✓ memory/profiles/user.json`));
-          }
-          
-          console.log();
-          console.log(chalk.green('✓ 记忆系统初始化完成'));
-          console.log();
-          console.log(chalk.white('现在你可以：'));
-          console.log(chalk.gray('  • 说"记住我的名字是xxx"记录个人信息'));
-          console.log(chalk.gray('  • 说"记住项目路径是/xxx"记录重要路径'));
-          console.log(chalk.gray('  • 说"我喜欢xxx"记录偏好'));
-          console.log();
-          console.log(chalk.gray('使用 /memory stats 查看记忆状态'));
+        // 强制初始化记忆
+        console.log(chalk.cyan.bold('\n🧠 初始化 Agent 记忆系统\n'));
+        
+        // 1. 初始化 Agent 档案
+        console.log(chalk.white('1. 创建 Agent 档案...'));
+        const profile = await memoryManager.getAgentProfile(agent.id, agent.name);
+        await memoryManager.saveAgentProfile(profile);
+        console.log(chalk.gray(`   ✓ memory/profiles/agent_${agent.id}.json`));
+        
+        // 2. 创建工作记忆
+        console.log(chalk.white('2. 创建工作记忆...'));
+        const today = new Date().toISOString().split('T')[0]!;
+        await memoryManager.remember(agent.id, '记忆系统初始化', 'event', 3, ['init']);
+        console.log(chalk.gray(`   ✓ memory/daily/${today}_${agent.id}.json`));
+        
+        // 3. 确保用户档案存在
+        console.log(chalk.white('3. 检查用户档案...'));
+        const userProfile = memoryManager.getUserProfile();
+        if (userProfile) {
+          console.log(chalk.gray(`   ✓ memory/profiles/user.json`));
         }
+        
+        console.log();
+        console.log(chalk.green('✓ 记忆系统初始化完成'));
+        
+        // 显示最终状态
+        const memStatus = await memoryManager.isAgentInitialized(agent.id);
+        console.log(chalk.gray(`  Agent 档案: ${memStatus.hasProfile ? '✓' : '✗'}`));
+        console.log(chalk.gray(`  工作记忆: ${memStatus.hasMemory ? '✓' : '✗'}`));
+        console.log(chalk.gray(`  用户信息: ${memStatus.hasKeyInfo ? '✓' : '✗'}`));
         
         // 同时检查 RAG 配置
         const ragConfig = agent.rag;

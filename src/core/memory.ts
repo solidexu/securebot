@@ -944,7 +944,7 @@ ${entry.content}
 
   /**
    * 检查 Agent 是否已初始化记忆
-   * 初始化条件：用户主动进行过初始化，或保存过重要信息
+   * 初始化条件：存在 Agent 档案文件 或 存在工作记忆
    */
   async isAgentInitialized(agentId: string): Promise<{
     initialized: boolean;
@@ -960,37 +960,22 @@ ${entry.content}
     let hasMemory = false;
     let hasKeyInfo = false;
 
-    // 检查 Agent 档案是否有实质内容
+    // 检查 Agent 档案文件是否存在
     const profilePath = join(this.config.rootDir, 'profiles', `agent_${agentId}.json`);
     if (existsSync(profilePath)) {
-      try {
-        const content = readFileSync(profilePath, 'utf-8');
-        const profile = JSON.parse(content) as AgentProfile;
-        // 档案有角色描述或学习到的偏好才算初始化过
-        if (profile.role || Object.keys(profile.learnedPreferences || {}).length > 0) {
-          hasProfile = true;
-        }
-      } catch {
-        // 忽略
-      }
+      hasProfile = true;
     }
     if (!hasProfile) {
       missing.push('Agent 档案');
     }
 
-    // 检查工作记忆是否有重要内容（不只是对话记录）
+    // 检查工作记忆是否存在
     const dates = this.getRecentDates(this.config.workingMemoryDays);
     for (const date of dates) {
       const memory = await this.loadDailyMemory(date, agentId);
       if (memory && memory.entries.length > 0) {
-        // 检查是否有 knowledge 类型或高重要性的条目
-        const hasImportant = memory.entries.some(e => 
-          e.type === 'knowledge' || e.importance >= 4 || e.tags?.includes('init')
-        );
-        if (hasImportant) {
-          hasMemory = true;
-          break;
-        }
+        hasMemory = true;
+        break;
       }
     }
     if (!hasMemory) {
