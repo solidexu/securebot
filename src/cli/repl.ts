@@ -175,6 +175,10 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
     if (state.executing) {
       console.log(chalk.yellow('\n[已打断当前操作]'));
       state.interrupted = true;
+      // 取消正在进行的 LLM 请求
+      if (state.abortController) {
+        state.abortController.abort();
+      }
       ctrlCount = 0;  // 重置计数
       return;
     }
@@ -296,34 +300,38 @@ async function processMessage(
   state.executing = true;
   state.interrupted = false;
   
+  // 创建 AbortController 用于取消 LLM 请求
+  const abortController = new AbortController();
+  state.abortController = abortController;
+  
   try {
     const session = getOrCreateMainSession(agent);
     
     // 添加用户消息
     addUserMessage(session, message);
-  
-  // 记录用户请求到记忆（自动评估重要性）
-  const memoryManager = getMemoryManager();
-  await memoryManager.remember(agent.id, `用户请求: ${message}`, 'conversation');
-  
-  // 判断任务复杂度
-  const complexity = assessComplexity(message);
-  let currentPlan: TaskPlan | null = null;
-  let lastPlanRender = '';
-  
-  if (complexity === 'complex') {
-    console.log();
-    console.log(chalk.cyan('🔍 检测到复杂任务，系统将先制定计划...'));
-    console.log();
-  }
-  
-  // 自动保存
-  if (sessionStorage) {
-    await sessionStorage.saveSession(session);
-  }
-  
-  // 获取可用工具
-  const availableTools = getAvailableTools(agent, state.config.tools);
+    
+    // 记录用户请求到记忆（自动评估重要性）
+    const memoryManager = getMemoryManager();
+    await memoryManager.remember(agent.id, `用户请求: ${message}`, 'conversation');
+    
+    // 判断任务复杂度
+    const complexity = assessComplexity(message);
+    let currentPlan: TaskPlan | null = null;
+    let lastPlanRender = '';
+    
+    if (complexity === 'complex') {
+      console.log();
+      console.log(chalk.cyan('🔍 检测到复杂任务，系统将先制定计划...'));
+      console.log();
+    }
+    
+    // 自动保存
+    if (sessionStorage) {
+      await sessionStorage.saveSession(session);
+    }
+    
+    // 获取可用工具
+    const availableTools = getAvailableTools(agent, state.config.tools);
 
   // 智能检测技能
   const skillDetector = getSkillDetector();
@@ -444,7 +452,8 @@ async function processMessage(
           messages,
           tools: toolsForThisRound.length > 0 ? toolsForThisRound : undefined,
           onStream,
-        } as ChatParams & { onStream: StreamCallback });
+          signal: abortController.signal,
+        } as ChatParams & { onStream: StreamCallback; signal: AbortSignal });
       } else {
         // 回退到非流式
         result = await state.modelAdapter.chat({
@@ -769,19 +778,20 @@ async function processMessage(
   }
 
   // 达到最大轮数，输出最后的内容
-  console.log(chalk.yellow(`\n已达到最大工具调用轮数 (${MAX_TOOL_ROUNDS})`));
-  console.log();
-  console.log(formatResponse(lastContent));
-  console.log();
-  
-  // 自动保存
-  if (sessionStorage) {
-    await sessionStorage.saveSession(session);
-  }
+    console.log(chalk.yellow(`\n已达到最大工具调用轮数 (${MAX_TOOL_ROUNDS})`));
+    console.log();
+    console.log(formatResponse(lastContent));
+    console.log();
+    
+    // 自动保存
+    if (sessionStorage) {
+      await sessionStorage.saveSession(session);
+    }
   } finally {
     // 标记执行结束
     state.executing = false;
     state.interrupted = false;
+    state.abortController = undefined;
   }
 }
 

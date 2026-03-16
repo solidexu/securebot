@@ -312,4 +312,6 @@ export interface ReplState {
   executing?: boolean;
   /** 是否被打断 */
   interrupted?: boolean;
+  /** 用于取消 LLM 请求的 AbortController */
+  abortController?: AbortController;
 }

@@ -96,6 +96,8 @@ export type StreamCallback = (chunk: {
 export interface StreamChatParams extends ChatParams {
   /** 流式回调 */
   onStream?: StreamCallback;
+  /** 取消信号 */
+  signal?: AbortSignal;
 }
 
 // ============ Ollama Adapter ============
@@ -151,7 +153,7 @@ export class OllamaAdapter implements ModelAdapter {
 
     try {
       if (useStream) {
-        return await this.chatStream(requestBody, params.onStream!);
+        return await this.chatStream(requestBody, params.onStream!, params.signal);
       } else {
         return await this.chatNonStream(requestBody);
       }
@@ -201,7 +203,8 @@ export class OllamaAdapter implements ModelAdapter {
    */
   private async chatStream(
     requestBody: OllamaChatRequest,
-    onStream: StreamCallback
+    onStream: StreamCallback,
+    signal?: AbortSignal
   ): Promise<ChatResult> {
     const response = await request(`${this.baseUrl}/api/chat`, {
       method: 'POST',
@@ -210,6 +213,7 @@ export class OllamaAdapter implements ModelAdapter {
       },
       body: JSON.stringify({ ...requestBody, stream: true }),
       bodyTimeout: this.timeout,
+      signal,  // 传递 AbortSignal
     });
 
     if (response.statusCode >= 400) {
@@ -224,12 +228,20 @@ export class OllamaAdapter implements ModelAdapter {
 
     // 使用 async iterator 读取 NDJSON 流
     for await (const chunk of response.body) {
+      // 检查是否被取消
+      if (signal?.aborted) {
+        break;
+      }
+      
       const text = chunk.toString();
       
       // NDJSON 格式，每行一个 JSON
       const lines = text.split('\n').filter((line: string) => line.trim());
       
       for (const line of lines) {
+        // 再次检查取消
+        if (signal?.aborted) break;
+        
         try {
           const data = JSON.parse(line) as OllamaStreamResponse;
           
