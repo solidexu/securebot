@@ -6,7 +6,8 @@
 
 import type { Tool, ToolContext, ToolResult, Agent, ToolPolicy } from '../core/types.js';
 import { isToolAllowed, getAgentToolPolicy } from '../core/agent.js';
-import { getAuditLogger } from '../core/audit.js';
+import { eventBus } from '../core/event-bus.js';
+import { EventTypes } from '../core/events.js';
 import { readTool, writeTool, editTool } from './fs.js';
 import { execTool } from './exec.js';
 import { ragTools } from '../rag/tools.js';
@@ -77,7 +78,7 @@ export function getAvailableToolNames(agent: Agent, globalPolicy: ToolPolicy): s
 // ============ 工具执行 ============
 
 /**
- * 执行工具（带审计日志）
+ * 执行工具（通过事件系统记录审计）
  */
 export async function executeTool(
   toolName: string,
@@ -85,19 +86,23 @@ export async function executeTool(
   context: ToolContext
 ): Promise<ToolResult> {
   const startTime = Date.now();
-  const auditLogger = getAuditLogger();
   
   const tool = getTool(toolName);
   
   if (!tool) {
-    auditLogger.logToolCall(
-      context.agent.id,
-      context.session.sessionKey,
-      toolName,
-      params,
-      'failure',
-      `工具不存在: ${toolName}`
-    );
+    // 发布工具调用失败事件
+    eventBus.publishSync({
+      type: EventTypes.TOOL_CALL_FAILURE,
+      timestamp: new Date(),
+      agentId: context.agent.id,
+      sessionId: context.session.sessionKey,
+      payload: {
+        toolName,
+        arguments: params,
+        error: `工具不存在: ${toolName}`,
+        duration: 0,
+      },
+    });
     return {
       success: false,
       error: `工具不存在: ${toolName}`,
@@ -107,48 +112,88 @@ export async function executeTool(
   // 检查权限
   const policy = getAgentToolPolicy(context.agent, context.session as unknown as ToolPolicy);
   if (!isToolAllowed(toolName, policy)) {
-    auditLogger.logToolCall(
-      context.agent.id,
-      context.session.sessionKey,
-      toolName,
-      params,
-      'failure',
-      `工具未授权`
-    );
+    // 发布工具调用失败事件
+    eventBus.publishSync({
+      type: EventTypes.TOOL_CALL_FAILURE,
+      timestamp: new Date(),
+      agentId: context.agent.id,
+      sessionId: context.session.sessionKey,
+      payload: {
+        toolName,
+        arguments: params,
+        error: `工具未授权`,
+        duration: 0,
+      },
+    });
     return {
       success: false,
       error: `工具 ${toolName} 未授权`,
     };
   }
   
+  // 发布工具调用开始事件
+  eventBus.publishSync({
+    type: EventTypes.TOOL_CALL_START,
+    timestamp: new Date(),
+    agentId: context.agent.id,
+    sessionId: context.session.sessionKey,
+    payload: {
+      toolName,
+      arguments: params,
+    },
+  });
+  
   try {
     const result = await tool.execute(params, context);
     const duration = Date.now() - startTime;
     
-    auditLogger.logToolCall(
-      context.agent.id,
-      context.session.sessionKey,
-      toolName,
-      params,
-      result.success ? 'success' : 'failure',
-      result.error,
-      duration
-    );
+    // 发布工具调用结果事件
+    if (result.success) {
+      eventBus.publishSync({
+        type: EventTypes.TOOL_CALL_SUCCESS,
+        timestamp: new Date(),
+        agentId: context.agent.id,
+        sessionId: context.session.sessionKey,
+        payload: {
+          toolName,
+          arguments: params,
+          result: result.content,
+          duration,
+        },
+      });
+    } else {
+      eventBus.publishSync({
+        type: EventTypes.TOOL_CALL_FAILURE,
+        timestamp: new Date(),
+        agentId: context.agent.id,
+        sessionId: context.session.sessionKey,
+        payload: {
+          toolName,
+          arguments: params,
+          error: result.error || '未知错误',
+          duration,
+        },
+      });
+    }
     
     return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const duration = Date.now() - startTime;
     
-    auditLogger.logToolCall(
-      context.agent.id,
-      context.session.sessionKey,
-      toolName,
-      params,
-      'failure',
-      message,
-      duration
-    );
+    // 发布工具调用失败事件
+    eventBus.publishSync({
+      type: EventTypes.TOOL_CALL_FAILURE,
+      timestamp: new Date(),
+      agentId: context.agent.id,
+      sessionId: context.session.sessionKey,
+      payload: {
+        toolName,
+        arguments: params,
+        error: message,
+        duration,
+      },
+    });
     
     return {
       success: false,
