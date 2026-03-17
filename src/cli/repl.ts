@@ -284,6 +284,15 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
     } catch (error) {
       // 捕获并显示错误，避免闪退
       const errorMsg = error instanceof Error ? error.message : String(error);
+      const errorName = error instanceof Error ? error.name : '';
+      
+      // 如果是 readline 关闭错误，退出循环
+      if (errorName === 'ERR_USE_AFTER_CLOSE' || errorMsg.includes('readline was closed')) {
+        console.log(chalk.yellow('\n程序正在退出...'));
+        state.running = false;
+        break;
+      }
+      
       console.log(chalk.red(`\n❌ 发生错误: ${errorMsg}`));
       if (error instanceof Error && error.stack) {
         console.log(chalk.gray(`  堆栈: ${error.stack.split('\n').slice(0, 3).join('\n')}`));
