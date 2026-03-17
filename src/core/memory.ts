@@ -341,34 +341,41 @@ export class MemoryManager {
   async initialize(): Promise<void> {
     if (this.initialized) return;
 
-    // 确保记忆目录存在
-    // 所有记忆文件都在 rootDir/memory/ 下
-    const memoryDir = this.config.rootDir;
-    const dirs = [
-      join(memoryDir, 'daily'),
-      join(memoryDir, 'profiles'),
-      join(memoryDir, 'events'),
-      join(memoryDir, 'summaries'),
-    ];
-    for (const dir of dirs) {
-      if (!existsSync(dir)) {
-        mkdirSync(dir, { recursive: true });
+    try {
+      // 确保记忆目录存在
+      // 所有记忆文件都在 rootDir 下
+      const memoryDir = this.config.rootDir;
+      const dirs = [
+        join(memoryDir, 'daily'),
+        join(memoryDir, 'profiles'),
+        join(memoryDir, 'events'),
+        join(memoryDir, 'summaries'),
+      ];
+      for (const dir of dirs) {
+        if (!existsSync(dir)) {
+          mkdirSync(dir, { recursive: true });
+        }
       }
+
+      // 加载工作记忆
+      await this.loadWorkingMemory();
+      
+      // 加载用户档案
+      await this.loadUserProfile();
+      
+      // 加载 Agent 档案
+      await this.loadAgentProfiles();
+      
+      // 加载摘要历史
+      await this.loadSummaryHistory();
+
+      this.initialized = true;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`MemoryManager initialize error: ${errorMsg}`);
+      // 即使初始化失败，也标记为已初始化，避免重复尝试
+      this.initialized = true;
     }
-
-    // 加载工作记忆
-    await this.loadWorkingMemory();
-    
-    // 加载用户档案
-    await this.loadUserProfile();
-    
-    // 加载 Agent 档案
-    await this.loadAgentProfiles();
-    
-    // 加载摘要历史
-    await this.loadSummaryHistory();
-
-    this.initialized = true;
   }
 
   // ============ Layer 1: 工作记忆 ============
@@ -968,47 +975,64 @@ ${entry.content}
     hasKeyInfo: boolean;
     missing: string[];
   }> {
-    if (!this.initialized) await this.initialize();
+    try {
+      if (!this.initialized) await this.initialize();
 
-    const missing: string[] = [];
-    let hasProfile = false;
-    let hasMemory = false;
-    let hasKeyInfo = false;
+      const missing: string[] = [];
+      let hasProfile = false;
+      let hasMemory = false;
+      let hasKeyInfo = false;
 
-    // 检查 Agent 档案文件是否存在
-    const profilePath = join(this.config.rootDir, 'profiles', `agent_${agentId}.json`);
-    if (existsSync(profilePath)) {
-      hasProfile = true;
-    }
-    if (!hasProfile) {
-      missing.push('Agent 档案');
-    }
-
-    // 检查工作记忆是否存在
-    const dates = this.getRecentDates(this.config.workingMemoryDays);
-    for (const date of dates) {
-      const memory = await this.loadDailyMemory(date, agentId);
-      if (memory && memory.entries.length > 0) {
-        hasMemory = true;
-        break;
+      // 检查 Agent 档案文件是否存在
+      const profilePath = join(this.config.rootDir, 'profiles', `agent_${agentId}.json`);
+      if (existsSync(profilePath)) {
+        hasProfile = true;
       }
-    }
-    if (!hasMemory) {
-      missing.push('工作记忆');
-    }
+      if (!hasProfile) {
+        missing.push('Agent 档案');
+      }
 
-    // 检查用户档案中是否有关于此 agent 的关键信息
-    if (this.userProfile && Object.keys(this.userProfile.keyInfo).length > 0) {
-      hasKeyInfo = true;
-    }
+      // 检查工作记忆是否存在
+      const dates = this.getRecentDates(this.config.workingMemoryDays);
+      for (const date of dates) {
+        try {
+          const memory = await this.loadDailyMemory(date, agentId);
+          if (memory && memory.entries.length > 0) {
+            hasMemory = true;
+            break;
+          }
+        } catch {
+          // 忽略加载错误
+        }
+      }
+      if (!hasMemory) {
+        missing.push('工作记忆');
+      }
 
-    return {
-      initialized: hasProfile || hasMemory || hasKeyInfo,
-      hasProfile,
-      hasMemory,
-      hasKeyInfo,
-      missing,
-    };
+      // 检查用户档案中是否有关于此 agent 的关键信息
+      if (this.userProfile && Object.keys(this.userProfile.keyInfo).length > 0) {
+        hasKeyInfo = true;
+      }
+
+      return {
+        initialized: hasProfile || hasMemory || hasKeyInfo,
+        hasProfile,
+        hasMemory,
+        hasKeyInfo,
+        missing,
+      };
+    } catch (error) {
+      // 如果发生任何错误，返回未初始化状态而不是抛出异常
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`isAgentInitialized error: ${errorMsg}`);
+      return {
+        initialized: false,
+        hasProfile: false,
+        hasMemory: false,
+        hasKeyInfo: false,
+        missing: ['初始化检查失败: ' + errorMsg],
+      };
+    }
   }
 
   /**
