@@ -806,11 +806,14 @@ export class CollaborationManager {
         .filter(d => d.status === 'in_progress' || d.status === 'accepted').length;
       sharedWorkspaces = this.workspaceManager.getAgentWorkspaces(agentId).length;
     } else {
+      // 访问内部属性以获取全局统计
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       for (const queue of (this.messageBus as any).messageQueue.values()) {
         pendingMessages += queue.filter((m: AgentMessage) => m.status === 'pending').length;
       }
       activeDelegations = Array.from(this.delegationManager.getDelegations(''))
         .filter(d => d.status === 'in_progress').length;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       sharedWorkspaces = (this.workspaceManager as any).workspaces.size;
     }
 

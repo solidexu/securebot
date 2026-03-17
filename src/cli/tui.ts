@@ -530,7 +530,7 @@ export class TuiRepl {
       items,
     });
 
-    list.on('select', (_item: any, index: number) => {
+    list.on('select', (_item: unknown, index: number) => {
       const agents = Array.from(this.state!.agents.keys());
       const selectedId = agents[index];
       if (selectedId) {
