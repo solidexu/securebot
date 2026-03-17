@@ -894,6 +894,119 @@ export function parseTaskPlan(content: string): TaskPlan | null {
 }
 
 /**
+ * 检测子规划
+ * 
+ * 从模型输出中检测是否包含子规划（对某个步骤的细化）
+ */
+export interface SubPlanDetection {
+  hasSubPlan: boolean;
+  parentStepId?: string;
+  parentStepDescription?: string;
+  subPlan?: TaskPlan;
+}
+
+export function detectSubPlan(
+  content: string, 
+  currentPlan: TaskPlan
+): SubPlanDetection {
+  const lines = content.split('\n');
+  
+  // 检测子规划的触发词
+  const subPlanTriggers = [
+    /(?:现在|接着|接下来)?(?:对|针对|关于)(?:步骤|第\s*(\d+)\s*步)\s*(.+?)(?:进行|做)\s*(?:详细|细化)?(?:规划|分解|拆分)/i,
+    /(?:细化|拆分|分解)(?:步骤|第\s*(\d+)\s*步)\s*(.+)/i,
+    /(.+?)\s*的(?:详细|细化)?(?:规划|步骤|方案)\s*[是为：:]/i,
+  ];
+  
+  // 检测嵌套编号格式 (1.1, 1.2, 2.1 等)
+  const nestedNumberRegex = /^(\d+)\.(\d+)[)、.]\s*(.+)/;
+  
+  for (const line of lines) {
+    const trimmed = line.trim();
+    
+    // 检查是否匹配触发词
+    for (const trigger of subPlanTriggers) {
+      const match = trimmed.match(trigger);
+      if (match) {
+        // 尝试找到对应的父步骤
+        const stepNum = match[1] ? parseInt(match[1]) : null;
+        const stepDesc = match[2] || '';
+        
+        let parentStep: TaskStep | null = null;
+        
+        if (stepNum) {
+          // 按步骤编号查找
+          parentStep = currentPlan.steps[stepNum - 1] ?? null;
+        } else if (stepDesc) {
+          // 按描述匹配
+          parentStep = currentPlan.steps.find(s => 
+            s.description.toLowerCase().includes(stepDesc.toLowerCase()) ||
+            stepDesc.toLowerCase().includes(s.description.toLowerCase())
+          ) ?? null;
+        }
+        
+        if (parentStep) {
+          // 尝试解析子规划内容
+          const subPlan = parseTaskPlan(content);
+          
+          return {
+            hasSubPlan: true,
+            parentStepId: parentStep.id,
+            parentStepDescription: parentStep.description,
+            subPlan: subPlan ? {
+              ...subPlan,
+              title: subPlan.title || `${parentStep.description} - 详细规划`,
+            } : undefined,
+          };
+        }
+      }
+    }
+    
+    // 检查嵌套编号格式
+    const nestedMatch = trimmed.match(nestedNumberRegex);
+    if (nestedMatch && nestedMatch[1] && nestedMatch[2] && nestedMatch[3]) {
+      const parentIndex = parseInt(nestedMatch[1]) - 1;
+      if (parentIndex >= 0 && parentIndex < currentPlan.steps.length) {
+        const parentStep = currentPlan.steps[parentIndex];
+        if (parentStep) {
+          // 收集所有属于这个父步骤的子步骤
+          const subSteps: TaskStep[] = [];
+          const parentPrefix = nestedMatch[1];
+          
+          for (const l of lines) {
+            const t = l.trim();
+            const m = t.match(nestedNumberRegex);
+            if (m && m[1] === parentPrefix && m[2] && m[3]) {
+              subSteps.push({
+                id: `step-${parentPrefix}.${m[2]}`,
+                description: m[3],
+                status: 'pending',
+              });
+            }
+          }
+          
+          if (subSteps.length >= 2) {
+            return {
+              hasSubPlan: true,
+              parentStepId: parentStep.id,
+              parentStepDescription: parentStep.description,
+              subPlan: {
+                title: `${parentStep.description} - 详细规划`,
+                steps: subSteps,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+              },
+            };
+          }
+        }
+      }
+    }
+  }
+  
+  return { hasSubPlan: false };
+}
+
+/**
  * 渲染任务进度
  */
 export function renderTaskProgress(plan: TaskPlan): string {

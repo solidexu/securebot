@@ -26,10 +26,12 @@
     "@clack/prompts": "^0.10.1",
     "blessed": "^0.1.81",
     "blessed-contrib": "^4.11.0",
+    "boxen": "^8.0.1",
     "chalk": "^5.4.1",
     "chokidar": "^4.0.3",
     "commander": "^13.1.0",
     "json5": "^2.2.3",
+    "ora": "^9.3.0",
     "undici": "^7.5.0",
     "uuid": "^13.0.0"
   },
