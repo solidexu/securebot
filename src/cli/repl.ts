@@ -219,19 +219,20 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
 
   // 主循环
   while (state.running) {
-    // 获取当前 Agent
-    const agent = agents.get(state.currentAgentId) ?? getDefaultAgent(agents);
-    if (!agent) {
-      console.log(chalk.red('错误: 找不到 Agent'));
-      break;
-    }
+    try {
+      // 获取当前 Agent
+      const agent = agents.get(state.currentAgentId) ?? getDefaultAgent(agents);
+      if (!agent) {
+        console.log(chalk.red('错误: 找不到 Agent'));
+        break;
+      }
 
-    // 提示符
-    const prompt = chalk.cyan(`[${agent.name}] > `);
-    const inputLine = await rl.question(prompt);
+      // 提示符
+      const prompt = chalk.cyan(`[${agent.name}] > `);
+      const inputLine = await rl.question(prompt);
 
-    // 处理空输入
-    if (!inputLine.trim()) {
+      // 处理空输入
+      if (!inputLine.trim()) {
       continue;
     }
 
@@ -279,6 +280,15 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
     } else {
       // 使用当前 Agent 处理消息
       await processMessage(state, agent, message, rl, sessionStorage);
+    }
+    } catch (error) {
+      // 捕获并显示错误，避免闪退
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.log(chalk.red(`\n❌ 发生错误: ${errorMsg}`));
+      if (error instanceof Error && error.stack) {
+        console.log(chalk.gray(`  堆栈: ${error.stack.split('\n').slice(0, 3).join('\n')}`));
+      }
+      console.log(chalk.gray('请检查配置或重新启动 SecureBot\n'));
     }
   }
 
