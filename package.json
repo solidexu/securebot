@@ -1,6 +1,6 @@
 {
   "name": "securebot",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Secure multi-agent AI assistant with CLI interface",
   "type": "module",
   "main": "dist/index.js",
