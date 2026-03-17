@@ -509,6 +509,8 @@ async function processMessage(
     let lastPlanRender = '';
     
     // 恢复会话中的规划状态
+    let shouldExecutePlan = false;  // 是否应该直接执行已有计划
+    
     if (session.plan && session.plan.steps.some(s => s.status === 'pending' || s.status === 'in_progress')) {
       currentPlan = {
         title: session.plan.title,
@@ -543,13 +545,41 @@ async function processMessage(
           }
         }
       }
+      
+      // 如果用户说"继续"，直接执行计划
+      const continueKeywords = ['继续', '继续开发', '继续执行', '执行', '开始', 'run', 'continue'];
+      const isContinueRequest = continueKeywords.some(kw => message.trim().toLowerCase() === kw.toLowerCase());
+      
+      if (isContinueRequest) {
+        console.log(chalk.green('\n✓ 继续执行已有计划...'));
+        // 找到下一个待执行的步骤
+        const nextStep = getNextPendingStep(currentPlan);
+        if (nextStep) {
+          console.log(chalk.cyan(`执行步骤: ${nextStep.description}`));
+        }
+        shouldExecutePlan = true;
+      }
+      
       console.log();
     }
     
-    if (complexity === 'complex' && !currentPlan) {
+    // 如果是执行已有计划，不显示规划提示；否则显示复杂任务提示
+    if (!shouldExecutePlan && complexity === 'complex' && !currentPlan) {
       console.log();
       console.log(chalk.cyan('🔍 检测到复杂任务，系统将先制定计划...'));
       console.log();
+    }
+    
+    // 如果是继续执行已有计划，给模型明确的指令
+    if (shouldExecutePlan && currentPlan) {
+      const nextStep = getNextPendingStep(currentPlan);
+      if (nextStep) {
+        addUserMessage(session, 
+          `继续执行计划。当前进度：${currentPlan.steps.filter(s => s.status === 'completed').length}/${currentPlan.steps.length}\n\n` +
+          `下一步：${nextStep.description}\n\n` +
+          `请使用可用工具完成这个步骤。`
+        );
+      }
     }
     
     // 自动保存
@@ -783,12 +813,37 @@ async function processMessage(
           return;
         }
         
-        // 情况2：有计划但没有工具调用 → 提示模型开始执行
+        // 情况2：有计划但没有工具调用 → 等待用户确认后再执行
         if (currentPlan) {
-          console.log(chalk.green('\n✓ 计划已生成，开始执行...'));
           addAssistantMessage(session, result.content);
           // 重置无工具调用计数器（规划阶段不计入）
           noToolCallRounds = 0;
+          
+          // 检查用户是否明确要求生成计划（而非执行）
+          const isPlanOnlyRequest = 
+            message.includes('计划') || 
+            message.includes('规划') || 
+            message.includes('方案') ||
+            message.includes('怎么') ||
+            message.includes('如何');
+          
+          // 如果是规划请求，等待用户确认
+          if (isPlanOnlyRequest) {
+            console.log();
+            console.log(chalk.cyan('📋 计划已生成，等待您的确认...'));
+            console.log(chalk.gray('确认执行请输入: "继续"、"执行"、"开始" 或描述具体要做什么'));
+            console.log(chalk.gray('修改计划请输入: 您的修改意见'));
+            console.log(chalk.gray('取消请输入: "取消" 或开始新话题'));
+            console.log();
+            // 保存会话状态，等待用户下一步输入
+            if (sessionStorage) {
+              await sessionStorage.saveSession(session);
+            }
+            return;
+          }
+          
+          // 如果不是纯规划请求，直接开始执行
+          console.log(chalk.green('\n✓ 计划已生成，开始执行...'));
           // 添加提示让模型开始执行第一步
           addUserMessage(session, 
             '计划已确认。现在请开始执行第一步：\n' +
@@ -839,8 +894,8 @@ async function processMessage(
     }
 
     // 有工具调用
-    // 复杂任务：必须先有计划才能执行工具
-    if (complexity === 'complex' && !currentPlan) {
+    // 复杂任务：必须先有计划才能执行工具（但如果是在执行已有计划，则跳过此检查）
+    if (complexity === 'complex' && !currentPlan && !shouldExecutePlan) {
       planAttempts++;
       
       console.log(chalk.yellow('\n⚠️ 检测到模型尝试直接执行工具'));
