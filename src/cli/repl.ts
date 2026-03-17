@@ -1423,6 +1423,70 @@ async function handleCommand(
       break;
     }
 
+    case 'monitor': {
+      const { getPerformanceMonitor } = require('../core/handlers/performance-handler.js');
+      const { getErrorTracker } = require('../core/handlers/error-handler.js');
+      const { getEventPersistence } = require('../core/handlers/persistence-handler.js');
+      
+      if (arg === 'perf' || arg === 'performance') {
+        const monitor = getPerformanceMonitor();
+        const summary = monitor.getSummary();
+        console.log(chalk.cyan('\n📊 性能监控:'));
+        console.log(`  运行时间: ${summary.uptime}s`);
+        console.log(`  总事件数: ${summary.totalEvents}`);
+        console.log(`  事件类型: ${summary.eventTypes}`);
+        if (summary.topEvents.length > 0) {
+          console.log(chalk.gray('  TOP 事件:'));
+          for (const e of summary.topEvents.slice(0, 5)) {
+            console.log(chalk.gray(`    ${e.type}: ${e.count} 次 (${e.avgTime}ms)`));
+          }
+        }
+      } else if (arg === 'errors') {
+        const tracker = getErrorTracker();
+        const stats = tracker.getStats();
+        const errors = tracker.getErrors(5);
+        console.log(chalk.red('\n❌ 错误追踪:'));
+        console.log(`  总错误数: ${stats.totalErrors}`);
+        console.log(`  最近1小时: ${stats.recentErrors}`);
+        if (errors.length > 0) {
+          console.log(chalk.gray('  最近错误:'));
+          for (const e of errors) {
+            console.log(chalk.gray(`    ${e.error.slice(0, 60)}...`));
+          }
+        }
+      } else if (arg === 'events') {
+        const persistence = getEventPersistence();
+        const status = persistence.getStatus();
+        console.log(chalk.cyan('\n📝 事件持久化:'));
+        console.log(`  状态: ${status.enabled ? '启用' : '禁用'}`);
+        console.log(`  日志目录: ${status.logDir}`);
+      } else {
+        // 显示所有监控报告
+        const monitor = getPerformanceMonitor();
+        const tracker = getErrorTracker();
+        const summary = monitor.getSummary();
+        const stats = tracker.getStats();
+        
+        console.log(chalk.cyan('\n📊 监控报告'));
+        console.log('─'.repeat(50));
+        console.log(`运行时间: ${summary.uptime}s | 事件: ${summary.totalEvents} | 错误: ${stats.totalErrors}`);
+        if (summary.topEvents.length > 0) {
+          console.log(chalk.gray('高频事件:'));
+          for (const e of summary.topEvents.slice(0, 5)) {
+            console.log(chalk.gray(`  ${e.type}: ${e.count} 次`));
+          }
+        }
+        console.log('─'.repeat(50));
+      }
+      
+      console.log(chalk.gray('\n命令:'));
+      console.log(chalk.gray('  /monitor          显示监控报告'));
+      console.log(chalk.gray('  /monitor perf     性能监控'));
+      console.log(chalk.gray('  /monitor errors   错误追踪'));
+      console.log(chalk.gray('  /monitor events   事件持久化'));
+      break;
+    }
+
     case 'audit': {
       const auditLogger = getAuditLogger();
       if (arg === 'off') {
@@ -2105,6 +2169,12 @@ function printHelp(): void {
   console.log('  /plan reset      重置规划状态');
   console.log('  /plan clear      清除所有规划');
   console.log(chalk.gray('  提示: 支持层次化规划，可嵌套子规划'));
+  console.log();
+  console.log(chalk.cyan('性能监控:'));
+  console.log('  /monitor         显示所有监控报告');
+  console.log('  /monitor perf    性能监控统计');
+  console.log('  /monitor errors  错误追踪');
+  console.log('  /monitor events  事件持久化状态');
   console.log();
   console.log(chalk.cyan('任务管理:'));
   console.log('  /checkpoint list          列出检查点');
