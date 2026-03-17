@@ -18,6 +18,11 @@ import { getMemoryManager } from '../core/memory.js';
 import { ragManager } from '../rag/tools.js';
 import { getSkillManager, getSkillDetector } from '../core/skills.js';
 import { getTaskManager } from '../core/task-manager.js';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+import { eventBus } from '../core/event-bus.js';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+import { EventTypes } from '../core/events.js';
+import { initializeEventHandlers } from '../core/handlers/index.js';
 import {
   assessComplexity,
   parseTaskPlan,
@@ -302,6 +307,10 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
     return await showConfirmationDialog(request, rl);
   };
   confirmationManager.setHandler(confirmationHandler);
+
+  // 初始化事件处理器（审计、记忆等）
+  initializeEventHandlers({ debug: false });
+  console.log(chalk.green('✓ 事件系统就绪'));
 
   // 加载持久化会话
   if (!options.noSession) {
