@@ -156,6 +156,26 @@ export interface Agent extends AgentConfig {
 // ============ Session Types ============
 
 /**
+ * 任务规划状态（用于会话持久化）
+ */
+export interface SessionPlan {
+  /** 规划标题 */
+  title: string;
+  /** 步骤列表 */
+  steps: Array<{
+    id: string;
+    description: string;
+    status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped';
+  }>;
+  /** 创建时间 */
+  createdAt: string;
+  /** 更新时间 */
+  updatedAt: string;
+  /** 原始任务描述 */
+  originalTask?: string;
+}
+
+/**
  * 会话
  */
 export interface Session {
@@ -165,6 +185,8 @@ export interface Session {
   agentId: string;
   /** 对话历史 */
   history: Message[];
+  /** 当前任务规划（可选） */
+  plan?: SessionPlan;
   /** 创建时间 */
   createdAt: Date;
   /** 更新时间 */

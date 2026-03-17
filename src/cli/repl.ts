@@ -6,7 +6,7 @@
 
 import * as readlinePromises from 'node:readline/promises';
 import chalk from 'chalk';
-import type { ReplState, Agent, Message, ChatParams } from '../core/types.js';
+import type { ReplState, Agent, Message, ChatParams, Session } from '../core/types.js';
 import { loadConfig, createDefaultConfig, getRootDir } from '../core/config.js';
 import { createAgents, parseAgentPrefix, getDefaultAgent, getOrCreateMainSession } from '../core/agent.js';
 import { addUserMessage, addAssistantMessage, addToolResultMessage, buildSystemPrompt, clearSessionHistory } from '../core/session.js';
@@ -37,6 +37,41 @@ import {
 
 /** 最大工具调用轮数（安全兜底，正常情况下不触发） */
 const MAX_TOOL_ROUNDS = 100;
+
+// ============ 规划持久化辅助函数 ============
+
+/**
+ * 保存规划到会话
+ */
+function savePlanToSession(
+  session: Session,
+  plan: TaskPlan | null,
+  originalTask?: string
+): void {
+  if (!plan) {
+    delete session.plan;
+    return;
+  }
+  
+  session.plan = {
+    title: plan.title,
+    steps: plan.steps.map(s => ({
+      id: s.id,
+      description: s.description,
+      status: s.status,
+    })),
+    createdAt: plan.createdAt.toISOString(),
+    updatedAt: plan.updatedAt.toISOString(),
+    originalTask,
+  };
+}
+
+/**
+ * 清除会话中的规划
+ */
+function clearPlanFromSession(session: Session): void {
+  delete session.plan;
+}
 
 // ============ REPL 启动 ============
 
@@ -338,7 +373,30 @@ async function processMessage(
     let currentPlan: TaskPlan | null = null;
     let lastPlanRender = '';
     
-    if (complexity === 'complex') {
+    // 恢复会话中的规划状态
+    if (session.plan && session.plan.steps.some(s => s.status === 'pending' || s.status === 'in_progress')) {
+      currentPlan = {
+        title: session.plan.title,
+        steps: session.plan.steps,
+        createdAt: new Date(session.plan.createdAt),
+        updatedAt: new Date(session.plan.updatedAt),
+      };
+      console.log();
+      console.log(chalk.cyan('📋 恢复上次未完成的任务规划:'));
+      console.log(renderTaskProgress(currentPlan));
+      
+      // 计算进度
+      const completed = currentPlan.steps.filter(s => s.status === 'completed').length;
+      const total = currentPlan.steps.length;
+      console.log(chalk.gray(`  进度: ${completed}/${total} 步骤已完成`));
+      
+      if (session.plan.originalTask) {
+        console.log(chalk.gray(`  原始任务: ${session.plan.originalTask.slice(0, 100)}...`));
+      }
+      console.log();
+    }
+    
+    if (complexity === 'complex' && !currentPlan) {
       console.log();
       console.log(chalk.cyan('🔍 检测到复杂任务，系统将先制定计划...'));
       console.log();
@@ -513,6 +571,8 @@ async function processMessage(
       const parsedPlan = parseTaskPlan(result.content);
       if (parsedPlan && parsedPlan.steps.length > 0) {
         currentPlan = parsedPlan;
+        // 保存规划到会话
+        savePlanToSession(session, currentPlan, message);
         const newRender = renderTaskProgress(currentPlan);
         if (newRender !== lastPlanRender) {
           console.log();
@@ -557,6 +617,9 @@ async function processMessage(
               `计划完成: ${currentPlan.steps.length} 个步骤`, 
               'task'
             );
+            
+            // 清除会话中的规划（任务已完成）
+            clearPlanFromSession(session);
           }
           
           if (sessionStorage) {
@@ -750,6 +813,8 @@ async function processMessage(
             const currentStep = getNextPendingStep(currentPlan);
             if (currentStep) {
               updateStepStatus(currentPlan, currentStep.id, 'completed');
+              // 保存规划状态到会话
+              savePlanToSession(session, currentPlan);
               console.log();
               console.log(renderTaskProgress(currentPlan));
             }
@@ -764,6 +829,8 @@ async function processMessage(
             const currentStep = getNextPendingStep(currentPlan);
             if (currentStep) {
               updateStepStatus(currentPlan, currentStep.id, 'failed', errorMsg);
+              // 保存规划状态到会话
+              savePlanToSession(session, currentPlan);
               console.log();
               console.log(renderTaskProgress(currentPlan));
             }
@@ -1121,6 +1188,68 @@ async function handleCommand(
           }
         }
         console.log(chalk.gray('\n命令: /audit [on|off|stats]'));
+      }
+      break;
+    }
+
+    case 'plan': {
+      const agent = state.agents.get(state.currentAgentId);
+      if (!agent) break;
+      
+      const session = getOrCreateMainSession(agent);
+      
+      if (arg === 'clear' || arg === 'reset') {
+        // 清除规划
+        clearPlanFromSession(session);
+        await sessionStorage.saveSession(session);
+        console.log(chalk.green('✓ 已清除当前任务规划'));
+      } else if (arg === 'status' || !arg) {
+        // 显示规划状态
+        if (session.plan) {
+          const plan: TaskPlan = {
+            title: session.plan.title,
+            steps: session.plan.steps,
+            createdAt: new Date(session.plan.createdAt),
+            updatedAt: new Date(session.plan.updatedAt),
+          };
+          console.log(chalk.cyan.bold('\n📋 当前任务规划\n'));
+          console.log(renderTaskProgress(plan));
+          
+          const completed = plan.steps.filter(s => s.status === 'completed').length;
+          const total = plan.steps.length;
+          const inProgress = plan.steps.filter(s => s.status === 'in_progress').length;
+          const pending = plan.steps.filter(s => s.status === 'pending').length;
+          
+          console.log(chalk.gray(`\n进度统计:`));
+          console.log(chalk.green(`  ✅ 已完成: ${completed}`));
+          console.log(chalk.yellow(`  🔄 进行中: ${inProgress}`));
+          console.log(chalk.gray(`  ⬜ 待处理: ${pending}`));
+          console.log(chalk.gray(`  📊 总计: ${total}`));
+          
+          if (session.plan.originalTask) {
+            console.log(chalk.gray(`\n原始任务: ${session.plan.originalTask}`));
+          }
+          
+          console.log(chalk.gray('\n命令:'));
+          console.log(chalk.gray('  /plan clear  - 清除当前规划'));
+          console.log(chalk.gray('  /plan reset  - 重置规划状态'));
+        } else {
+          console.log(chalk.gray('当前没有进行中的任务规划'));
+          console.log(chalk.gray('发送复杂任务时会自动生成规划'));
+        }
+      } else if (arg === 'reset') {
+        // 重置规划状态（将所有步骤重置为待处理）
+        if (session.plan) {
+          session.plan.steps = session.plan.steps.map(s => ({
+            ...s,
+            status: 'pending' as const,
+          }));
+          session.plan.updatedAt = new Date().toISOString();
+          await sessionStorage.saveSession(session);
+          console.log(chalk.green('✓ 已重置规划状态，所有步骤设为待处理'));
+        } else {
+          console.log(chalk.gray('当前没有任务规划'));
+        }
       }
       break;
     }
@@ -1629,6 +1758,7 @@ function printHelp(): void {
   console.log('  /agents          列出所有 Agent');
   console.log('  /init-memory     初始化当前 Agent 的记忆系统');
   console.log('  /skills          显示当前 Agent 的技能');
+  console.log('  /plan [status|clear|reset]  查看/管理任务规划');
   console.log('  /history         显示对话历史');
   console.log('  /model [name]    显示/切换当前模型');
   console.log('  /models          列出可用模型');
@@ -1647,6 +1777,12 @@ function printHelp(): void {
   console.log('  /memory stats    显示记忆统计');
   console.log('  /memory search   搜索记忆内容');
   console.log(chalk.gray('  提示: 告诉 Agent "记住xxx" 会自动记录'));
+  console.log();
+  console.log(chalk.cyan('任务规划:'));
+  console.log('  /plan            查看当前任务规划');
+  console.log('  /plan clear      清除当前规划');
+  console.log('  /plan reset      重置规划状态（所有步骤设为待处理）');
+  console.log(chalk.gray('  提示: 复杂任务会自动生成规划并持久化'));
   console.log();
   console.log(chalk.cyan('任务管理:'));
   console.log('  /checkpoint list          列出检查点');
