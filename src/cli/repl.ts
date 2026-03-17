@@ -508,12 +508,17 @@ async function processMessage(
     // 添加用户消息
     addUserMessage(session, message);
     
-    // 记录用户请求到记忆（自动评估重要性）
-    const memoryManager = getMemoryManager();
-    await memoryManager.remember(agent.id, `用户请求: ${message}`, 'conversation');
-    
     // 判断任务复杂度
     const complexity = assessComplexity(message);
+    
+    // 发布用户消息事件（记忆系统会自动记录）
+    eventBus.publishSync({
+      type: EventTypes.USER_MESSAGE,
+      timestamp: new Date(),
+      agentId: agent.id,
+      sessionId: session.sessionKey,
+      payload: { message, complexity },
+    });
     let currentPlan: TaskPlan | null = null;
     let lastPlanRender = '';
     
@@ -791,19 +796,24 @@ async function processMessage(
         if (isTaskCompleted) {
           addAssistantMessage(session, result.content);
           
-          // 记录任务完成到记忆（自动评估重要性）
-          await memoryManager.remember(agent.id, `完成任务: ${message}`, 'task');
+          // 发布任务完成事件
+          eventBus.publishSync({
+            type: EventTypes.TASK_COMPLETE,
+            timestamp: new Date(),
+            agentId: agent.id,
+            sessionId: session.sessionKey,
+            payload: {
+              taskDescription: message,
+              planId: session.plan?.id,
+              stepsCompleted: currentPlan?.steps.filter(s => s.status === 'completed').length ?? 0,
+              stepsTotal: currentPlan?.steps.length ?? 0,
+            },
+          });
           
           if (currentPlan) {
             console.log();
             console.log(chalk.green('✓ 任务完成'));
             console.log(getPlanSummary(currentPlan));
-            
-            // 记录计划完成
-            await memoryManager.remember(agent.id, 
-              `计划完成: ${currentPlan.steps.length} 个步骤`, 
-              'task'
-            );
             
             // 清除会话中的规划（任务已完成）
             clearPlanFromSession(session);
@@ -877,8 +887,18 @@ async function processMessage(
       // 直接返回结果
       addAssistantMessage(session, result.content);
       
-      // 记录简单任务完成（自动评估重要性）
-      await memoryManager.remember(agent.id, `完成任务: ${message}`, 'conversation');
+      // 发布任务完成事件
+      eventBus.publishSync({
+        type: EventTypes.TASK_COMPLETE,
+        timestamp: new Date(),
+        agentId: agent.id,
+        sessionId: session.sessionKey,
+        payload: {
+          taskDescription: message,
+          stepsCompleted: 0,
+          stepsTotal: 0,
+        },
+      });
       
       // 如果有任务计划，显示最终状态
       if (currentPlan) {
@@ -1085,16 +1105,7 @@ async function processMessage(
         console.log(chalk.gray(preview));
       }
       
-      // 记录重要工具调用到记忆（自动评估重要性）
-      if (toolResult.success && ['write', 'edit', 'exec'].includes(toolCall.name)) {
-        const toolDesc = toolCall.name === 'write' ? '写入文件' :
-                        toolCall.name === 'edit' ? '编辑文件' : '执行命令';
-        const target = toolCall.arguments['path'] || toolCall.arguments['command'] || '';
-        await memoryManager.remember(agent.id, 
-          `${toolDesc}: ${String(target).slice(0, 100)}`, 
-          'task'
-        );
-      }
+      // 工具调用的记忆记录已通过事件系统自动处理 (见 memory-handler.ts)
     }
     
     // 自动保存
@@ -1230,7 +1241,19 @@ async function handleCommand(
         // 2. 创建工作记忆
         console.log(chalk.white('2. 创建工作记忆...'));
         const today = new Date().toISOString().split('T')[0]!;
-        await memoryManager.remember(agent.id, '记忆系统初始化', 'event', 3, ['init']);
+        // 通过事件系统记录初始化
+        eventBus.publishSync({
+          type: EventTypes.MEMORY_REMEMBER,
+          timestamp: new Date(),
+          agentId: agent.id,
+          sessionId: 'init',
+          payload: {
+            type: 'event',
+            content: '记忆系统初始化',
+            importance: 3,
+            tags: ['init'],
+          },
+        });
         console.log(chalk.gray(`   ✓ memory/daily/${today}_${agent.id}.json`));
         
         // 3. 确保用户档案存在
