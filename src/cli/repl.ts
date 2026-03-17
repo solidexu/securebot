@@ -1007,6 +1007,18 @@ async function processMessage(
               success: false,
               error: '用户取消了操作',
             };
+            // 发布确认拒绝事件
+            eventBus.publishSync({
+              type: EventTypes.TOOL_CONFIRMATION_RESULT,
+              timestamp: new Date(),
+              agentId: agent.id,
+              sessionId: session.sessionKey,
+              payload: {
+                toolName: toolCall.name,
+                arguments: toolCall.arguments,
+                decision: 'denied',
+              },
+            });
             // 添加工具结果
             addToolResultMessage(
               session,
@@ -1018,10 +1030,22 @@ async function processMessage(
             continue;
           }
           
-          // 如果用户选择了"总是允许"，记住这个决定
+          // 如果用户选择了"总是允许"，发布确认批准事件（带记住标记）
           if (confirmResult.remember) {
             const scope = confirmResult.rememberScope ?? 'tool';
-            confirmationManager.rememberDecision(toolCall.name, toolCall.arguments, scope);
+            eventBus.publishSync({
+              type: EventTypes.TOOL_CONFIRMATION_RESULT,
+              timestamp: new Date(),
+              agentId: agent.id,
+              sessionId: session.sessionKey,
+              payload: {
+                toolName: toolCall.name,
+                arguments: toolCall.arguments,
+                decision: 'approved',
+                remember: true,
+                rememberScope: scope,
+              },
+            });
             const scopeText = scope === 'tool' ? '所有操作' : '此目录的操作';
             console.log(chalk.gray(`✓ 已记住选择，后续 ${toolCall.name} ${scopeText}不再询问`));
           }

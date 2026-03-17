@@ -6,6 +6,7 @@
 
 import { setupAuditHandlers } from './audit-handler.js';
 import { setupMemoryHandlers } from './memory-handler.js';
+import { setupConfirmationHandlers } from './confirmation-handler.js';
 import { eventBus } from '../event-bus.js';
 
 let isInitialized = false;
@@ -30,6 +31,7 @@ export function initializeEventHandlers(options?: {
   // 设置各子系统处理器
   cleanupFunctions.push(setupAuditHandlers());
   cleanupFunctions.push(setupMemoryHandlers());
+  cleanupFunctions.push(setupConfirmationHandlers());
 
   isInitialized = true;
   console.log('[EventHandlers] ✅ Initialized');
@@ -55,3 +57,4 @@ export function isEventHandlersInitialized(): boolean {
 // 导出各处理器
 export { setupAuditHandlers } from './audit-handler.js';
 export { setupMemoryHandlers } from './memory-handler.js';
+export { setupConfirmationHandlers } from './confirmation-handler.js';
