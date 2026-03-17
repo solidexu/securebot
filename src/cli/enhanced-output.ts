@@ -167,7 +167,6 @@ export class MarkdownRenderer {
    */
   private renderCodeBlock(code: string, lang: string): string {
     const lines = code.split('\n');
-    const lineNums = lines.map((_, i) => String(i + 1).padStart(3, ' ')).join('\n');
     
     const header = lang ? chalk.gray(`─ ${lang} `) : chalk.gray('─ ');
     
@@ -205,7 +204,7 @@ export class CodeHighlighter {
   /**
    * 高亮单行
    */
-  private highlightLine(line: string, lang?: string): string {
+  private highlightLine(line: string, _lang?: string): string {
     if (this.theme === 'mono') {
       return line;
     }
@@ -412,7 +411,6 @@ export class Spinner {
   private current: number = 0;
   private interval: ReturnType<typeof setInterval> | null = null;
   private text: string;
-  private running: boolean = false;
 
   constructor(text: string = '') {
     this.text = text;
@@ -423,7 +421,6 @@ export class Spinner {
    */
   start(text?: string): void {
     if (text) this.text = text;
-    this.running = true;
     this.interval = setInterval(() => {
       const frame = chalk.cyan(this.frames[this.current]);
       process.stdout.write(`\r${frame} ${this.text}`);
@@ -466,7 +463,6 @@ export class Spinner {
    * 停止
    */
   stop(): void {
-    this.running = false;
     if (this.interval) {
       clearInterval(this.interval);
       this.interval = null;

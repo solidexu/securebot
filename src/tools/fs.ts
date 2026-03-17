@@ -261,7 +261,6 @@ export const editTool: Tool = {
       if (!content.includes(oldText)) {
         // 提供更详细的错误信息
         const lines = content.split('\n');
-        const oldTextLines = oldText.split('\n');
         const oldTextPreview = oldText.slice(0, 150);
         
         // 尝试查找相似文本

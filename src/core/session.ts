@@ -5,7 +5,7 @@
  */
 
 import type { Session, Message, AgentConfig, Config } from './types.js';
-import { getRootDir, getAgentsDir, getMemoryDir, getSkillsDir, getSessionsDir } from './config.js';
+import { getAgentsDir, getMemoryDir, getSkillsDir, getSessionsDir } from './config.js';
 
 // ============ Session 创建 ============
 
@@ -161,7 +161,6 @@ export async function buildSystemPrompt(
   availableTools: string[],
   skillsPrompt?: string
 ): Promise<string> {
-  const rootDir = getRootDir(config);
   const agentsDir = getAgentsDir(config);
   const memoryDir = getMemoryDir(config);
   const skillsDir = getSkillsDir(config);
@@ -177,6 +176,26 @@ export async function buildSystemPrompt(
 - **ID**: ${agent.id}
 - **名称**: ${agent.name}
 ${agent.systemPrompt ? `- **角色**: ${agent.systemPrompt}` : ''}
+
+## 核心行为准则
+
+### 继续开发原则
+当用户说"继续"、"接着做"、"继续开发"等类似请求时：
+1. **检查对话历史**：查看上一轮对话中的任务、问题或目标
+2. **不要简单回复**：避免只说"好的，我继续"或"请问具体要做什么"
+3. **主动执行**：根据历史上下文，直接继续执行之前的任务
+4. **状态汇报**：先简要说明你要继续做什么，然后立即开始
+
+示例场景：
+- 用户：帮我写一个登录页面
+- 助手：[开始编写代码...]
+- 用户：继续
+- 助手：[应该继续完善登录页面的其他部分，如验证、样式等，而不是问"继续什么"]
+
+### 主动解决问题
+- 当遇到问题或错误时，尝试分析原因并提供解决方案
+- 不要只列出问题，要给出具体的修复建议或直接修复
+- 如果需要更多信息，先说明你已经尝试了什么
 
 ## 工作空间
 你的工作空间位于：\`${workspaceDir}\`

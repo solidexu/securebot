@@ -17,14 +17,13 @@ import { getAuditLogger } from '../core/audit.js';
 import { getMemoryManager } from '../core/memory.js';
 import { ragManager } from '../rag/tools.js';
 import { getSkillManager, getSkillDetector } from '../core/skills.js';
-import { getTaskManager, type TaskManager } from '../core/task-manager.js';
+import { getTaskManager } from '../core/task-manager.js';
 import {
   assessComplexity,
   parseTaskPlan,
   renderTaskProgress,
   updateStepStatus,
   getNextPendingStep,
-  isPlanCompleted,
   getPlanSummary,
   type TaskPlan,
 } from '../core/smart-task.js';

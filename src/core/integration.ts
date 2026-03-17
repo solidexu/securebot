@@ -9,7 +9,6 @@ import { getMemoryManager, MemoryManager } from './memory.js';
 import { getConfirmationManager, ConfirmationManager } from './confirmation.js';
 import { getCollaborationManager, CollaborationManager } from './collaboration.js';
 import { getErrorHandler, ErrorHandler, RetryExecutor } from './error-handler.js';
-import { getAuditLogger } from './audit.js';
 
 // ============ 类型定义 ============
 
@@ -90,7 +89,7 @@ export async function initializeManagers(config: AppConfig): Promise<AppManagers
     // 注册委派处理器
     collaborationManager.getDelegationManager().registerHandler(
       config.agentId,
-      async (request) => {
+      async (_request) => {
         // 自动接受委派（可配置）
         return true;
       }

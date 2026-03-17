@@ -8,7 +8,6 @@ import {
   ParallelExecutor,
   ChunkProcessor,
   PerformanceMonitor,
-  getPerformanceMonitor,
 } from './performance.js';
 
 describe('LazyLoader', () => {

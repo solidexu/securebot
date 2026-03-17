@@ -8,7 +8,7 @@ import {
   getTaskManager,
   resetTaskManager,
 } from './task-manager.js';
-import type { TodoItem, TaskCheckpoint, ResumeOptions } from './task-manager.js';
+import type { TodoItem } from './task-manager.js';
 
 // Mock fs module
 vi.mock('node:fs', () => ({

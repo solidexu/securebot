@@ -2,7 +2,7 @@
  * 智能任务判断测试
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   assessComplexity,
   assessComplexityAdvanced,
@@ -15,7 +15,7 @@ import {
   isPlanCompleted,
   getPlanSummary,
 } from './smart-task.js';
-import type { TaskStep, TaskPlan, TaskType, ComplexityAssessment } from './smart-task.js';
+import type { TaskStep, TaskPlan } from './smart-task.js';
 
 // Mock fs module
 vi.mock('node:fs', () => ({

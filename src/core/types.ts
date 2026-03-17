@@ -133,6 +133,8 @@ export interface AgentConfig {
   default?: boolean;
   /** 工作空间路径 */
   workspace: string;
+  /** 系统提示词（可选，用于自定义 Agent 角色） */
+  systemPrompt?: string;
   /** 工具权限策略 */
   tools?: ToolPolicy;
   /** 模型配置 */

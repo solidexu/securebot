@@ -5,8 +5,6 @@
  */
 
 import { existsSync, statSync, createReadStream, createWriteStream } from 'node:fs';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
 
 // ============ 类型定义 ============
 
@@ -464,9 +462,10 @@ export class ChunkProcessor {
 
       const target = createWriteStream(targetPath);
 
-      source.on('data', (chunk: Buffer) => {
-        bytesCopied += chunk.length;
-        this.processedBytes += chunk.length;
+      source.on('data', (chunk: string | Buffer) => {
+        const chunkSize = typeof chunk === 'string' ? chunk.length : chunk.length;
+        bytesCopied += chunkSize;
+        this.processedBytes += chunkSize;
         onProgress?.(bytesCopied, totalBytes);
       });
 

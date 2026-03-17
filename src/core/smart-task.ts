@@ -146,8 +146,8 @@ const SIMPLE_TASK_KEYWORDS = [
   '是什么', '怎么', '如何', '为什么', '解释', '说明',
   // 状态查询
   '状态', '信息', '详情', '概览',
-  // 记忆操作（新增）
-  '记住', '记得', '保存', '记录', '记住我', '记得我', '我的',
+  // 记忆操作
+  '记住', '记得', '记录', '记住我', '记得我', '我的',
 ];
 
 /** 复杂任务关键词 */
@@ -375,7 +375,8 @@ export function assessComplexityAdvanced(
   
   // 0. 特殊处理：记忆操作关键词直接返回简单
   // 这些操作不需要复杂规划
-  const memoryKeywords = ['记住', '记得', '保存', '记录', '记住我', '记得我'];
+  // 注意：只包含明确的记忆操作词，"保存" 可能是文件操作，不包含
+  const memoryKeywords = ['记住', '记得', '记录', '记住我', '记得我'];
   const isMemoryOperation = memoryKeywords.some(kw => input.includes(kw));
   
   if (isMemoryOperation) {
@@ -610,7 +611,6 @@ export function buildDependencyGraph(steps: TaskStep[]): Map<string, DependencyN
   
   // 建立依赖关系
   for (const step of steps) {
-    const node = graph.get(step.id)!;
     for (const depId of step.dependencies ?? []) {
       const depNode = graph.get(depId);
       if (depNode) {
@@ -697,12 +697,6 @@ export function parseTaskPlan(content: string): TaskPlan | null {
   // 匹配中文数字
   const chineseNumberRegex = /^[（(]?([一二三四五六七八九十]+)[)）\.\、:\：]\s*(.+)/;
   
-  // 中文数字映射
-  const chineseNumbers: Record<string, number> = {
-    '一': 1, '二': 2, '三': 3, '四': 4, '五': 5,
-    '六': 6, '七': 7, '八': 8, '九': 9, '十': 10,
-  };
-  
   let foundPlanSection = false;
   
   for (let i = 0; i < lines.length; i++) {
@@ -735,7 +729,7 @@ export function parseTaskPlan(content: string): TaskPlan | null {
     
     // 匹配 TODO 格式
     const todoMatch = trimmed.match(todoRegex);
-    if (todoMatch) {
+    if (todoMatch && todoMatch[1] && todoMatch[2]) {
       const statusChar = todoMatch[1].toLowerCase();
       let status: TaskStep['status'] = 'pending';
       if (statusChar === 'x') status = 'completed';
@@ -752,7 +746,7 @@ export function parseTaskPlan(content: string): TaskPlan | null {
     
     // 匹配数字列表
     const numberedMatch = trimmed.match(numberedRegex);
-    if (numberedMatch) {
+    if (numberedMatch && numberedMatch[1]) {
       steps.push({
         id: `step-${steps.length + 1}`,
         description: numberedMatch[1].trim(),
@@ -763,7 +757,7 @@ export function parseTaskPlan(content: string): TaskPlan | null {
     
     // 匹配中文数字
     const chineseMatch = trimmed.match(chineseNumberRegex);
-    if (chineseMatch) {
+    if (chineseMatch && chineseMatch[2]) {
       steps.push({
         id: `step-${steps.length + 1}`,
         description: chineseMatch[2].trim(),
@@ -785,7 +779,7 @@ export function parseTaskPlan(content: string): TaskPlan | null {
     
     // 匹配序列词（首先/然后等）
     const sequenceMatch = trimmed.match(sequenceRegex);
-    if (sequenceMatch) {
+    if (sequenceMatch && sequenceMatch[2]) {
       steps.push({
         id: `step-${steps.length + 1}`,
         description: sequenceMatch[2].trim(),
@@ -796,7 +790,7 @@ export function parseTaskPlan(content: string): TaskPlan | null {
     
     // 匹配破折号/星号列表
     const listMatch = trimmed.match(listRegex);
-    if (listMatch && steps.length < 15) {
+    if (listMatch && listMatch[1] && steps.length < 15) {
       const desc = listMatch[1].trim();
       // 检查是否看起来像步骤描述（更宽松的条件）
       if (desc.length > 3 && desc.length < 150) {
@@ -837,7 +831,7 @@ export function renderTaskProgress(plan: TaskPlan): string {
   
   for (const step of plan.steps) {
     let icon: string;
-    let color: chalk.Chalk;
+    let color: (text: string) => string;
     
     switch (step.status) {
       case 'completed':

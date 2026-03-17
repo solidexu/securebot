@@ -203,7 +203,7 @@ export class TaskManager {
 
     for (const line of lines) {
       const match = line.match(todoRegex);
-      if (match) {
+      if (match && match[1] && match[2]) {
         const statusChar = match[1].trim();
         let status: TodoItem['status'] = 'pending';
         if (statusChar === 'x') status = 'completed';
@@ -223,7 +223,7 @@ export class TaskManager {
     if (todos.length === 0) {
       for (const line of lines) {
         const match = line.match(numberedRegex);
-        if (match) {
+        if (match && match[1]) {
           todos.push({
             id: `todo-${todos.length + 1}`,
             task: match[1].trim(),

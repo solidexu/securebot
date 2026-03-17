@@ -10,7 +10,7 @@ import {
   getErrorHandler,
   resetErrorHandler,
 } from './error-handler.js';
-import type { ErrorType, ErrorSeverity, HandlingResult } from './error-handler.js';
+import type { ErrorType } from './error-handler.js';
 
 // Mock fs module
 vi.mock('node:fs', () => ({
@@ -300,7 +300,7 @@ describe('ErrorHandler', () => {
 
   describe('setUserInterventionHandler', () => {
     it('should use custom user intervention handler', async () => {
-      const userHandler = vi.fn(async (prompt: string, options: string[]) => {
+      const userHandler = vi.fn(async (_prompt: string, _options: string[]) => {
         return 'retry';
       });
 

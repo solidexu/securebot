@@ -2,7 +2,7 @@
  * Agent 协作系统测试
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   AgentMessageBus,
   DelegationManager,
@@ -11,7 +11,6 @@ import {
   getCollaborationManager,
   resetCollaborationManager,
 } from './collaboration.js';
-import type { AgentMessage, DelegationRequest } from './collaboration.js';
 
 // Mock fs module
 vi.mock('node:fs', () => ({
@@ -412,9 +411,9 @@ describe('SharedWorkspaceManager', () => {
   describe('getAgentWorkspaces', () => {
     it('should get workspaces for agent', async () => {
       // Create workspaces with same manager instance
-      const ws1 = await manager.createWorkspace('WS1', ['agent1', 'agent2']);
-      const ws2 = await manager.createWorkspace('WS2', ['agent1', 'agent3']);
-      const ws3 = await manager.createWorkspace('WS3', ['agent2', 'agent3']);
+      await manager.createWorkspace('WS1', ['agent1', 'agent2']);
+      await manager.createWorkspace('WS2', ['agent1', 'agent3']);
+      await manager.createWorkspace('WS3', ['agent2', 'agent3']);
 
       const workspaces = manager.getAgentWorkspaces('agent1');
       // In test environment with mocked fs, persistence may not work

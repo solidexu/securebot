@@ -4,7 +4,7 @@
  * 实现错误分类、自动重试、降级策略、用户介入点
  */
 
-import { existsSync, mkdirSync, appendFileSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 
