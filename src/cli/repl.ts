@@ -6,7 +6,7 @@
 
 import * as readlinePromises from 'node:readline/promises';
 import chalk from 'chalk';
-import type { ReplState, Agent, Message, ChatParams, Session } from '../core/types.js';
+import type { ReplState, Agent, Message, ChatParams, Session, SessionPlan } from '../core/types.js';
 import { loadConfig, createDefaultConfig, getRootDir } from '../core/config.js';
 import { createAgents, parseAgentPrefix, getDefaultAgent, getOrCreateMainSession } from '../core/agent.js';
 import { addUserMessage, addAssistantMessage, addToolResultMessage, buildSystemPrompt, clearSessionHistory } from '../core/session.js';
@@ -40,6 +40,11 @@ const MAX_TOOL_ROUNDS = 100;
 
 // ============ 规划持久化辅助函数 ============
 
+/** 生成规划 ID */
+function generatePlanId(): string {
+  return `plan_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+}
+
 /**
  * 保存规划到会话
  */
@@ -54,7 +59,9 @@ function savePlanToSession(
   }
   
   session.plan = {
+    id: session.plan?.id ?? generatePlanId(),
     title: plan.title,
+    level: session.plan?.level ?? 0,
     steps: plan.steps.map(s => ({
       id: s.id,
       description: s.description,
@@ -71,6 +78,134 @@ function savePlanToSession(
  */
 function clearPlanFromSession(session: Session): void {
   delete session.plan;
+  // 如果有规划栈，弹出下一个
+  if (session.planStack && session.planStack.length > 0) {
+    session.plan = session.planStack.pop();
+  }
+}
+
+/**
+ * 推入子规划（创建嵌套规划）
+ * 
+ * @internal 预留接口 - 后续版本将实现自动检测细粒度规划并调用此函数
+ * 
+ * 使用场景：当模型输出中检测到对某个步骤的细粒度规划时，
+ * 系统应调用此函数将子规划推入规划栈
+ * 
+ * 示例：
+ * - 父规划: [1. 数据库设计, 2. API开发]
+ * - 执行步骤1时检测到细粒度规划: [1.1 设计用户表, 1.2 设计权限表]
+ * - 调用 pushSubPlan 将细粒度规划设为当前规划
+ */
+export function pushSubPlan(
+  session: Session,
+  parentStepId: string,
+  subPlan: TaskPlan,
+  context?: SessionPlan['context']
+): void {
+  if (!session.plan) return;
+  
+  // 初始化规划栈
+  if (!session.planStack) {
+    session.planStack = [];
+  }
+  
+  // 保存父规划到栈
+  session.planStack.push(session.plan);
+  
+  // 标记父步骤有子规划
+  const parentStep = session.plan.steps.find(s => s.id === parentStepId);
+  if (parentStep) {
+    parentStep.hasSubPlan = true;
+    parentStep.subPlanId = generatePlanId();
+  }
+  
+  // 创建子规划
+  session.plan = {
+    id: parentStep?.subPlanId ?? generatePlanId(),
+    title: subPlan.title,
+    level: (session.plan.level ?? 0) + 1,
+    parentPlanId: session.planStack[session.planStack.length - 1]?.id,
+    parentStepId,
+    steps: subPlan.steps.map(s => ({
+      id: s.id,
+      description: s.description,
+      status: s.status,
+    })),
+    createdAt: subPlan.createdAt.toISOString(),
+    updatedAt: subPlan.updatedAt.toISOString(),
+    context,
+  };
+}
+
+/**
+ * 弹出子规划（子规划完成后返回父规划）
+ */
+function popSubPlan(session: Session, completed: boolean = true): SessionPlan | null {
+  if (!session.planStack || session.planStack.length === 0) return null;
+  
+  const currentPlan = session.plan;
+  
+  // 弹出父规划
+  const parentPlan = session.planStack.pop()!;
+  
+  if (completed && currentPlan) {
+    // 标记父步骤为已完成
+    const parentStep = parentPlan.steps.find(s => s.id === currentPlan.parentStepId);
+    if (parentStep) {
+      parentStep.status = 'completed';
+    }
+  }
+  
+  session.plan = parentPlan;
+  return parentPlan;
+}
+
+/**
+ * 渲染层次化规划
+ */
+function renderHierarchicalPlan(session: Session): string {
+  const lines: string[] = [];
+  
+  // 渲染规划栈（父规划）
+  if (session.planStack && session.planStack.length > 0) {
+    lines.push(chalk.gray('┌─ 父级规划'));
+    for (let i = 0; i < session.planStack.length; i++) {
+      const p = session.planStack[i];
+      if (!p) continue;
+      const indent = '│  '.repeat(i);
+      lines.push(chalk.gray(`${indent}│ ${p.title}`));
+      
+      for (const step of p.steps) {
+        const icon = step.status === 'completed' ? '✅' :
+                    step.status === 'in_progress' ? '🔄' :
+                    step.status === 'failed' ? '❌' : '⬜';
+        const isCurrentStep = step.id === session.plan?.parentStepId;
+        const prefix = isCurrentStep ? chalk.yellow('→ ') : '  ';
+        lines.push(chalk.gray(`${indent}│   ${prefix}${icon} ${step.description}`));
+      }
+    }
+    lines.push(chalk.gray('└─'));
+  }
+  
+  // 渲染当前规划
+  if (session.plan) {
+    const levelIndicator = session.plan.level > 0 ? 
+      ` [Level ${session.plan.level}]` : '';
+    lines.push(chalk.cyan.bold(`📋 ${session.plan.title}${levelIndicator}`));
+    
+    for (const step of session.plan.steps) {
+      const icon = step.status === 'completed' ? '✅' :
+                  step.status === 'in_progress' ? '🔄' :
+                  step.status === 'failed' ? '❌' : '⬜';
+      const color = step.status === 'completed' ? chalk.green :
+                   step.status === 'in_progress' ? chalk.yellow :
+                   step.status === 'failed' ? chalk.red : chalk.gray;
+      lines.push(`  ${icon} ${color(step.description)}`);
+    }
+  }
+  
+  return lines.join('\n');
 }
 
 // ============ REPL 启动 ============
@@ -383,15 +518,30 @@ async function processMessage(
       };
       console.log();
       console.log(chalk.cyan('📋 恢复上次未完成的任务规划:'));
-      console.log(renderTaskProgress(currentPlan));
+      console.log(renderHierarchicalPlan(session));
       
       // 计算进度
       const completed = currentPlan.steps.filter(s => s.status === 'completed').length;
       const total = currentPlan.steps.length;
-      console.log(chalk.gray(`  进度: ${completed}/${total} 步骤已完成`));
+      const levelInfo = session.plan.level && session.plan.level > 0 ? 
+        ` (子规划 Level ${session.plan.level})` : '';
+      console.log(chalk.gray(`  进度: ${completed}/${total} 步骤已完成${levelInfo}`));
       
       if (session.plan.originalTask) {
         console.log(chalk.gray(`  原始任务: ${session.plan.originalTask.slice(0, 100)}...`));
+      }
+      
+      // 显示规划上下文
+      if (session.plan.context) {
+        if (session.plan.context.currentStepDetail) {
+          console.log(chalk.gray(`  当前步骤: ${session.plan.context.currentStepDetail}`));
+        }
+        if (session.plan.context.notes && session.plan.context.notes.length > 0) {
+          console.log(chalk.yellow(`  注意事项:`));
+          for (const note of session.plan.context.notes) {
+            console.log(chalk.yellow(`    - ${note}`));
+          }
+        }
       }
       console.log();
     }
@@ -1198,45 +1348,12 @@ async function handleCommand(
       
       const session = getOrCreateMainSession(agent);
       
-      if (arg === 'clear' || arg === 'reset') {
-        // 清除规划
+      if (arg === 'clear') {
+        // 清除所有规划（包括规划栈）
+        session.planStack = [];
         clearPlanFromSession(session);
         await sessionStorage.saveSession(session);
-        console.log(chalk.green('✓ 已清除当前任务规划'));
-      } else if (arg === 'status' || !arg) {
-        // 显示规划状态
-        if (session.plan) {
-          const plan: TaskPlan = {
-            title: session.plan.title,
-            steps: session.plan.steps,
-            createdAt: new Date(session.plan.createdAt),
-            updatedAt: new Date(session.plan.updatedAt),
-          };
-          console.log(chalk.cyan.bold('\n📋 当前任务规划\n'));
-          console.log(renderTaskProgress(plan));
-          
-          const completed = plan.steps.filter(s => s.status === 'completed').length;
-          const total = plan.steps.length;
-          const inProgress = plan.steps.filter(s => s.status === 'in_progress').length;
-          const pending = plan.steps.filter(s => s.status === 'pending').length;
-          
-          console.log(chalk.gray(`\n进度统计:`));
-          console.log(chalk.green(`  ✅ 已完成: ${completed}`));
-          console.log(chalk.yellow(`  🔄 进行中: ${inProgress}`));
-          console.log(chalk.gray(`  ⬜ 待处理: ${pending}`));
-          console.log(chalk.gray(`  📊 总计: ${total}`));
-          
-          if (session.plan.originalTask) {
-            console.log(chalk.gray(`\n原始任务: ${session.plan.originalTask}`));
-          }
-          
-          console.log(chalk.gray('\n命令:'));
-          console.log(chalk.gray('  /plan clear  - 清除当前规划'));
-          console.log(chalk.gray('  /plan reset  - 重置规划状态'));
-        } else {
-          console.log(chalk.gray('当前没有进行中的任务规划'));
-          console.log(chalk.gray('发送复杂任务时会自动生成规划'));
-        }
+        console.log(chalk.green('✓ 已清除所有任务规划'));
       } else if (arg === 'reset') {
         // 重置规划状态（将所有步骤重置为待处理）
         if (session.plan) {
@@ -1249,6 +1366,91 @@ async function handleCommand(
           console.log(chalk.green('✓ 已重置规划状态，所有步骤设为待处理'));
         } else {
           console.log(chalk.gray('当前没有任务规划'));
+        }
+      } else if (arg === 'back' || arg === 'pop') {
+        // 返回父规划
+        if (session.planStack && session.planStack.length > 0) {
+          popSubPlan(session, false);
+          await sessionStorage.saveSession(session);
+          console.log(chalk.green('✓ 已返回父规划'));
+          if (session.plan) {
+            console.log(renderHierarchicalPlan(session));
+          }
+        } else {
+          console.log(chalk.gray('当前没有父规划'));
+        }
+      } else if (arg === 'tree') {
+        // 显示规划树（包括所有层级）
+        if (session.plan || (session.planStack && session.planStack.length > 0)) {
+          console.log(chalk.cyan.bold('\n🌲 规划树结构:\n'));
+          console.log(renderHierarchicalPlan(session));
+          
+          // 显示规划栈深度
+          const stackDepth = session.planStack?.length ?? 0;
+          if (stackDepth > 0) {
+            console.log(chalk.gray(`\n规划栈深度: ${stackDepth}`));
+          }
+        } else {
+          console.log(chalk.gray('当前没有任务规划'));
+        }
+      } else {
+        // 显示规划状态
+        if (session.plan) {
+          console.log(chalk.cyan.bold('\n📋 当前任务规划\n'));
+          console.log(renderHierarchicalPlan(session));
+          
+          const completed = session.plan.steps.filter(s => s.status === 'completed').length;
+          const total = session.plan.steps.length;
+          const inProgress = session.plan.steps.filter(s => s.status === 'in_progress').length;
+          const pending = session.plan.steps.filter(s => s.status === 'pending').length;
+          
+          console.log(chalk.gray(`\n进度统计:`));
+          console.log(chalk.green(`  ✅ 已完成: ${completed}`));
+          console.log(chalk.yellow(`  🔄 进行中: ${inProgress}`));
+          console.log(chalk.gray(`  ⬜ 待处理: ${pending}`));
+          console.log(chalk.gray(`  📊 总计: ${total}`));
+          
+          // 显示层级信息
+          if (session.plan.level && session.plan.level > 0) {
+            console.log(chalk.gray(`  📐 层级: Level ${session.plan.level}`));
+          }
+          
+          // 显示规划栈
+          const stackDepth = session.planStack?.length ?? 0;
+          if (stackDepth > 0) {
+            console.log(chalk.gray(`  📚 规划栈: ${stackDepth} 个父规划`));
+          }
+          
+          if (session.plan.originalTask) {
+            console.log(chalk.gray(`\n原始任务: ${session.plan.originalTask}`));
+          }
+          
+          // 显示上下文
+          if (session.plan.context) {
+            console.log(chalk.gray(`\n规划上下文:`));
+            if (session.plan.context.currentStepDetail) {
+              console.log(chalk.gray(`  当前步骤: ${session.plan.context.currentStepDetail}`));
+            }
+            if (session.plan.context.completedWork) {
+              console.log(chalk.gray(`  已完成工作: ${session.plan.context.completedWork}`));
+            }
+            if (session.plan.context.notes && session.plan.context.notes.length > 0) {
+              console.log(chalk.yellow(`  注意事项:`));
+              for (const note of session.plan.context.notes) {
+                console.log(chalk.yellow(`    - ${note}`));
+              }
+            }
+          }
+          
+          console.log(chalk.gray('\n命令:'));
+          console.log(chalk.gray('  /plan         查看当前规划'));
+          console.log(chalk.gray('  /plan tree    查看规划树'));
+          console.log(chalk.gray('  /plan reset   重置规划状态'));
+          console.log(chalk.gray('  /plan back    返回父规划'));
+          console.log(chalk.gray('  /plan clear   清除所有规划'));
+        } else {
+          console.log(chalk.gray('当前没有进行中的任务规划'));
+          console.log(chalk.gray('发送复杂任务时会自动生成规划'));
         }
       }
       break;
@@ -1780,9 +1982,11 @@ function printHelp(): void {
   console.log();
   console.log(chalk.cyan('任务规划:'));
   console.log('  /plan            查看当前任务规划');
-  console.log('  /plan clear      清除当前规划');
-  console.log('  /plan reset      重置规划状态（所有步骤设为待处理）');
-  console.log(chalk.gray('  提示: 复杂任务会自动生成规划并持久化'));
+  console.log('  /plan tree       查看规划树（层次结构）');
+  console.log('  /plan back       返回父规划');
+  console.log('  /plan reset      重置规划状态');
+  console.log('  /plan clear      清除所有规划');
+  console.log(chalk.gray('  提示: 支持层次化规划，可嵌套子规划'));
   console.log();
   console.log(chalk.cyan('任务管理:'));
   console.log('  /checkpoint list          列出检查点');

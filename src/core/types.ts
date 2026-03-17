@@ -159,13 +159,25 @@ export interface Agent extends AgentConfig {
  * 任务规划状态（用于会话持久化）
  */
 export interface SessionPlan {
+  /** 规划 ID */
+  id: string;
   /** 规划标题 */
   title: string;
+  /** 层级（0=顶层规划，1=子规划，2=孙规划...） */
+  level: number;
+  /** 父规划 ID（嵌套规划时） */
+  parentPlanId?: string;
+  /** 父步骤 ID（属于父规划的哪个步骤） */
+  parentStepId?: string;
   /** 步骤列表 */
   steps: Array<{
     id: string;
     description: string;
     status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped';
+    /** 是否有子规划 */
+    hasSubPlan?: boolean;
+    /** 子规划 ID */
+    subPlanId?: string;
   }>;
   /** 创建时间 */
   createdAt: string;
@@ -173,6 +185,15 @@ export interface SessionPlan {
   updatedAt: string;
   /** 原始任务描述 */
   originalTask?: string;
+  /** 规划上下文（用于传递给子规划） */
+  context?: {
+    /** 当前步骤的详细说明 */
+    currentStepDetail?: string;
+    /** 已完成的工作摘要 */
+    completedWork?: string;
+    /** 需要注意的事项 */
+    notes?: string[];
+  };
 }
 
 /**
@@ -187,6 +208,8 @@ export interface Session {
   history: Message[];
   /** 当前任务规划（可选） */
   plan?: SessionPlan;
+  /** 规划栈（支持嵌套规划） */
+  planStack?: SessionPlan[];
   /** 创建时间 */
   createdAt: Date;
   /** 更新时间 */
