@@ -219,7 +219,7 @@ export class TaskManager {
     }
 
     // 也尝试匹配数字列表
-    const numberedRegex = /^\d+[\.\)、]\s*(.+)/;
+    const numberedRegex = /^\d+[.)、]\s*(.+)/;
     if (todos.length === 0) {
       for (const line of lines) {
         const match = line.match(numberedRegex);

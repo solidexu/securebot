@@ -819,7 +819,7 @@ export class OllamaReranker implements Reranker {
 
       this.modelAvailable = true;
       return { available: true };
-    } catch (error) {
+    } catch {
       this.modelAvailable = false;
       return { available: false, error: '无法连接到 Ollama 服务' };
     }

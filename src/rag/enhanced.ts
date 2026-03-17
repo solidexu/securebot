@@ -215,7 +215,7 @@ export class IncrementalIndexer {
           }
 
           options.onProgress?.(file, check.reason);
-        } catch (error) {
+        } catch {
           status.errors++;
           options.onProgress?.(file, 'error');
         }

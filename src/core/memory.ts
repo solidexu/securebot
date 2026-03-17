@@ -226,7 +226,7 @@ const IMPORTANCE_RULES: ImportanceRule[] = [
   
   // 项目/路径相关
   { name: 'project_keywords', match: (c) => /项目|工程|仓库/.test(c), score: 1 },
-  { name: 'path_pattern', match: (c) => /[\/\\][\w\-\.]+/.test(c), score: 1 },
+  { name: 'path_pattern', match: (c) => /[/\\][\w-.]+/.test(c), score: 1 },
   
   // 高风险操作
   { name: 'dangerous_keywords', match: (c) => /删除|移除|清空|格式化/.test(c), score: 1 },

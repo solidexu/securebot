@@ -162,7 +162,7 @@ export async function runConfigWizard(): Promise<void> {
         console.log();
       }
     }
-  } catch (error) {
+  } catch {
     spinner.stop('连接失败');
     console.log(chalk.yellow('⚠️ 无法连接到 Ollama'));
     console.log(chalk.gray('请确保 Ollama 正在运行: ollama serve'));
@@ -276,7 +276,7 @@ export async function showCurrentConfig(): Promise<void> {
     console.log();
     
     console.log(chalk.gray(`配置文件: ${getConfigPath()}`));
-  } catch (error) {
+  } catch {
     console.log(chalk.yellow('未找到配置文件，请运行: securebot init'));
   }
 }
