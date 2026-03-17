@@ -674,6 +674,10 @@ ${entry.content}
     try {
       const content = readFileSync(filePath, 'utf-8');
       this.userProfile = JSON.parse(content) as UserProfile;
+      // 确保 keyInfo 存在
+      if (!this.userProfile.keyInfo) {
+        this.userProfile.keyInfo = {};
+      }
     } catch {
       this.userProfile = {
         userId: 'default',
@@ -717,9 +721,24 @@ ${entry.content}
    * 记录关键信息
    */
   async rememberKeyInfo(key: string, value: string): Promise<void> {
-    if (!this.userProfile) await this.loadUserProfile();
+    if (!this.userProfile) {
+      await this.loadUserProfile();
+      // 如果仍然没有 userProfile，创建一个默认的
+      if (!this.userProfile) {
+        this.userProfile = {
+          userId: 'default',
+          preferences: {},
+          keyInfo: {},
+          frequentAgents: [],
+          updatedAt: new Date().toISOString(),
+        };
+      }
+    }
     
-    this.userProfile!.keyInfo[key] = value;
+    if (!this.userProfile.keyInfo) {
+      this.userProfile.keyInfo = {};
+    }
+    this.userProfile.keyInfo[key] = value;
     await this.saveUserProfile();
     
     // 同时记录到每日记忆
@@ -910,7 +929,7 @@ ${entry.content}
     }
 
     // 添加用户关键信息
-    if (this.userProfile && Object.keys(this.userProfile.keyInfo).length > 0) {
+    if (this.userProfile?.keyInfo && Object.keys(this.userProfile.keyInfo).length > 0) {
       summary += '\n### 用户信息\n';
       for (const [key, value] of Object.entries(this.userProfile.keyInfo)) {
         summary += `- ${key}: ${value}\n`;
@@ -1010,7 +1029,7 @@ ${entry.content}
       }
 
       // 检查用户档案中是否有关于此 agent 的关键信息
-      if (this.userProfile && Object.keys(this.userProfile.keyInfo).length > 0) {
+      if (this.userProfile?.keyInfo && Object.keys(this.userProfile.keyInfo).length > 0) {
         hasKeyInfo = true;
       }
 
@@ -1148,7 +1167,7 @@ ${entry.content}
     }
     
     // 从用户档案获取提取的关键信息
-    if (this.userProfile) {
+    if (this.userProfile?.keyInfo) {
       for (const [k, v] of Object.entries(this.userProfile.keyInfo)) {
         keyInfo.push({ key: k, value: v });
       }
@@ -1392,7 +1411,7 @@ ${entry.content}
     }
 
     // 添加用户关键信息
-    if (this.userProfile && Object.keys(this.userProfile.keyInfo).length > 0) {
+    if (this.userProfile?.keyInfo && Object.keys(this.userProfile.keyInfo).length > 0) {
       context += '\n## 用户信息\n';
       for (const [key, value] of Object.entries(this.userProfile.keyInfo)) {
         context += `- ${key}: ${value}\n`;
