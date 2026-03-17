@@ -686,6 +686,8 @@ export function parseTaskPlan(content: string): TaskPlan | null {
   
   // 匹配 TODO 格式
   const todoRegex = /^[-*]\s*\[([ x→!])\]\s*(.+)/i;
+  // 匹配 emoji 状态格式：✅、✓、✔、🔄、⬜、❌ 等
+  const emojiStatusRegex = /^[-*]\s*(✅|✓|✔|✕|✗|❌|🔄|⬜|⏭|⏸)\s*(.+)/;
   // 匹配数字列表格式 (支持各种标点)
   const numberedRegex = /^[（(]?\d+[)）\.\、:\：]\s*(.+)/;
   // 匹配步骤关键词
@@ -693,7 +695,7 @@ export function parseTaskPlan(content: string): TaskPlan | null {
   // 匹配带破折号/星号的列表
   const listRegex = /^[-—·*]\s*(.+)/;
   // 匹配"首先/然后/最后"等序列词
-  const sequenceRegex = /^(首先|其次|然后|接着|最后|第一|第二|第三|第四|第五|第六|第七|第八|第九|第十)[，,：:\s]+(.+)/;
+  const sequenceRegex = /^(首先|其次|然后、接着|最后|第一|第二|第三|第四|第五|第六|第七|第八|第九|第十)[，,：:\s]+(.+)/;
   // 匹配中文数字
   const chineseNumberRegex = /^[（(]?([一二三四五六七八九十]+)[)）\.\、:\：]\s*(.+)/;
   
@@ -718,7 +720,8 @@ export function parseTaskPlan(content: string): TaskPlan | null {
       trimmed.includes('执行计划') || 
       trimmed.includes('任务计划') ||
       trimmed.includes('开发计划') ||
-      trimmed.includes('实施步骤')
+      trimmed.includes('实施步骤') ||
+      trimmed.includes('任务进度')
     )) {
       foundPlanSection = true;
       if (trimmed.startsWith('#')) {
@@ -739,6 +742,25 @@ export function parseTaskPlan(content: string): TaskPlan | null {
       steps.push({
         id: `step-${steps.length + 1}`,
         description: todoMatch[2].trim(),
+        status,
+      });
+      continue;
+    }
+    
+    // 匹配 emoji 状态格式
+    const emojiMatch = trimmed.match(emojiStatusRegex);
+    if (emojiMatch && emojiMatch[1] && emojiMatch[2]) {
+      const emoji = emojiMatch[1];
+      let status: TaskStep['status'] = 'pending';
+      if (['✅', '✓', '✔', '✕', '✗'].includes(emoji)) status = 'completed';
+      else if (emoji === '🔄') status = 'in_progress';
+      else if (emoji === '❌') status = 'failed';
+      else if (emoji === '⏭') status = 'skipped';
+      else if (emoji === '⬜') status = 'pending';
+      
+      steps.push({
+        id: `step-${steps.length + 1}`,
+        description: emojiMatch[2].trim(),
         status,
       });
       continue;
