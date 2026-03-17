@@ -472,11 +472,17 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
         break;
       }
       
-      console.log(chalk.red(`\n❌ 发生错误: ${errorMsg}`));
-      if (error instanceof Error && error.stack) {
-        console.log(chalk.gray(`  堆栈: ${error.stack.split('\n').slice(0, 3).join('\n')}`));
-      }
-      console.log(chalk.gray('请检查配置或重新启动 SecureBot\n'));
+      // 友好的错误提示
+      console.log();
+      console.log(chalk.red('❌ 操作失败'));
+      console.log();
+      console.log(chalk.white(`原因: ${errorMsg}`));
+      console.log();
+      console.log(chalk.cyan('建议:'));
+      console.log(chalk.gray('  1. 使用 /reset 重置会话'));
+      console.log(chalk.gray('  2. 使用 /monitor errors 查看详细错误'));
+      console.log(chalk.gray('  3. 如问题持续，请重新启动 SecureBot'));
+      console.log();
     }
   }
 
@@ -1052,6 +1058,7 @@ async function processMessage(
         }
         
         // 执行工具
+        const toolStartTime = Date.now();
         const rootDir = getRootDir(state.config);
         toolResult = await executeTool(toolCall.name, toolCall.arguments, {
           agent,
@@ -1065,10 +1072,12 @@ async function processMessage(
             `${rootDir}/skills`,              // 技能
           ],
         });
+        const toolDuration = ((Date.now() - toolStartTime) / 1000).toFixed(1);
         
         // 显示结果
         if (toolResult.success) {
-          console.log(chalk.green('✓ 成功'));
+          const durationInfo = toolDuration !== '0.0' ? chalk.gray(` (${toolDuration}s)`) : '';
+          console.log(chalk.green(`✓ 成功${durationInfo}`));
           if (toolResult.content) {
             console.log(chalk.gray(toolResult.content.slice(0, 500)));
           }
@@ -1086,7 +1095,8 @@ async function processMessage(
           }
         } else {
           const errorMsg = toolResult.error || '未知错误';
-          console.log(chalk.red(`✗ 失败`));
+          const durationInfo = toolDuration !== '0.0' ? chalk.gray(` (${toolDuration}s)`) : '';
+          console.log(chalk.red(`✗ 失败${durationInfo}`));
           console.log(chalk.yellow(`  原因: ${errorMsg}`));
           
           // 标记任务失败
@@ -2122,13 +2132,19 @@ async function handleCommand(
 
 function printWelcome(state: ReplState): void {
   console.log();
-  console.log(chalk.cyan.bold('SecureBot v0.1.0'));
+  console.log(chalk.cyan.bold('SecureBot v1.0.0'));
   console.log(chalk.gray('安全可控的多 Agent AI 助手'));
   console.log();
-  console.log(chalk.gray(`模型: ${state.config.model.model}`));
-  console.log(chalk.gray(`默认 Agent: ${state.currentAgentId}`));
+  
+  const agent = state.agents.get(state.currentAgentId);
+  console.log(chalk.white(`Agent: ${agent?.name || state.currentAgentId}`));
+  
+  if (state.config.model.model) {
+    console.log(chalk.gray(`模型: ${state.config.model.model}`));
+  }
+  
   console.log();
-  console.log(chalk.gray('输入消息开始对话，或输入 /help 查看帮助'));
+  console.log(chalk.gray('输入消息开始对话，或 /help 查看帮助'));
   console.log(chalk.gray('使用 @<agent> 切换 Agent，如: @dev 帮我写代码'));
   console.log();
 }
