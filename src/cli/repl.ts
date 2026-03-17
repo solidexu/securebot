@@ -736,8 +736,6 @@ async function processMessage(
 
     // 没有工具调用，检查是否应该继续
     if (!result.toolCalls || result.toolCalls.length === 0) {
-      noToolCallRounds++;  // 增加无工具调用计数
-      
       // 检查是否任务已完成（模型输出总结/完成信号）
       const completionSignals = [
         '任务完成', '开发完成', '实现完成', '已完成', 
@@ -789,6 +787,8 @@ async function processMessage(
         if (currentPlan) {
           console.log(chalk.green('\n✓ 计划已生成，开始执行...'));
           addAssistantMessage(session, result.content);
+          // 重置无工具调用计数器（规划阶段不计入）
+          noToolCallRounds = 0;
           // 添加提示让模型开始执行第一步
           addUserMessage(session, 
             '计划已确认。现在请开始执行第一步：\n' +
@@ -798,12 +798,19 @@ async function processMessage(
           continue;
         }
         
-        // 情况3：没有计划，继续尝试
+        // 情况3：没有计划，继续尝试（规划阶段不计数）
         addAssistantMessage(session, result.content);
+        // 如果模型输出了规划相关内容，重置计数器
+        if (result.content?.includes('步骤') || result.content?.includes('计划') || result.content?.includes('执行')) {
+          noToolCallRounds = 0;
+        }
         continue;
       }
       
-      // 简单任务：没有工具调用，直接返回
+      // 简单任务：没有工具调用，增加计数
+      noToolCallRounds++;
+      
+      // 直接返回结果
       addAssistantMessage(session, result.content);
       
       // 记录简单任务完成（自动评估重要性）
