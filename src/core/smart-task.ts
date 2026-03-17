@@ -758,10 +758,30 @@ export function parseTaskPlan(content: string): TaskPlan | null {
       else if (emoji === '⏭') status = 'skipped';
       else if (emoji === '⬜') status = 'pending';
       
+      // 检查行尾是否有完成标记（处理矛盾格式如 "⬜ 任务 ✓"）
+      const desc = emojiMatch[2].trim();
+      if (status === 'pending' && (desc.endsWith('✓') || desc.endsWith('✅') || desc.endsWith('✔'))) {
+        status = 'completed';
+      }
+      
+      // 移除描述中的尾部状态符号
+      const cleanDesc = desc.replace(/[✓✅✔✕✗❌]$/g, '').trim();
+      
       steps.push({
         id: `step-${steps.length + 1}`,
-        description: emojiMatch[2].trim(),
+        description: cleanDesc || desc,
         status,
+      });
+      continue;
+    }
+    
+    // 匹配行尾带完成标记的格式（如 "- 任务名 ✓" 或 "1. 任务名 ✅"）
+    const trailingCompleteMatch = trimmed.match(/^[-*]\s*(.+?)\s*([✓✅✔])$/);
+    if (trailingCompleteMatch && trailingCompleteMatch[1]) {
+      steps.push({
+        id: `step-${steps.length + 1}`,
+        description: trailingCompleteMatch[1].trim(),
+        status: 'completed',
       });
       continue;
     }
@@ -769,10 +789,17 @@ export function parseTaskPlan(content: string): TaskPlan | null {
     // 匹配数字列表
     const numberedMatch = trimmed.match(numberedRegex);
     if (numberedMatch && numberedMatch[1]) {
+      const desc = numberedMatch[1].trim();
+      // 检查行尾是否有完成标记
+      let status: TaskStep['status'] = 'pending';
+      const cleanDesc = desc.replace(/\s*[✓✅✔]\s*$/g, '').trim();
+      if (cleanDesc !== desc) {
+        status = 'completed';
+      }
       steps.push({
         id: `step-${steps.length + 1}`,
-        description: numberedMatch[1].trim(),
-        status: 'pending',
+        description: cleanDesc || desc,
+        status,
       });
       continue;
     }
@@ -780,10 +807,17 @@ export function parseTaskPlan(content: string): TaskPlan | null {
     // 匹配中文数字
     const chineseMatch = trimmed.match(chineseNumberRegex);
     if (chineseMatch && chineseMatch[2]) {
+      const desc = chineseMatch[2].trim();
+      // 检查行尾是否有完成标记
+      let status: TaskStep['status'] = 'pending';
+      const cleanDesc = desc.replace(/\s*[✓✅✔]\s*$/g, '').trim();
+      if (cleanDesc !== desc) {
+        status = 'completed';
+      }
       steps.push({
         id: `step-${steps.length + 1}`,
-        description: chineseMatch[2].trim(),
-        status: 'pending',
+        description: cleanDesc || desc,
+        status,
       });
       continue;
     }
@@ -791,10 +825,16 @@ export function parseTaskPlan(content: string): TaskPlan | null {
     // 匹配步骤关键词
     const stepMatch = trimmed.match(stepKeywords);
     if (stepMatch && stepMatch[2]) {
+      const desc = stepMatch[2].trim();
+      let status: TaskStep['status'] = 'pending';
+      const cleanDesc = desc.replace(/\s*[✓✅✔]\s*$/g, '').trim();
+      if (cleanDesc !== desc) {
+        status = 'completed';
+      }
       steps.push({
         id: `step-${steps.length + 1}`,
-        description: stepMatch[2].trim(),
-        status: 'pending',
+        description: cleanDesc || desc,
+        status,
       });
       continue;
     }
@@ -802,10 +842,16 @@ export function parseTaskPlan(content: string): TaskPlan | null {
     // 匹配序列词（首先/然后等）
     const sequenceMatch = trimmed.match(sequenceRegex);
     if (sequenceMatch && sequenceMatch[2]) {
+      const desc = sequenceMatch[2].trim();
+      let status: TaskStep['status'] = 'pending';
+      const cleanDesc = desc.replace(/\s*[✓✅✔]\s*$/g, '').trim();
+      if (cleanDesc !== desc) {
+        status = 'completed';
+      }
       steps.push({
         id: `step-${steps.length + 1}`,
-        description: sequenceMatch[2].trim(),
-        status: 'pending',
+        description: cleanDesc || desc,
+        status,
       });
       continue;
     }
@@ -814,14 +860,20 @@ export function parseTaskPlan(content: string): TaskPlan | null {
     const listMatch = trimmed.match(listRegex);
     if (listMatch && listMatch[1] && steps.length < 15) {
       const desc = listMatch[1].trim();
+      // 检查行尾完成标记
+      let status: TaskStep['status'] = 'pending';
+      const cleanDesc = desc.replace(/\s*[✓✅✔]\s*$/g, '').trim();
+      if (cleanDesc !== desc) {
+        status = 'completed';
+      }
       // 检查是否看起来像步骤描述（更宽松的条件）
-      if (desc.length > 3 && desc.length < 150) {
+      if (cleanDesc.length > 3 && cleanDesc.length < 150) {
         // 排除一些明显不是步骤的内容
-        if (!/^(是|否|注意|提示|警告|说明|参考|来源)/.test(desc)) {
+        if (!/^(是|否|注意|提示|警告|说明|参考|来源)/.test(cleanDesc)) {
           steps.push({
             id: `step-${steps.length + 1}`,
-            description: desc,
-            status: 'pending',
+            description: cleanDesc,
+            status,
           });
         }
       }
