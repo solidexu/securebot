@@ -8,6 +8,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { LRUCache, SearchCache } from './cache.js';
 import { getMemoryDir } from './config.js';
 import type { Config } from './types.js';
 import { homedir } from 'node:os';
@@ -310,7 +311,9 @@ const KEY_INFO_PATTERNS: KeyInfoPattern[] = [
  */
 export class MemoryManager {
   private config: MemoryConfig;
-  private dailyCache: Map<string, DailyMemory> = new Map();
+  private dailyCache: LRUCache<string, DailyMemory>;
+  private searchCache: SearchCache;
+  private contextSummaryCache: LRUCache<string, { summary: string; timestamp: number }>;
   private userProfile: UserProfile | null = null;
   private agentProfiles: Map<string, AgentProfile> = new Map();
   private initialized: boolean = false;
@@ -319,6 +322,12 @@ export class MemoryManager {
 
   constructor(config: Partial<MemoryConfig> = {}) {
     this.config = { ...DEFAULT_MEMORY_CONFIG, ...config };
+    // LRU 缓存，最多缓存 50 个每日记忆
+    this.dailyCache = new LRUCache(50);
+    // 搜索缓存，30秒过期
+    this.searchCache = new SearchCache(30, 30000);
+    // 上下文摘要缓存
+    this.contextSummaryCache = new LRUCache(10);
   }
 
   /**
@@ -891,11 +900,17 @@ ${entry.content}
     minImportance?: number;
     days?: number;
   }): Promise<MemoryEntry[]> {
+    // 检查缓存
+    const cached = this.searchCache.get<MemoryEntry>(query, options as Record<string, unknown>);
+    if (cached) {
+      return cached;
+    }
+    
     const entries = await this.getWorkingMemory(options?.agentId);
     
     const queryLower = query.toLowerCase();
     
-    return entries.filter(entry => {
+    const results = entries.filter(entry => {
       // 类型过滤
       if (options?.type && entry.type !== options.type) return false;
       
@@ -906,12 +921,25 @@ ${entry.content}
       return entry.content.toLowerCase().includes(queryLower) ||
         entry.tags?.some(tag => tag.toLowerCase().includes(queryLower));
     });
+    
+    // 缓存结果
+    this.searchCache.set(query, results, options as Record<string, unknown>);
+    
+    return results;
   }
 
   /**
    * 获取上下文摘要
    */
   async getContextSummary(agentId: string, maxTokens: number = 1000): Promise<string> {
+    const cacheKey = `${agentId}:${maxTokens}`;
+    const cached = this.contextSummaryCache.get(cacheKey);
+    
+    // 如果缓存存在且不超过 60 秒
+    if (cached && Date.now() - cached.timestamp < 60000) {
+      return cached.summary;
+    }
+    
     const entries = await this.getWorkingMemory(agentId);
     
     // 按重要性排序
@@ -935,6 +963,9 @@ ${entry.content}
         summary += `- ${key}: ${value}\n`;
       }
     }
+    
+    // 缓存结果
+    this.contextSummaryCache.set(cacheKey, { summary, timestamp: Date.now() });
 
     return summary;
   }
