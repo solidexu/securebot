@@ -16,7 +16,7 @@ import { getSkillManager } from '../core/skills.js';
 import { getTaskManager } from '../core/task-manager.js';
 import { getConfirmationManager } from '../core/confirmation.js';
 import { getMemoryMonitor, performMemoryCleanup } from '../core/memory-monitor.js';
-import { getFeedbackCollector, getImprovementLogManager, getSuccessPatternStore, getErrorPatternStore, getSelfReflectionEngine } from '../core/self-improving/index.js';
+import { getFeedbackCollector, getImprovementLogManager, getSuccessPatternStore, getErrorPatternStore, getSelfReflectionEngine, getPromptOptimizer, getSkillGenerator } from '../core/self-improving/index.js';
 import { saveAllSessions } from './repl-session.js';
 import { clearPlanFromSession, popSubPlan, renderHierarchicalPlan } from './repl-plan.js';
 import { eventBus } from '../core/event-bus.js';
@@ -1236,6 +1236,8 @@ async function handleImproveCommand(
     console.log(chalk.gray('  /improve success   查看成功模式'));
     console.log(chalk.gray('  /improve errors    查看错误模式'));
     console.log(chalk.gray('  /improve reflect   执行自我反思'));
+    console.log(chalk.gray('  /improve optimize  优化 Prompt'));
+    console.log(chalk.gray('  /improve skills    管理/生成技能'));
     console.log(chalk.gray('  /improve clear     清除改进数据'));
     console.log(chalk.gray('\n  /patterns          查看经验模式'));
     return;
@@ -1414,9 +1416,64 @@ async function handleImproveCommand(
       break;
     }
     
+    case 'optimize': {
+      console.log(chalk.cyan('\n⚡ 优化 Agent Prompt...\n'));
+      
+      const promptOptimizer = getPromptOptimizer();
+      const basePrompt = agent.systemPrompt || '你是一个有帮助的 AI 助手。';
+      
+      await promptOptimizer.optimizePrompt(agent.id, basePrompt);
+      
+      console.log(chalk.green('✓ Prompt 已优化'));
+      console.log(chalk.gray('\n注入的经验内容:'));
+      
+      const injection = promptOptimizer.getCachedInjection(agent.id);
+      if (injection) {
+        console.log(chalk.gray(injection.slice(0, 500) + (injection.length > 500 ? '...' : '')));
+      } else {
+        console.log(chalk.gray('  (暂无学习到的经验)'));
+      }
+      
+      console.log(chalk.gray('\n提示: 优化后的 Prompt 会在下次对话时生效'));
+      break;
+    }
+    
+    case 'skills': {
+      const skillGenerator = getSkillGenerator();
+      const skills = await skillGenerator.getSkillsByAgent(agent.id);
+      
+      if (skills.length === 0) {
+        console.log(chalk.gray('暂无自动生成的技能'));
+        console.log(chalk.gray('完成任务后会自动从成功模式生成技能'));
+      } else {
+        console.log(chalk.cyan.bold(`\n🛠️ 自动生成的技能 (${skills.length} 个)\n`));
+        for (const skill of skills) {
+          const sourceEmoji = skill.source === 'success_pattern' ? '✅' :
+                             skill.source === 'user_request' ? '👤' : '🤔';
+          console.log(chalk.white(`${sourceEmoji} ${skill.name}`));
+          console.log(chalk.gray(`  描述: ${skill.description.slice(0, 50)}...`));
+          console.log(chalk.gray(`  使用: ${skill.usageCount} 次 | 成功率: ${(skill.successRate * 100).toFixed(0)}%`));
+          console.log();
+        }
+      }
+      
+      // 尝试自动生成新技能
+      console.log(chalk.cyan('检查是否可以生成新技能...'));
+      const newSkills = await skillGenerator.autoGenerateSkills(agent.id);
+      if (newSkills.length > 0) {
+        console.log(chalk.green(`✓ 生成了 ${newSkills.length} 个新技能`));
+        for (const skill of newSkills) {
+          console.log(chalk.gray(`  - ${skill.name}`));
+        }
+      } else {
+        console.log(chalk.gray('暂无新的高价值成功模式可生成技能'));
+      }
+      break;
+    }
+    
     default:
       console.log(chalk.yellow(`未知参数: ${arg}`));
-      console.log(chalk.gray('可用: log, stats, feedback, success, errors, reflect, clear'));
+      console.log(chalk.gray('可用: log, stats, feedback, success, errors, reflect, optimize, skills, clear'));
   }
 }
 
@@ -1536,6 +1593,8 @@ function printHelp(): void {
   console.log('  /improve log      查看改进日志');
   console.log('  /improve feedback 查看用户反馈');
   console.log('  /improve reflect  执行自我反思');
+  console.log('  /improve optimize 优化 Prompt');
+  console.log('  /improve skills   管理/生成技能');
   console.log();
   console.log(chalk.cyan('经验模式:'));
   console.log('  /patterns success 查看成功模式');

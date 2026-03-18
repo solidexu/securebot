@@ -30,6 +30,12 @@ export type {
   ReflectionResult,
   SuggestedAction,
   ReflectionEngineConfig,
+  // Phase 4 类型
+  DynamicPromptConfig,
+  PromptOptimizerConfig,
+  PromptPersonalization,
+  GeneratedSkill,
+  SkillGeneratorConfig,
 } from './types.js';
 
 export { DEFAULT_SELF_IMPROVEMENT_CONFIG } from './types.js';
@@ -70,3 +76,17 @@ export {
   getSelfReflectionEngine, 
   resetSelfReflectionEngine,
 } from './reflection-engine.js';
+
+// Prompt 优化器
+export { 
+  PromptOptimizer, 
+  getPromptOptimizer, 
+  resetPromptOptimizer,
+} from './prompt-optimizer.js';
+
+// 技能生成器
+export { 
+  SkillGenerator, 
+  getSkillGenerator, 
+  resetSkillGenerator,
+} from './skill-generator.js';

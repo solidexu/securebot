@@ -438,6 +438,101 @@ export interface ReflectionEngineConfig {
   storageDir: string;
 }
 
+// ============ 动态 Prompt 优化 ============
+
+/**
+ * 动态 Prompt 配置
+ */
+export interface DynamicPromptConfig {
+  /** 基础提示词 */
+  basePrompt: string;
+  /** 学习到的偏好摘要 */
+  learnedPreferences?: string;
+  /** 成功案例摘要 */
+  successPatterns?: string;
+  /** 避免事项 */
+  avoidPatterns?: string;
+  /** 最近教训 */
+  recentLessons?: string;
+  /** 个性化调整 */
+  personalization?: PromptPersonalization;
+}
+
+/**
+ * Prompt 个性化配置
+ */
+export interface PromptPersonalization {
+  /** 沟通风格 */
+  communicationStyle?: 'formal' | 'casual' | 'technical';
+  /** 详细程度 */
+  detailLevel?: 'brief' | 'normal' | 'detailed';
+  /** 主动性级别 (0-1) */
+  proactivityLevel?: number;
+  /** 语言偏好 */
+  languagePreference?: 'zh' | 'en' | 'auto';
+}
+
+/**
+ * Prompt 优化器配置
+ */
+export interface PromptOptimizerConfig {
+  /** 是否启用动态优化 */
+  enabled: boolean;
+  /** 最大注入长度 */
+  maxInjectionLength: number;
+  /** 更新间隔（毫秒） */
+  updateInterval: number;
+}
+
+// ============ 自动生成的技能 ============
+
+/**
+ * 自动生成的技能
+ */
+export interface GeneratedSkill {
+  /** 技能 ID */
+  id: string;
+  /** Agent ID */
+  agentId: string;
+  /** 技能名称 */
+  name: string;
+  /** 技能描述 */
+  description: string;
+  
+  /** 生成来源 */
+  source: 'success_pattern' | 'user_request' | 'reflection';
+  /** 来源 ID */
+  sourceId: string;
+  
+  /** 技能提示词 */
+  prompt: string;
+  /** 推荐工具 */
+  tools: string[];
+  /** 示例 */
+  examples: string[];
+  
+  /** 使用次数 */
+  usageCount: number;
+  /** 成功率 */
+  successRate: number;
+  /** 最后使用时间 */
+  lastUsedAt?: string;
+  /** 创建时间 */
+  createdAt: string;
+}
+
+/**
+ * 技能生成器配置
+ */
+export interface SkillGeneratorConfig {
+  /** 是否启用自动生成 */
+  enabled: boolean;
+  /** 最小成功模式数才生成 */
+  minPatternsToGenerate: number;
+  /** 存储目录 */
+  storageDir: string;
+}
+
 // ============ 配置 ============
 
 /**
