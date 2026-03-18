@@ -164,6 +164,14 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
   // 打印欢迎信息
   printWelcome(state);
 
+  // Ctrl+C 处理状态变量
+  let ctrlCount = 0;
+  let ctrlTimer: ReturnType<typeof setTimeout> | null = null;
+  let isExiting = false;
+  let lastInterruptTime = 0;
+  let interruptHandled = false;
+  let justInterrupted = false;
+
   // 创建 tab 补全函数
   const completer = (line: string): [string[], string] => {
     // 命令补全
@@ -199,6 +207,66 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
     input: process.stdin, 
     output: process.stdout,
     completer,
+    terminal: true,  // 启用终端模式，支持信号处理
+  });
+  
+  // 使用 readline 的 SIGINT 事件（比 process.on 更可靠）
+  rl.on('SIGINT', () => {
+    if (isExiting) return;
+    
+    const now = Date.now();
+    
+    // 如果刚刚打断过，忽略所有后续信号（1秒内）
+    if (justInterrupted && now - lastInterruptTime < 1000) {
+      return;
+    }
+    justInterrupted = false;
+    
+    // 如果在执行中，打断操作
+    if (state.executing && !interruptHandled) {
+      console.log(chalk.yellow('\n[已打断当前操作]'));
+      state.interrupted = true;
+      if (state.abortController) {
+        state.abortController.abort();
+      }
+      lastInterruptTime = now;
+      interruptHandled = true;
+      justInterrupted = true;
+      ctrlCount = 0;
+      
+      setTimeout(() => { interruptHandled = false; }, 800);
+      return;
+    }
+    
+    // 非执行状态的 Ctrl+C 处理
+    ctrlCount++;
+    if (ctrlCount >= 2) {
+      isExiting = true;
+      console.log(chalk.gray('\n正在退出...'));
+      state.running = false;
+      rl.close();
+      exitHandler().catch(() => {}).then(() => {
+        setImmediate(() => process.exit(0));
+      });
+      return;
+    }
+    
+    console.log(chalk.gray('\n按 Ctrl+C 再次退出，或输入 /help 查看帮助'));
+    
+    if (ctrlTimer) clearTimeout(ctrlTimer);
+    ctrlTimer = setTimeout(() => { ctrlCount = 0; }, 1000);
+  });
+  
+  // Ctrl+D (EOF) - 直接退出
+  rl.on('close', () => {
+    if (!isExiting) {
+      isExiting = true;
+      console.log(chalk.gray('\n正在退出...'));
+      state.running = false;
+      exitHandler().catch(() => {}).then(() => {
+        process.exit(0);
+      });
+    }
   });
 
   // 设置确认处理器
@@ -213,26 +281,18 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
     await saveAllSessions(agents, sessionStorage);
   };
   
-  // Ctrl+C 处理
-  let ctrlCount = 0;
-  let ctrlTimer: ReturnType<typeof setTimeout> | null = null;
-  let isExiting = false;
-  let lastInterruptTime = 0;
-  let interruptHandled = false;
-  let justInterrupted = false;  // 刚刚打断过，需要更长的忽略窗口
-  
-  process.on('SIGINT', async () => {
+  // 全局 Ctrl+C 处理（作为 rl.on('SIGINT') 的补充）
+  process.on('SIGINT', () => {
+    // 如果 rl.on('SIGINT') 已经处理了，这里就不再处理
+    // 这个处理器主要用于处理非 rl.question 状态下的 Ctrl+C
     if (isExiting) return;
     
     const now = Date.now();
-    
-    // 如果刚刚打断过，忽略所有后续 Ctrl+C（1秒内）
     if (justInterrupted && now - lastInterruptTime < 1000) {
       return;
     }
-    justInterrupted = false;  // 超过 1 秒，重置
     
-    // 如果在执行中，打断操作
+    // 如果 rl 没有在等待输入，可能是流式输出中
     if (state.executing && !interruptHandled) {
       console.log(chalk.yellow('\n[已打断当前操作]'));
       state.interrupted = true;
@@ -241,34 +301,10 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
       }
       lastInterruptTime = now;
       interruptHandled = true;
-      justInterrupted = true;  // 标记刚刚打断过
+      justInterrupted = true;
       ctrlCount = 0;
-      
-      // 800ms 后重置 interruptHandled
       setTimeout(() => { interruptHandled = false; }, 800);
-      return;
     }
-    
-    // 非执行状态的 Ctrl+C 处理
-    ctrlCount++;
-    if (ctrlCount >= 2) {
-      isExiting = true;
-      console.log(chalk.gray('\n正在退出...'));
-      state.running = false;
-      rl.close();
-      try {
-        await exitHandler();
-      } catch {
-        // 忽略退出时的错误
-      }
-      setImmediate(() => process.exit(0));
-      return;
-    }
-    
-    console.log(chalk.gray('\n按 Ctrl+C 再次退出，或输入 /help 查看帮助'));
-    
-    if (ctrlTimer) clearTimeout(ctrlTimer);
-    ctrlTimer = setTimeout(() => { ctrlCount = 0; }, 1000);
   });
   
   process.on('SIGTERM', async () => {
