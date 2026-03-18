@@ -79,17 +79,27 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
   // 初始化 RAG 并连接到记忆系统
   for (const agent of agents.values()) {
     if (agent.rag?.enabled) {
+      // 先设置配置
+      ragManager.setAgentConfig(agent.id, {
+        enabled: true,
+        knowledgeDirs: agent.rag.knowledgeDirs || [],
+        embeddingModel: agent.rag.embeddingModel || 'all-minilm',
+        chunkSize: agent.rag.chunkSize,
+        chunkOverlap: agent.rag.chunkOverlap,
+        topK: agent.rag.topK,
+        minScore: agent.rag.minScore,
+        enableRerank: agent.rag.enableRerank,
+        rerankModel: agent.rag.rerankModel,
+        enableQueryExpansion: agent.rag.enableQueryExpansion,
+        queryExpansionModel: agent.rag.queryExpansionModel,
+      });
+      
       try {
-        const ragStore = await ragManager.getStore(agent, {
-          enabled: true,
-          knowledgeDirs: agent.rag.knowledgeDirs || [],
-          embeddingModel: agent.rag.embeddingModel || 'all-minilm',
-        });
+        const ragStore = await ragManager.getStore(agent);
         
         if (ragStore) {
           memoryManager.setRAGStore(ragStore);
           console.log(chalk.green(`✓ RAG 已连接到记忆系统 (Agent: ${agent.id})`));
-          break;
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
