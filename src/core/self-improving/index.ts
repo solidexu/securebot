@@ -16,6 +16,16 @@ export type {
   CapabilityScores,
   AgentStats,
   SelfImprovementConfig,
+  // Phase 2 类型
+  SuccessPattern,
+  SuccessPatternStoreConfig,
+  ErrorPattern,
+  ErrorPatternStoreConfig,
+  ErrorType,
+  TaskType,
+  TaskExecution,
+  TaskStep,
+  AvoidCheckResult,
 } from './types.js';
 
 export { DEFAULT_SELF_IMPROVEMENT_CONFIG } from './types.js';
@@ -35,3 +45,17 @@ export {
   resetImprovementLogManager,
   type ImprovementLogConfig 
 } from './improvement-log.js';
+
+// 成功模式存储
+export { 
+  SuccessPatternStore, 
+  getSuccessPatternStore, 
+  resetSuccessPatternStore,
+} from './success-pattern-store.js';
+
+// 错误模式存储
+export { 
+  ErrorPatternStore, 
+  getErrorPatternStore, 
+  resetErrorPatternStore,
+} from './error-pattern-store.js';

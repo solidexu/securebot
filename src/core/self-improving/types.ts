@@ -165,6 +165,206 @@ export interface AgentStats {
   averageUserRating?: number;
 }
 
+// ============ 成功模式 ============
+
+/**
+ * 任务类型
+ */
+export type TaskType = 
+  | 'coding'      // 代码开发
+  | 'analysis'    // 分析研究
+  | 'writing'     // 写作
+  | 'planning'    // 规划设计
+  | 'execution'   // 执行部署
+  | 'debugging'   // 调试修复
+  | 'learning'    // 学习教学
+  | 'general';    // 通用任务
+
+/**
+ * 成功模式
+ */
+export interface SuccessPattern {
+  /** 模式 ID */
+  id: string;
+  /** Agent ID */
+  agentId: string;
+  /** 任务类型 */
+  taskType: TaskType;
+  /** 任务描述 */
+  taskDescription: string;
+  /** 上下文 */
+  context: string;
+  /** 采用的方法 */
+  approach: string;
+  /** 使用的工具 */
+  toolsUsed: string[];
+  /** 执行步骤 */
+  steps: string[];
+  /** 结果描述 */
+  result: string;
+  /** 用户反馈 */
+  userFeedback?: string;
+  /** 效果评分 (0-1) */
+  effectiveness: number;
+  /** 创建时间 */
+  createdAt: string;
+  /** 最后使用时间 */
+  lastUsedAt?: string;
+  /** 使用次数 */
+  usageCount: number;
+  
+  // 检索字段
+  /** 关键词 */
+  keywords: string[];
+  /** 任务模式（用于匹配） */
+  taskPatterns: string[];
+  /** 适用的前置条件 */
+  applicableConditions: string[];
+}
+
+/**
+ * 成功模式存储配置
+ */
+export interface SuccessPatternStoreConfig {
+  /** 存储目录 */
+  storageDir: string;
+  /** 最大存储数量 */
+  maxPatterns: number;
+  /** 最小效果评分阈值 */
+  minEffectiveness: number;
+  /** 自动清理天数 */
+  cleanupDays: number;
+}
+
+// ============ 错误模式 ============
+
+/**
+ * 错误类型
+ */
+export type ErrorType = 
+  | 'tool_execution'    // 工具执行错误
+  | 'planning'          // 规划错误
+  | 'understanding'     // 理解错误
+  | 'context'           // 上下文错误
+  | 'timeout'           // 超时
+  | 'resource'          // 资源错误
+  | 'user_cancel'       // 用户取消
+  | 'unknown';          // 未知错误
+
+/**
+ * 错误模式
+ */
+export interface ErrorPattern {
+  /** 模式 ID */
+  id: string;
+  /** Agent ID */
+  agentId: string;
+  /** 错误类型 */
+  errorType: ErrorType;
+  /** 错误分类 */
+  errorCategory: string;
+  /** 任务上下文 */
+  taskContext: string;
+  /** 失败的方法 */
+  failedApproach: string;
+  /** 错误消息 */
+  errorMessage: string;
+  /** 堆栈信息（如果有） */
+  stackTrace?: string;
+  /** 根因分析 */
+  rootCause?: string;
+  /** 解决方案 */
+  solution?: string;
+  /** 避免规则 */
+  avoidPatterns: string[];
+  /** 发生次数 */
+  occurrenceCount: number;
+  /** 首次发生时间 */
+  firstOccurrence: string;
+  /** 最后发生时间 */
+  lastOccurrence: string;
+  /** 是否已解决 */
+  resolved: boolean;
+  /** 解决时间 */
+  resolvedAt?: string;
+}
+
+/**
+ * 错误模式存储配置
+ */
+export interface ErrorPatternStoreConfig {
+  /** 存储目录 */
+  storageDir: string;
+  /** 最大存储数量 */
+  maxPatterns: number;
+  /** 自动清理天数 */
+  cleanupDays: number;
+}
+
+/**
+ * 避免检查结果
+ */
+export interface AvoidCheckResult {
+  /** 是否应该避免 */
+  shouldAvoid: boolean;
+  /** 原因 */
+  reason?: string;
+  /** 替代方案 */
+  alternative?: string;
+  /** 匹配的错误模式 ID */
+  matchedPatternId?: string;
+}
+
+// ============ 任务执行记录 ============
+
+/**
+ * 任务执行记录（用于模式提取）
+ */
+export interface TaskExecution {
+  /** 任务 ID */
+  id: string;
+  /** Agent ID */
+  agentId: string;
+  /** 任务描述 */
+  description: string;
+  /** 任务类型 */
+  taskType: TaskType;
+  /** 使用的方法 */
+  approach: string;
+  /** 使用的工具 */
+  toolsUsed: string[];
+  /** 执行步骤 */
+  steps: TaskStep[];
+  /** 是否成功 */
+  success: boolean;
+  /** 结果摘要 */
+  resultSummary?: string;
+  /** 错误信息 */
+  error?: string;
+  /** 用户评分 */
+  userRating?: number;
+  /** 用户反馈 */
+  userFeedback?: string;
+  /** 执行时间 */
+  duration?: number;
+  /** 时间戳 */
+  timestamp: string;
+}
+
+/**
+ * 任务步骤
+ */
+export interface TaskStep {
+  /** 步骤 ID */
+  id: string;
+  /** 步骤描述 */
+  description: string;
+  /** 使用的工具 */
+  tool?: string;
+  /** 是否成功 */
+  success: boolean;
+}
+
 // ============ 配置 ============
 
 /**

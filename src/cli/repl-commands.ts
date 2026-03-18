@@ -16,7 +16,7 @@ import { getSkillManager } from '../core/skills.js';
 import { getTaskManager } from '../core/task-manager.js';
 import { getConfirmationManager } from '../core/confirmation.js';
 import { getMemoryMonitor, performMemoryCleanup } from '../core/memory-monitor.js';
-import { getFeedbackCollector, getImprovementLogManager } from '../core/self-improving/index.js';
+import { getFeedbackCollector, getImprovementLogManager, getSuccessPatternStore, getErrorPatternStore } from '../core/self-improving/index.js';
 import { saveAllSessions } from './repl-session.js';
 import { clearPlanFromSession, popSubPlan, renderHierarchicalPlan } from './repl-plan.js';
 import { eventBus } from '../core/event-bus.js';
@@ -159,6 +159,10 @@ export async function handleCommand(
 
     case 'improve':
       await handleImproveCommand(state, arg, parts, sessionStorage);
+      break;
+
+    case 'patterns':
+      await handlePatternsCommand(state, arg);
       break;
 
     default:
@@ -1229,7 +1233,10 @@ async function handleImproveCommand(
     console.log(chalk.gray('  /improve log       查看改进日志'));
     console.log(chalk.gray('  /improve stats     详细统计'));
     console.log(chalk.gray('  /improve feedback  查看用户反馈'));
+    console.log(chalk.gray('  /improve success   查看成功模式'));
+    console.log(chalk.gray('  /improve errors    查看错误模式'));
     console.log(chalk.gray('  /improve clear     清除改进数据'));
+    console.log(chalk.gray('\n  /patterns          查看经验模式'));
     return;
   }
   
@@ -1303,17 +1310,143 @@ async function handleImproveCommand(
     
     case 'clear': {
       console.log(chalk.yellow('确定要清除所有改进数据吗？'));
-      console.log(chalk.gray('这将删除: 改进日志、用户反馈'));
+      console.log(chalk.gray('这将删除: 改进日志、用户反馈、成功模式、错误模式'));
       // 简单起见，直接清除
       await improvementLog.clear(agent.id);
       await feedbackCollector.clearAgentFeedback(agent.id);
+      
+      const successStore = getSuccessPatternStore();
+      const errorStore = getErrorPatternStore();
+      await successStore.clearAgent(agent.id);
+      await errorStore.clearAgent(agent.id);
+      
       console.log(chalk.green('✓ 已清除所有改进数据'));
+      break;
+    }
+    
+    case 'success': {
+      const successStore = getSuccessPatternStore();
+      const patterns = await successStore.getPatternsByAgent(agent.id);
+      
+      if (patterns.length === 0) {
+        console.log(chalk.gray('暂无成功模式记录'));
+        console.log(chalk.gray('完成任务后会自动记录成功的经验'));
+      } else {
+        console.log(chalk.cyan.bold(`\n✅ 成功模式 (${patterns.length} 个)\n`));
+        for (const p of patterns.slice(0, 10)) {
+          const time = new Date(p.createdAt).toLocaleDateString('zh-CN');
+          console.log(chalk.white(`${p.taskType}: ${p.taskDescription.slice(0, 50)}...`));
+          console.log(chalk.gray(`  效果: ${(p.effectiveness * 100).toFixed(0)}% | 使用: ${p.usageCount} 次 | ${time}`));
+          console.log();
+        }
+      }
+      break;
+    }
+    
+    case 'errors': {
+      const errorStore = getErrorPatternStore();
+      const patterns = await errorStore.getPatternsByAgent(agent.id);
+      const unresolved = patterns.filter(p => !p.resolved);
+      
+      if (patterns.length === 0) {
+        console.log(chalk.gray('暂无错误模式记录'));
+      } else {
+        console.log(chalk.cyan.bold(`\n❌ 错误模式 (${patterns.length} 个，${unresolved.length} 个未解决)\n`));
+        for (const p of patterns.slice(0, 10)) {
+          const status = p.resolved ? chalk.green('✓') : chalk.red('✗');
+          console.log(chalk.white(`${status} ${p.errorType}: ${p.errorMessage.slice(0, 50)}...`));
+          console.log(chalk.gray(`  发生: ${p.occurrenceCount} 次`));
+          console.log();
+        }
+      }
       break;
     }
     
     default:
       console.log(chalk.yellow(`未知参数: ${arg}`));
-      console.log(chalk.gray('可用: log, stats, feedback, clear'));
+      console.log(chalk.gray('可用: log, stats, feedback, success, errors, clear'));
+  }
+}
+
+/**
+ * 处理 /patterns 命令 - 查看成功/错误模式
+ */
+async function handlePatternsCommand(
+  state: ReplState,
+  arg: string | undefined
+): Promise<void> {
+  const successStore = getSuccessPatternStore();
+  const errorStore = getErrorPatternStore();
+  
+  const agent = state.agents.get(state.currentAgentId);
+  if (!agent) return;
+  
+  if (arg === 'success') {
+    const patterns = await successStore.getPatternsByAgent(agent.id);
+    if (patterns.length === 0) {
+      console.log(chalk.gray('暂无成功模式记录'));
+      console.log(chalk.gray('完成任务后会自动记录成功的经验'));
+    } else {
+      console.log(chalk.cyan.bold(`\n✅ 成功模式 (${patterns.length} 个)\n`));
+      for (const p of patterns.slice(0, 10)) {
+        const time = new Date(p.createdAt).toLocaleDateString('zh-CN');
+        console.log(chalk.white(`${p.taskType}: ${p.taskDescription.slice(0, 50)}...`));
+        console.log(chalk.gray(`  效果: ${(p.effectiveness * 100).toFixed(0)}% | 使用: ${p.usageCount} 次 | ${time}`));
+        if (p.toolsUsed.length > 0) {
+          console.log(chalk.gray(`  工具: ${p.toolsUsed.slice(0, 3).join(', ')}`));
+        }
+        console.log();
+      }
+    }
+  } else if (arg === 'errors') {
+    const patterns = await errorStore.getPatternsByAgent(agent.id);
+    const unresolved = patterns.filter(p => !p.resolved);
+    
+    if (patterns.length === 0) {
+      console.log(chalk.gray('暂无错误模式记录'));
+    } else {
+      console.log(chalk.cyan.bold(`\n❌ 错误模式 (${patterns.length} 个，${unresolved.length} 个未解决)\n`));
+      for (const p of patterns.slice(0, 10)) {
+        const status = p.resolved ? chalk.green('✓') : chalk.red('✗');
+        console.log(chalk.white(`${status} ${p.errorType}: ${p.errorMessage.slice(0, 50)}...`));
+        console.log(chalk.gray(`  发生: ${p.occurrenceCount} 次 | 上下文: ${p.taskContext.slice(0, 40)}...`));
+        if (p.solution) {
+          console.log(chalk.gray(`  解决: ${p.solution.slice(0, 60)}...`));
+        }
+        console.log();
+      }
+    }
+  } else if (arg === 'stats') {
+    const successStats = await successStore.getStats(agent.id);
+    const errorStats = await errorStore.getStats(agent.id);
+    
+    console.log(chalk.cyan.bold('\n📊 经验模式统计\n'));
+    
+    console.log(chalk.white('成功模式:'));
+    console.log(`  总数: ${successStats.totalPatterns}`);
+    console.log(`  平均效果: ${(successStats.averageEffectiveness * 100).toFixed(0)}%`);
+    console.log(`  总使用次数: ${successStats.totalUsage}`);
+    
+    console.log(chalk.white('\n错误模式:'));
+    console.log(`  总数: ${errorStats.totalPatterns}`);
+    console.log(`  未解决: ${errorStats.unresolvedCount}`);
+    console.log(`  总发生次数: ${errorStats.totalOccurrences}`);
+    
+    // 显示按任务类型的成功模式分布
+    if (successStats.totalPatterns > 0) {
+      console.log(chalk.white('\n成功模式分布:'));
+      for (const [type, count] of Object.entries(successStats.byTaskType)) {
+        if (count > 0) {
+          console.log(chalk.gray(`  ${type}: ${count}`));
+        }
+      }
+    }
+    
+  } else {
+    console.log(chalk.cyan('经验模式管理:'));
+    console.log('  /patterns success  查看成功模式');
+    console.log('  /patterns errors   查看错误模式');
+    console.log('  /patterns stats    查看统计');
   }
 }
 
@@ -1350,6 +1483,11 @@ function printHelp(): void {
   console.log('  /improve          查看 Agent 改进状态');
   console.log('  /improve log      查看改进日志');
   console.log('  /improve feedback 查看用户反馈');
+  console.log();
+  console.log(chalk.cyan('经验模式:'));
+  console.log('  /patterns success 查看成功模式');
+  console.log('  /patterns errors  查看错误模式');
+  console.log('  /patterns stats   查看统计');
   console.log();
   console.log(chalk.cyan('记忆系统:'));
   console.log('  /init-memory     初始化当前 Agent 的记忆');
