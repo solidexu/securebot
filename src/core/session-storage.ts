@@ -2,9 +2,13 @@
  * 会话持久化
  * 
  * 负责会话的保存、加载和管理
+ * 
+ * 优化：
+ * - 原子写入：使用临时文件 + rename 避免写入中断导致文件损坏
+ * - 写入队列：防止并发写入冲突
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync, statSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Session, Message } from './types.js';
 import { getSessionsDir } from './config.js';
@@ -59,12 +63,18 @@ const SESSION_VERSION = 1;
 
 /**
  * 会话存储管理器
+ * 
+ * 线程安全：使用写入队列防止并发写入冲突
+ * 原子写入：使用临时文件 + rename 确保数据完整性
  */
 export class SessionStorage {
   private config: SessionStorageConfig;
   private cache: Map<string, PersistedSession> = new Map();
   private dirty: Set<string> = new Set();
   private initialized: boolean = false;
+  
+  /** 写入队列：防止同一会话并发写入 */
+  private writeQueue: Map<string, Promise<void>> = new Map();
 
   constructor(config: Partial<SessionStorageConfig> = {}) {
     this.config = { ...DEFAULT_SESSION_STORAGE_CONFIG, ...config };
@@ -90,11 +100,37 @@ export class SessionStorage {
   }
 
   /**
-   * 保存会话
+   * 保存会话（线程安全）
    */
   async saveSession(session: Session): Promise<void> {
     if (!this.initialized) await this.initialize();
 
+    const sessionKey = session.sessionKey;
+    
+    // 等待之前的写入完成（写入队列）
+    const previousWrite = this.writeQueue.get(sessionKey);
+    if (previousWrite) {
+      await previousWrite;
+    }
+    
+    // 创建新的写入 Promise
+    const writePromise = this._doSaveSession(session);
+    this.writeQueue.set(sessionKey, writePromise);
+    
+    try {
+      await writePromise;
+    } finally {
+      // 清理队列
+      if (this.writeQueue.get(sessionKey) === writePromise) {
+        this.writeQueue.delete(sessionKey);
+      }
+    }
+  }
+
+  /**
+   * 实际保存逻辑（内部方法）
+   */
+  private async _doSaveSession(session: Session): Promise<void> {
     const persisted: PersistedSession = {
       sessionKey: session.sessionKey,
       agentId: session.agentId,
@@ -108,9 +144,27 @@ export class SessionStorage {
     this.cache.set(session.sessionKey, persisted);
     this.dirty.add(session.sessionKey);
 
-    // 写入文件
+    // 原子写入：先写临时文件，再 rename
     const filePath = this.getSessionFilePath(session.sessionKey);
-    writeFileSync(filePath, JSON.stringify(persisted, null, 2), 'utf-8');
+    const tempPath = filePath + '.tmp';
+    
+    try {
+      // 写入临时文件
+      writeFileSync(tempPath, JSON.stringify(persisted, null, 2), 'utf-8');
+      
+      // 原子重命名
+      renameSync(tempPath, filePath);
+    } catch (error) {
+      // 清理临时文件
+      try {
+        if (existsSync(tempPath)) {
+          unlinkSync(tempPath);
+        }
+      } catch {
+        // 忽略清理错误
+      }
+      throw error;
+    }
   }
 
   /**
@@ -157,6 +211,12 @@ export class SessionStorage {
   async deleteSession(sessionKey: string): Promise<boolean> {
     if (!this.initialized) await this.initialize();
 
+    // 等待正在进行的写入
+    const pendingWrite = this.writeQueue.get(sessionKey);
+    if (pendingWrite) {
+      await pendingWrite;
+    }
+
     // 从缓存移除
     this.cache.delete(sessionKey);
     this.dirty.delete(sessionKey);
@@ -190,7 +250,9 @@ export class SessionStorage {
 
     const files = readdirSync(this.config.storageDir);
     for (const file of files) {
+      // 忽略临时文件
       if (!file.endsWith('.json')) continue;
+      if (file.endsWith('.tmp')) continue;
 
       const filePath = join(this.config.storageDir, file);
       try {
@@ -223,8 +285,22 @@ export class SessionStorage {
       const persisted = this.cache.get(sessionKey);
       if (persisted) {
         const filePath = this.getSessionFilePath(sessionKey);
-        writeFileSync(filePath, JSON.stringify(persisted, null, 2), 'utf-8');
-        count++;
+        const tempPath = filePath + '.tmp';
+        
+        try {
+          writeFileSync(tempPath, JSON.stringify(persisted, null, 2), 'utf-8');
+          renameSync(tempPath, filePath);
+          count++;
+        } catch {
+          // 清理临时文件
+          try {
+            if (existsSync(tempPath)) {
+              unlinkSync(tempPath);
+            }
+          } catch {
+            // 忽略
+          }
+        }
       }
     }
     this.dirty.clear();
@@ -237,10 +313,14 @@ export class SessionStorage {
   async clearAll(): Promise<number> {
     if (!this.initialized) await this.initialize();
 
+    // 等待所有正在进行的写入
+    const pendingWrites = Array.from(this.writeQueue.values());
+    await Promise.all(pendingWrites);
+
     let count = 0;
     const files = readdirSync(this.config.storageDir);
     for (const file of files) {
-      if (!file.endsWith('.json')) continue;
+      if (!file.endsWith('.json') && !file.endsWith('.tmp')) continue;
       
       const filePath = join(this.config.storageDir, file);
       unlinkSync(filePath);
@@ -249,6 +329,7 @@ export class SessionStorage {
 
     this.cache.clear();
     this.dirty.clear();
+    this.writeQueue.clear();
     
     return count;
   }
@@ -258,6 +339,16 @@ export class SessionStorage {
    */
   getStorageDir(): string {
     return this.config.storageDir;
+  }
+
+  /**
+   * 获取写入队列状态（用于调试）
+   */
+  getWriteQueueStatus(): { pendingCount: number; pendingKeys: string[] } {
+    return {
+      pendingCount: this.writeQueue.size,
+      pendingKeys: Array.from(this.writeQueue.keys()),
+    };
   }
 
   // ============ 私有方法 ============
