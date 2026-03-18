@@ -14,22 +14,39 @@ export class ProgressAnimation {
   private interval: ReturnType<typeof setInterval> | null = null;
   private message: string;
   private startTime = 0;
+  private abortSignal?: AbortSignal;
+  private stopped = false;
   
-  constructor(message: string = '思考中') {
+  constructor(message: string = '思考中', abortSignal?: AbortSignal) {
     this.message = message;
+    this.abortSignal = abortSignal;
   }
   
   /**
    * 开始动画
    */
   start(): void {
+    if (this.stopped) return;
+    
     this.startTime = Date.now();
     this.frameIndex = 0;
     
     // 隐藏光标
     process.stdout.write('\x1B[?25l');
     
+    // 监听 abort 信号
+    if (this.abortSignal) {
+      this.abortSignal.addEventListener('abort', () => {
+        this.stop();
+      });
+    }
+    
     this.interval = setInterval(() => {
+      // 检查是否已被中断
+      if (this.abortSignal?.aborted) {
+        this.stop();
+        return;
+      }
       this.render();
     }, 80);
     
@@ -42,13 +59,17 @@ export class ProgressAnimation {
    */
   update(message: string): void {
     this.message = message;
-    this.render();
+    if (!this.stopped) {
+      this.render();
+    }
   }
   
   /**
    * 渲染当前帧
    */
   private render(): void {
+    if (this.stopped) return;
+    
     const frame = SPINNER_FRAMES[this.frameIndex];
     const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(1);
     
@@ -62,6 +83,9 @@ export class ProgressAnimation {
    * 停止动画
    */
   stop(finalMessage?: string): void {
+    if (this.stopped) return;
+    this.stopped = true;
+    
     if (this.interval) {
       clearInterval(this.interval);
       this.interval = null;

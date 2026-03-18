@@ -330,7 +330,12 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
       const errorName = error instanceof Error ? error.name : '';
       
       // 如果是打断操作导致的错误，忽略它，继续主循环
-      if (state.interrupted || errorName === 'AbortError') {
+      const isAbortError = 
+        state.interrupted ||
+        errorName === 'AbortError' ||
+        errorMsg.toLowerCase().includes('abort');
+      
+      if (isAbortError) {
         state.interrupted = false;
         state.executing = false;
         continue;

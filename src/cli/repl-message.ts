@@ -352,7 +352,7 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
     
     // 创建进度动画
     const thinkingMessage = round === 1 ? '思考中' : `继续思考 (轮次 ${round})`;
-    const progressAnimation = new ProgressAnimation(thinkingMessage);
+    const progressAnimation = new ProgressAnimation(thinkingMessage, ctx.abortController.signal);
     progressAnimation.start();
     
     // 复杂任务：有计划之前不传工具
@@ -418,7 +418,13 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
     } catch (error) {
       progressAnimation.stop();
       // 检查是否是用户主动打断
-      if (state.interrupted || (error instanceof Error && error.name === 'AbortError')) {
+      const isAbortError = 
+        state.interrupted ||
+        (error instanceof Error && error.name === 'AbortError') ||
+        (error instanceof Error && error.message.toLowerCase().includes('abort')) ||
+        (typeof error === 'string' && error.toLowerCase().includes('abort'));
+      
+      if (isAbortError) {
         console.log(chalk.gray('\n[已取消]'));
         return;
       }
