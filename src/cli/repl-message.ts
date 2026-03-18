@@ -270,6 +270,12 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
   const MAX_PLAN_ATTEMPTS = 3;
   const MAX_NO_PROGRESS = 5;  // 连续 5 轮无进展则提示用户
   
+  // 跟踪是否有已完成的计划（用于判断新阶段）
+  let previousPlanCompleted = false;
+  if (session.plan && session.plan.steps.every(s => s.status === 'completed' || s.status === 'skipped')) {
+    previousPlanCompleted = true;
+  }
+  
   while (round < MAX_TOOL_ROUNDS) {
     if (state.interrupted) {
       console.log(chalk.yellow('\n[操作已打断]'));
@@ -490,6 +496,28 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
             return;
           }
           
+          // 检查是否是新阶段的计划
+          if (previousPlanCompleted) {
+            // 之前有已完成的计划，这是新阶段
+            console.log();
+            console.log(chalk.green('✓ 上一阶段计划已完成'));
+            console.log(chalk.cyan('📋 下一阶段计划已生成:'));
+            console.log(renderTaskProgress(currentPlan));
+            console.log();
+            console.log(chalk.cyan('是否继续执行下一阶段？'));
+            console.log(chalk.gray('确认执行请输入: "继续"、"执行"、"开始"'));
+            console.log(chalk.gray('修改计划请输入: 您的修改意见'));
+            console.log(chalk.gray('取消请输入: "取消" 或开始新话题'));
+            console.log();
+            
+            // 保存会话状态
+            if (sessionStorage) {
+              await sessionStorage.saveSession(session);
+            }
+            return;
+          }
+          
+          // 当前计划还未完成，继续执行
           console.log(chalk.green('\n✓ 计划已生成，开始执行...'));
           addUserMessage(session, 
             '计划已确认。现在请开始执行第一步：\n' +
