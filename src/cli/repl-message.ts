@@ -266,20 +266,13 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
   
   let round = 0;
   let planAttempts = 0;
-  let noToolCallRounds = 0;
+  let noToolCallRounds = 0;  // 用于追踪，但不中断对话
   const MAX_PLAN_ATTEMPTS = 3;
-  const MAX_NO_TOOL_CALL_ROUNDS = 3;
   
   while (round < MAX_TOOL_ROUNDS) {
     if (state.interrupted) {
       console.log(chalk.yellow('\n[操作已打断]'));
       return;
-    }
-    
-    if (noToolCallRounds >= MAX_NO_TOOL_CALL_ROUNDS) {
-      console.log(chalk.yellow('\n⚠️ 检测到连续多轮无工具调用，结束对话'));
-      console.log(chalk.gray('如果需要继续，请发送新消息'));
-      break;
     }
     
     round++;
@@ -374,11 +367,15 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       const completionSignals = [
         '任务完成', '开发完成', '实现完成', '已完成', 
         '开发完毕', '实现完毕', '总结', '总结一下',
-        '项目完成', '功能完成', '全部完成', '完整实现'
+        '项目完成', '功能完成', '全部完成', '完整实现',
+        '已完成所有', 'done', 'complete', 'finished',
       ];
       const isTaskCompleted = completionSignals.some(signal => 
-        result.content?.includes(signal)
+        result.content?.toLowerCase().includes(signal.toLowerCase())
       );
+      
+      // 检查是否有实质性内容输出
+      const hasSubstantialContent = result.content && result.content.trim().length > 100;
       
       if (complexity === 'complex') {
         if (isTaskCompleted) {
@@ -473,55 +470,69 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         continue;
       }
       
-      noToolCallRounds++;
-      
-      addAssistantMessage(session, result.content);
-      
-      eventBus.publishSync({
-        type: EventTypes.TASK_COMPLETE,
-        timestamp: new Date(),
-        agentId: agent.id,
-        sessionId: session.sessionKey,
-        payload: {
-          taskDescription: message,
-          stepsCompleted: 0,
-          stepsTotal: 0,
-        },
-      });
-      
-      if (currentPlan) {
-        console.log();
-        console.log(chalk.green('✓ 任务完成'));
-        console.log(getPlanSummary(currentPlan));
+      // 非复杂任务：检查是否有实质性内容
+      if (hasSubstantialContent) {
+        // 有实质性内容输出，重置计数器
+        noToolCallRounds = 0;
+      } else {
+        // 无实质性内容，计数
+        noToolCallRounds++;
       }
       
-      // 记录任务成功
-      await recordTaskExecution(
-        {
-          agent,
-          session,
-          taskDescription: message,
-          approach: '完成任务',
-          toolsUsed: Array.from(ctx.taskTracker.toolsUsed),
-          steps: ctx.taskTracker.steps,
-        },
-        {
-          success: true,
-          summary: result.content?.slice(0, 200),
+      // 检查任务是否真的完成了
+      if (isTaskCompleted) {
+        addAssistantMessage(session, result.content);
+        
+        eventBus.publishSync({
+          type: EventTypes.TASK_COMPLETE,
+          timestamp: new Date(),
+          agentId: agent.id,
+          sessionId: session.sessionKey,
+          payload: {
+            taskDescription: message,
+            stepsCompleted: 0,
+            stepsTotal: 0,
+          },
+        });
+        
+        // 记录任务成功
+        await recordTaskExecution(
+          {
+            agent,
+            session,
+            taskDescription: message,
+            approach: '完成任务',
+            toolsUsed: Array.from(ctx.taskTracker.toolsUsed),
+            steps: ctx.taskTracker.steps,
+          },
+          {
+            success: true,
+            summary: result.content?.slice(0, 200),
+          }
+        );
+        
+        if (currentPlan) {
+          console.log();
+          console.log(chalk.green('✓ 任务完成'));
+          console.log(getPlanSummary(currentPlan));
         }
-      );
-      
-      if (sessionStorage) {
-        await sessionStorage.saveSession(session);
+        
+        if (sessionStorage) {
+          await sessionStorage.saveSession(session);
+        }
+        
+        if (result.usage) {
+          console.log(chalk.gray(
+            `\nToken: 输入 ${result.usage.promptTokens} / 输出 ${result.usage.completionTokens} / 总计 ${result.usage.totalTokens}`
+          ));
+        }
+        console.log();
+        return;
       }
       
-      if (result.usage) {
-        console.log(chalk.gray(
-          `\nToken: 输入 ${result.usage.promptTokens} / 输出 ${result.usage.completionTokens} / 总计 ${result.usage.totalTokens}`
-        ));
-      }
-      console.log();
-      return;
+      // 有内容输出但没有任务完成信号，继续等待下一轮
+      addAssistantMessage(session, result.content);
+      continue;
     }
     
     // 有工具调用
