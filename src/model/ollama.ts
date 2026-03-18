@@ -206,34 +206,55 @@ export class OllamaAdapter implements ModelAdapter {
     onStream: StreamCallback,
     signal?: AbortSignal
   ): Promise<ChatResult> {
+    // 检查是否已经被 abort
+    if (signal?.aborted) {
+      throw new Error('Request aborted');
+    }
+    
     let aborted = false;
     let abortHandler: (() => void) | null = null;
-    
-    // 创建一个 Promise 用于在 abort 时立即返回
-    let abortReject: ((error: Error) => void) | null = null;
-    const abortPromise = new Promise<never>((_, reject) => {
-      abortReject = reject;
-    });
     
     // 监听 abort 事件
     if (signal) {
       abortHandler = () => {
         aborted = true;
-        abortReject?.(new Error('Request aborted'));
       };
       signal.addEventListener('abort', abortHandler);
     }
     
     try {
-      const response = await request(`${this.baseUrl}/api/chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ ...requestBody, stream: true }),
-        bodyTimeout: this.timeout,
-        signal,  // 传递 AbortSignal
-      });
+      // 使用 AbortController 来控制 request 超时
+      const requestAbortController = new AbortController();
+      
+      // 如果外部 signal 触发，也 abort request
+      const externalAbortHandler = () => {
+        requestAbortController.abort();
+      };
+      signal?.addEventListener('abort', externalAbortHandler);
+      
+      let response;
+      try {
+        response = await request(`${this.baseUrl}/api/chat`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ ...requestBody, stream: true }),
+          bodyTimeout: this.timeout,
+          signal: requestAbortController.signal,
+        });
+      } catch (error) {
+        // 如果是被 abort 的，直接返回空结果
+        if (aborted || signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
+          return {
+            content: '',
+            usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+          };
+        }
+        throw error;
+      } finally {
+        signal?.removeEventListener('abort', externalAbortHandler);
+      }
 
       if (response.statusCode >= 400) {
         const errorBody = await response.body.text();
@@ -245,28 +266,55 @@ export class OllamaAdapter implements ModelAdapter {
       let toolCalls: Array<{ name: string; arguments: Record<string, unknown> }> = [];
       let usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
 
-      // 使用 async iterator 读取 NDJSON 流，同时监听 abort
+      // 使用 async iterator 读取 NDJSON 流
       try {
-        // 创建迭代器
         const iterator = response.body[Symbol.asyncIterator]();
         
-        while (!aborted) {
-          // 使用 Promise.race 来支持 abort
-          const { done, value } = await Promise.race([
-            iterator.next(),
-            abortPromise,
-          ]);
+        while (!aborted && !signal?.aborted) {
+          // 使用轮询方式检查 abort 状态
+          // 这样即使 iterator.next() 阻塞，也能及时响应
+          const nextPromise = iterator.next();
           
-          if (done || aborted) break;
+          // 创建一个检查器，每 50ms 检查一次 abort
+          let resolved = false;
+          const checkInterval = setInterval(() => {
+            if ((aborted || signal?.aborted) && !resolved) {
+              // 如果需要 abort，尝试销毁流
+              try {
+                // @ts-ignore - response.body 可能是 Readable
+                response.body?.destroy?.();
+              } catch {
+                // 忽略销毁错误
+              }
+            }
+          }, 50);
           
-          const chunk = value;
+          let nextResult;
+          try {
+            nextResult = await nextPromise;
+          } catch (error) {
+            // iterator 抛出错误（可能是 abort 导致的）
+            if (aborted || signal?.aborted) {
+              break;
+            }
+            throw error;
+          } finally {
+            resolved = true;
+            clearInterval(checkInterval);
+          }
+          
+          const { done, value } = nextResult;
+          
+          if (done || aborted || signal?.aborted) break;
+          
+          const chunk = value!;
           const text = chunk.toString();
           
           // NDJSON 格式，每行一个 JSON
           const lines = text.split('\n').filter((line: string) => line.trim());
           
           for (const line of lines) {
-            if (aborted) break;
+            if (aborted || signal?.aborted) break;
             
             try {
               const data = JSON.parse(line) as OllamaStreamResponse;
@@ -312,7 +360,7 @@ export class OllamaAdapter implements ModelAdapter {
         }
       } catch (error) {
         // 如果是 abort 导致的，返回已收集的内容
-        if (aborted || (error instanceof Error && error.message === 'Request aborted')) {
+        if (aborted || signal?.aborted) {
           // 返回部分结果
           return {
             content: fullContent,
