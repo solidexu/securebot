@@ -225,11 +225,16 @@ export class IncrementalIndexer {
     }
 
     // 检测删除的文件
-    for (const [path] of this.fileRecords) {
+    for (const [path, record] of this.fileRecords) {
       if (!processedFiles.has(path) && path.startsWith(dir)) {
-        // 文件已删除，从索引中移除
+        // 从 RAG 存储中移除文档
+        try {
+          await this.store.deleteDocument(record.docId);
+        } catch {
+          // 忽略删除错误（文档可能已不存在）
+        }
+        // 从文件记录中移除
         this.fileRecords.delete(path);
-        // TODO: 从 RAG 存储中移除文档
         status.deletedFiles++;
       }
     }

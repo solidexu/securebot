@@ -317,7 +317,9 @@ ${stages.join('\n')}
 ### 可用命令
 - \`rag_search <query>\` - 搜索知识库
 - \`rag_index <path>\` - 添加新文档
-- \`rag_status\` - 查看状态`;
+- \`rag_remove <path>\` - 移除文档
+- \`rag_status\` - 查看状态
+- \`rag_list\` - 列出所有文档`;
 
       return {
         success: true,
@@ -329,6 +331,127 @@ ${stages.join('\n')}
       return {
         success: false,
         error: `获取状态失败: ${message}`,
+      };
+    }
+  },
+};
+
+// ============ RAG 删除工具 ============
+
+export const ragRemoveTool: Tool = {
+  name: 'rag_remove',
+  description: '从知识库中移除文档。通过文件路径指定要移除的文档。',
+  parameters: {
+    type: 'object',
+    properties: {
+      path: {
+        type: 'string',
+        description: '要移除的文档路径（相对于 workspace）',
+      },
+    },
+    required: ['path'],
+  },
+
+  async execute(params, context: ToolContext): Promise<ToolResult> {
+    const { path } = params as { path: string };
+    const { resolve } = await import('node:path');
+    const fullPath = resolve(context.workspace, path);
+
+    try {
+      const store = await ragManager.getStore(context.agent);
+      
+      if (!store) {
+        return {
+          success: false,
+          error: 'RAG 未为此 Agent 启用',
+        };
+      }
+
+      const deleted = await store.deleteDocumentByPath(fullPath);
+
+      if (deleted === 0) {
+        return {
+          success: false,
+          error: `未找到路径对应的文档: ${path}`,
+        };
+      }
+
+      return {
+        success: true,
+        content: `✓ 已从知识库移除 ${deleted} 个文档`,
+        metadata: {
+          path: fullPath,
+          deletedCount: deleted,
+        },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        error: `移除失败: ${message}`,
+      };
+    }
+  },
+};
+
+// ============ RAG 列表工具 ============
+
+export const ragListTool: Tool = {
+  name: 'rag_list',
+  description: '列出知识库中的所有文档。',
+  parameters: {
+    type: 'object',
+    properties: {
+      limit: {
+        type: 'number',
+        description: '最大返回数量，默认 20',
+      },
+    },
+  },
+
+  async execute(params, context: ToolContext): Promise<ToolResult> {
+    const { limit = 20 } = params as { limit?: number };
+
+    try {
+      const store = await ragManager.getStore(context.agent);
+      
+      if (!store) {
+        return {
+          success: false,
+          error: 'RAG 未为此 Agent 启用',
+        };
+      }
+
+      const docs = store.listDocuments().slice(0, limit);
+
+      if (docs.length === 0) {
+        return {
+          success: true,
+          content: '知识库为空。使用 rag_index 添加文档。',
+        };
+      }
+
+      const content = `## 知识库文档 (${docs.length} 个)\n\n` +
+        docs.map((doc, i) => 
+          `${i + 1}. **${doc.filename}**\n` +
+          `   路径: ${doc.path}\n` +
+          `   块数: ${doc.chunkCount}\n` +
+          `   更新: ${new Date(doc.updatedAt).toLocaleString('zh-CN')}`
+        ).join('\n\n');
+
+      return {
+        success: true,
+        content,
+        metadata: {
+          count: docs.length,
+          total: store.getStats().documentCount,
+        },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        error: `获取列表失败: ${message}`,
       };
     }
   },
@@ -413,7 +536,7 @@ export const ragRememberTool: Tool = {
 
 // ============ 导出 ============
 
-export const ragTools = [ragSearchTool, ragIndexTool, ragStatusTool, ragRememberTool];
+export const ragTools = [ragSearchTool, ragIndexTool, ragStatusTool, ragRememberTool, ragRemoveTool, ragListTool];
 
 /**
  * 注册 RAG 工具（延迟调用）

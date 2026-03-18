@@ -451,6 +451,29 @@ export class RAGStore {
   }
 
   /**
+   * 通过路径删除文档
+   */
+  async deleteDocumentByPath(filePath: string): Promise<number> {
+    let deleted = 0;
+    
+    for (const [docId, doc] of this.documents) {
+      if (doc.path === filePath) {
+        await this.deleteDocument(docId);
+        deleted++;
+      }
+    }
+    
+    return deleted;
+  }
+
+  /**
+   * 列出所有文档
+   */
+  listDocuments(): Document[] {
+    return Array.from(this.documents.values());
+  }
+
+  /**
    * 搜索相似内容
    */
   async search(query: string, topK?: number): Promise<SearchResult[]> {
