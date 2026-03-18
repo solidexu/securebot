@@ -2,9 +2,9 @@
  * Ollama 模型适配器
  * 
  * 对接本地 Ollama API，支持多模型切换和流式输出
+ * 使用 Node.js 内置的 fetch API，支持 AbortController
  */
 
-import { request } from 'undici';
 import type { ModelAdapter, ChatParams, ChatResult, Message, Tool } from '../core/types.js';
 
 // ============ Ollama API Types ============
@@ -167,24 +167,23 @@ export class OllamaAdapter implements ModelAdapter {
    * 非流式聊天
    */
   private async chatNonStream(requestBody: OllamaChatRequest): Promise<ChatResult> {
-    const response = await request(`${this.baseUrl}/api/chat`, {
+    const response = await fetch(`${this.baseUrl}/api/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(requestBody),
-      bodyTimeout: this.timeout,
+      body: JSON.stringify({ ...requestBody, stream: false }),
     });
 
-    if (response.statusCode >= 400) {
-      const errorBody = await response.body.text();
-      throw new Error(`HTTP ${response.statusCode}: ${errorBody}`);
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errorBody}`);
     }
 
-    const data = await response.body.json() as OllamaChatResponse;
-    
+    const data = await response.json() as OllamaChatResponse;
+
     return {
-      content: data.message.content ?? '',
+      content: data.message.content,
       toolCalls: data.message.tool_calls?.map(tc => ({
         id: this.generateToolCallId(),
         name: tc.function.name,
@@ -206,190 +205,159 @@ export class OllamaAdapter implements ModelAdapter {
     onStream: StreamCallback,
     signal?: AbortSignal
   ): Promise<ChatResult> {
-    // 检查是否已经被 abort
-    if (signal?.aborted) {
-      throw new Error('Request aborted');
-    }
+    // 使用 AbortController 合并外部 signal 和超时
+    const abortController = new AbortController();
     
-    let aborted = false;
-    let abortHandler: (() => void) | null = null;
+    // 监听外部 signal
+    const abortHandler = () => {
+      abortController.abort();
+    };
+    signal?.addEventListener('abort', abortHandler);
     
-    // 监听 abort 事件
-    if (signal) {
-      abortHandler = () => {
-        aborted = true;
-      };
-      signal.addEventListener('abort', abortHandler);
-    }
+    // 设置超时
+    const timeoutId = setTimeout(() => {
+      abortController.abort();
+    }, this.timeout);
     
+    let response: Response;
     try {
-      // 使用 AbortController 来控制 request 超时
-      const requestAbortController = new AbortController();
+      response = await fetch(`${this.baseUrl}/api/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ ...requestBody, stream: true }),
+        signal: abortController.signal,
+      });
+    } catch (error) {
+      clearTimeout(timeoutId);
+      signal?.removeEventListener('abort', abortHandler);
       
-      // 如果外部 signal 触发，也 abort request
-      const externalAbortHandler = () => {
-        requestAbortController.abort();
-      };
-      signal?.addEventListener('abort', externalAbortHandler);
-      
-      let response;
-      try {
-        response = await request(`${this.baseUrl}/api/chat`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ ...requestBody, stream: true }),
-          bodyTimeout: this.timeout,
-          signal: requestAbortController.signal,
-        });
-      } catch (error) {
-        // 如果是被 abort 的，直接返回空结果
-        if (aborted || signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
-          return {
-            content: '',
-            usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
-          };
+      // 如果是被取消的，返回空结果
+      if (signal?.aborted || abortController.signal.aborted) {
+        return {
+          content: '',
+          usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+        };
+      }
+      throw error;
+    }
+
+    if (!response.ok) {
+      clearTimeout(timeoutId);
+      signal?.removeEventListener('abort', abortHandler);
+      const errorBody = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errorBody}`);
+    }
+
+    // 读取流式响应
+    let fullContent = '';
+    let toolCalls: Array<{ name: string; arguments: Record<string, unknown> }> = [];
+    let usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+
+    try {
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('无法获取响应流');
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        // 检查是否被取消
+        if (signal?.aborted || abortController.signal.aborted) {
+          reader.cancel();
+          break;
         }
-        throw error;
-      } finally {
-        signal?.removeEventListener('abort', externalAbortHandler);
-      }
 
-      if (response.statusCode >= 400) {
-        const errorBody = await response.body.text();
-        throw new Error(`HTTP ${response.statusCode}: ${errorBody}`);
-      }
-
-      // 读取流式响应
-      let fullContent = '';
-      let toolCalls: Array<{ name: string; arguments: Record<string, unknown> }> = [];
-      let usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
-
-      // 使用 async iterator 读取 NDJSON 流
-      try {
-        const iterator = response.body[Symbol.asyncIterator]();
+        const { done, value } = await reader.read();
         
-        while (!aborted && !signal?.aborted) {
-          // 使用轮询方式检查 abort 状态
-          // 这样即使 iterator.next() 阻塞，也能及时响应
-          const nextPromise = iterator.next();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        
+        // NDJSON 格式，每行一个 JSON
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? ''; // 保留不完整的行
+        
+        for (const line of lines) {
+          if (!line.trim()) continue;
           
-          // 创建一个检查器，每 50ms 检查一次 abort
-          let resolved = false;
-          const checkInterval = setInterval(() => {
-            if ((aborted || signal?.aborted) && !resolved) {
-              // 如果需要 abort，尝试销毁流
-              try {
-                // @ts-ignore - response.body 可能是 Readable
-                response.body?.destroy?.();
-              } catch {
-                // 忽略销毁错误
-              }
-            }
-          }, 50);
-          
-          let nextResult;
-          try {
-            nextResult = await nextPromise;
-          } catch (error) {
-            // iterator 抛出错误（可能是 abort 导致的）
-            if (aborted || signal?.aborted) {
-              break;
-            }
-            throw error;
-          } finally {
-            resolved = true;
-            clearInterval(checkInterval);
+          // 再次检查取消
+          if (signal?.aborted || abortController.signal.aborted) {
+            reader.cancel();
+            break;
           }
           
-          const { done, value } = nextResult;
-          
-          if (done || aborted || signal?.aborted) break;
-          
-          const chunk = value!;
-          const text = chunk.toString();
-          
-          // NDJSON 格式，每行一个 JSON
-          const lines = text.split('\n').filter((line: string) => line.trim());
-          
-          for (const line of lines) {
-            if (aborted || signal?.aborted) break;
+          try {
+            const data = JSON.parse(line) as OllamaStreamResponse;
             
-            try {
-              const data = JSON.parse(line) as OllamaStreamResponse;
-              
-              if (data.message?.content) {
-                fullContent += data.message.content;
-                onStream({
-                  content: data.message.content,
-                  done: data.done,
-                });
-              }
-              
-              // 收集工具调用
-              if (data.message?.tool_calls) {
-                for (const tc of data.message.tool_calls) {
-                  // 合并同名的工具调用参数
-                  const existing = toolCalls.find(t => t.name === tc.function.name);
-                  if (existing) {
-                    // 合并参数（流式可能分段返回）
-                    existing.arguments = { ...existing.arguments, ...tc.function.arguments };
-                  } else {
-                    toolCalls.push({
-                      name: tc.function.name,
-                      arguments: tc.function.arguments,
-                    });
-                  }
+            if (data.message?.content) {
+              fullContent += data.message.content;
+              onStream({
+                content: data.message.content,
+                done: data.done,
+              });
+            }
+            
+            // 收集工具调用
+            if (data.message?.tool_calls) {
+              for (const tc of data.message.tool_calls) {
+                const existing = toolCalls.find(t => t.name === tc.function.name);
+                if (existing) {
+                  existing.arguments = { ...existing.arguments, ...tc.function.arguments };
+                } else {
+                  toolCalls.push({
+                    name: tc.function.name,
+                    arguments: tc.function.arguments,
+                  });
                 }
               }
-              
-              // 最后一个 chunk 包含使用统计
-              if (data.done) {
-                usage = {
-                  promptTokens: data.prompt_eval_count ?? 0,
-                  completionTokens: data.eval_count ?? 0,
-                  totalTokens: (data.prompt_eval_count ?? 0) + (data.eval_count ?? 0),
-                };
-                onStream({ content: '', done: true });
-              }
-            } catch {
-              // 忽略解析错误
             }
+            
+            // 最后一个 chunk 包含使用统计
+            if (data.done) {
+              usage = {
+                promptTokens: data.prompt_eval_count ?? 0,
+                completionTokens: data.eval_count ?? 0,
+                totalTokens: (data.prompt_eval_count ?? 0) + (data.eval_count ?? 0),
+              };
+              onStream({ content: '', done: true });
+            }
+          } catch {
+            // 忽略解析错误
           }
         }
-      } catch (error) {
-        // 如果是 abort 导致的，返回已收集的内容
-        if (aborted || signal?.aborted) {
-          // 返回部分结果
-          return {
-            content: fullContent,
-            toolCalls: toolCalls.length > 0 ? toolCalls.map(tc => ({
-              id: this.generateToolCallId(),
-              name: tc.name,
-              arguments: tc.arguments,
-            })) : undefined,
-            usage,
-          };
-        }
-        throw error;
       }
-
-      return {
-        content: fullContent,
-        toolCalls: toolCalls.length > 0 ? toolCalls.map(tc => ({
-          id: this.generateToolCallId(),
-          name: tc.name,
-          arguments: tc.arguments,
-        })) : undefined,
-        usage,
-      };
+    } catch (error) {
+      // 如果是被取消的，返回已收集的内容
+      if (signal?.aborted || abortController.signal.aborted) {
+        return {
+          content: fullContent,
+          toolCalls: toolCalls.length > 0 ? toolCalls.map(tc => ({
+            id: this.generateToolCallId(),
+            name: tc.name,
+            arguments: tc.arguments,
+          })) : undefined,
+          usage,
+        };
+      }
+      throw error;
     } finally {
-      // 清理 abort 监听器
-      if (signal && abortHandler) {
-        signal.removeEventListener('abort', abortHandler);
-      }
+      clearTimeout(timeoutId);
+      signal?.removeEventListener('abort', abortHandler);
     }
+
+    return {
+      content: fullContent,
+      toolCalls: toolCalls.length > 0 ? toolCalls.map(tc => ({
+        id: this.generateToolCallId(),
+        name: tc.name,
+        arguments: tc.arguments,
+      })) : undefined,
+      usage,
+    };
   }
 
   /**
@@ -397,15 +365,15 @@ export class OllamaAdapter implements ModelAdapter {
    */
   async listModels(): Promise<string[]> {
     try {
-      const response = await request(`${this.baseUrl}/api/tags`, {
+      const response = await fetch(`${this.baseUrl}/api/tags`, {
         method: 'GET',
       });
 
-      if (response.statusCode >= 400) {
-        throw new Error(`HTTP ${response.statusCode}`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
       }
 
-      const data = await response.body.json() as OllamaModelsResponse;
+      const data = await response.json() as OllamaModelsResponse;
       return data.models.map(m => m.name);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -418,12 +386,12 @@ export class OllamaAdapter implements ModelAdapter {
    */
   async healthCheck(): Promise<{ ok: boolean; error?: string }> {
     try {
-      const response = await request(`${this.baseUrl}/api/tags`, {
+      const response = await fetch(`${this.baseUrl}/api/tags`, {
         method: 'GET',
       });
       
-      if (response.statusCode !== 200) {
-        return { ok: false, error: `HTTP ${response.statusCode}` };
+      if (!response.ok) {
+        return { ok: false, error: `HTTP ${response.status}` };
       }
       
       return { ok: true };
@@ -468,7 +436,7 @@ export class OllamaAdapter implements ModelAdapter {
   /**
    * 转换工具格式
    */
-  private convertTool(tool: Tool): NonNullable<OllamaChatRequest['tools']>[number] {
+  private convertTool(tool: Tool): { type: 'function'; function: { name: string; description: string; parameters: Record<string, unknown> } } {
     return {
       type: 'function',
       function: {
@@ -487,7 +455,7 @@ export class OllamaAdapter implements ModelAdapter {
   }
 }
 
-// ============ 工厂函数 ============
+// ============ Factory Function ============
 
 /**
  * 创建 Ollama 适配器
