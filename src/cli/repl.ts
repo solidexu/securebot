@@ -37,6 +37,11 @@ import {
   type ConfirmationRequest,
   type ConfirmationHandler,
 } from '../core/confirmation.js';
+import {
+  getMemoryMonitor,
+  performMemoryCleanup,
+  type MemoryAlert,
+} from '../core/memory-monitor.js';
 
 // ============ 常量 ============
 
@@ -312,6 +317,31 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
   initializeEventHandlers({ debug: false });
   console.log(chalk.green('✓ 事件系统就绪'));
 
+  // 初始化内存监控
+  const memoryMonitor = getMemoryMonitor({
+    warning: 500,   // 500MB 警告
+    danger: 800,    // 800MB 危险
+    critical: 1000, // 1GB 临界
+  });
+  
+  // 设置内存告警处理器
+  memoryMonitor.setAlertHandler((alert: MemoryAlert) => {
+    console.log();
+    if (alert.level === 'warning') {
+      console.log(chalk.yellow(`⚠️ ${alert.message}`));
+    } else if (alert.level === 'danger') {
+      console.log(chalk.red(`🔴 ${alert.message}`));
+      console.log(chalk.gray('  使用 /memory cleanup 清理内存'));
+    } else {
+      console.log(chalk.red.bold(`🚨 ${alert.message}`));
+    }
+    console.log();
+  });
+  
+  // 启动内存监控（每 15 秒检查一次）
+  memoryMonitor.start(15000);
+  console.log(chalk.green('✓ 内存监控已启动'));
+
   // 加载持久化会话
   if (!options.noSession) {
     await loadPersistedSessions(agents, sessionStorage);
@@ -338,6 +368,7 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
 
   // 注册退出处理
   const exitHandler = async () => {
+    memoryMonitor.stop();  // 停止内存监控
     await saveAllSessions(agents, sessionStorage);
   };
   
@@ -1767,18 +1798,63 @@ async function handleCommand(
 
     case 'memory': {
       const memoryManager = getMemoryManager();
+      const memMonitor = getMemoryMonitor();
       
       if (arg === 'stats') {
         const stats = memoryManager.getStats();
         const profile = memoryManager.getUserProfile();
+        const memStatus = memMonitor.getStatus();
+        
         console.log(chalk.cyan('记忆系统状态:'));
         console.log(`  每日记忆: ${stats.dailyMemoryCount} 个`);
         console.log(`  总条目: ${stats.totalEntries} 条`);
         console.log(`  Agent 档案: ${stats.agentCount} 个`);
         console.log(`  用户信息: ${Object.keys(profile?.keyInfo ?? {}).length} 条`);
+        
+        // 显示内存状态
+        console.log(chalk.cyan('\n内存使用:'));
+        console.log(`  堆内存: ${memStatus.heapUsedMB}MB / ${memStatus.heapTotalMB}MB`);
+        console.log(`  RSS: ${memStatus.rssMB}MB`);
+        const levelColor = memStatus.level === 'normal' ? chalk.green :
+                          memStatus.level === 'warning' ? chalk.yellow :
+                          memStatus.level === 'danger' ? chalk.red : chalk.red.bold;
+        console.log(`  状态: ${levelColor(memStatus.level.toUpperCase())}`);
+        
+        // 显示阈值
+        const thresholds = memMonitor.getThresholds();
+        console.log(chalk.gray(`\n  阈值: 警告 ${thresholds.warning}MB / 危险 ${thresholds.danger}MB / 临界 ${thresholds.critical}MB`));
+        
+      } else if (arg === 'cleanup') {
+        // 内存清理
+        console.log(chalk.cyan('执行内存清理...'));
+        
+        const result = await performMemoryCleanup(
+          {
+            clearCaches: true,
+            clearSessionHistory: false,  // 不自动清理会话历史
+            keepRecentMessages: 50,
+          },
+          {
+            clearCaches: async () => {
+              // 清理记忆系统缓存
+              memoryManager.clearCache?.();
+            },
+          }
+        );
+        
+        console.log(chalk.green(`✓ 内存清理完成`));
+        console.log(chalk.gray(`  清理前: ${result.beforeMB}MB`));
+        console.log(chalk.gray(`  清理后: ${result.afterMB}MB`));
+        console.log(chalk.gray(`  释放: ${result.freedMB}MB`));
+        for (const detail of result.details) {
+          console.log(chalk.gray(`  - ${detail}`));
+        }
+        
       } else if (arg === 'clear') {
         // 清除工作记忆缓存
         console.log(chalk.yellow('确定要清除工作记忆吗？这将清除缓存但不会删除文件。'));
+        console.log(chalk.gray('使用 /memory cleanup 执行内存清理'));
+        
       } else if (arg === 'search' && parts[2]) {
         // 搜索记忆
         const query = parts.slice(2).join(' ');
@@ -1801,7 +1877,10 @@ async function handleCommand(
         } else {
           console.log(chalk.gray('暂无工作记忆'));
         }
-        console.log(chalk.gray('\n命令: /memory [stats|search <关键词>]'));
+        console.log(chalk.gray('\n命令:'));
+        console.log(chalk.gray('  /memory stats    显示详细状态'));
+        console.log(chalk.gray('  /memory cleanup  清理内存'));
+        console.log(chalk.gray('  /memory search <关键词>  搜索记忆'));
       }
       break;
     }
@@ -2174,7 +2253,8 @@ function printHelp(): void {
   console.log();
   console.log(chalk.cyan('记忆系统:'));
   console.log('  /init-memory     初始化当前 Agent 的记忆');
-  console.log('  /memory stats    显示记忆统计');
+  console.log('  /memory stats    显示记忆统计和内存状态');
+  console.log('  /memory cleanup  清理内存缓存');
   console.log('  /memory search   搜索记忆内容');
   console.log(chalk.gray('  提示: 告诉 Agent "记住xxx" 会自动记录'));
   console.log();

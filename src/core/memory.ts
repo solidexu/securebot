@@ -1451,6 +1451,24 @@ ${entry.content}
 
     return context;
   }
+
+  // ============ 内存管理 ============
+
+  /**
+   * 清理缓存（用于内存清理）
+   */
+  clearCache(): void {
+    this.dailyCache.clear();
+    this.searchCache.clear();
+    this.contextSummaryCache.clear();
+    // 清除部分 agent profiles 缓存（保留最近使用的）
+    if (this.agentProfiles.size > 10) {
+      const keys = Array.from(this.agentProfiles.keys()).slice(0, this.agentProfiles.size - 10);
+      for (const key of keys) {
+        this.agentProfiles.delete(key);
+      }
+    }
+  }
 }
 
 // ============ 全局实例 ============
