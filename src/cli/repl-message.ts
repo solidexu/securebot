@@ -912,23 +912,17 @@ async function executeToolCall(ctx: ToolCallExecuteContext): Promise<{ success: 
         console.log(chalk.gray(toolResult.content.slice(0, 500)));
       }
       
-      if (currentPlan) {
-        const currentStep = getNextPendingStep(currentPlan);
-        if (currentStep) {
-          updateStepStatus(currentPlan, currentStep.id, 'completed');
-          savePlanToSession(session, currentPlan);
-          console.log();
-          console.log(renderTaskProgress(currentPlan));
-        }
-      }
+      // 步骤推进在外层循环中处理（advanceToNextStep）
+      // 这里不再重复更新步骤状态
     } else {
       const errorMsg = toolResult.error || '未知错误';
       const durationInfo = toolDuration !== '0.0' ? chalk.gray(` (${toolDuration}s)`) : '';
       console.log(chalk.red(`✗ 失败${durationInfo}`));
       console.log(chalk.yellow(`  原因: ${errorMsg}`));
       
+      // 标记当前步骤为失败
       if (currentPlan) {
-        const currentStep = getNextPendingStep(currentPlan);
+        const currentStep = currentPlan.steps.find(s => s.status === 'in_progress');
         if (currentStep) {
           updateStepStatus(currentPlan, currentStep.id, 'failed', errorMsg);
           savePlanToSession(session, currentPlan);
