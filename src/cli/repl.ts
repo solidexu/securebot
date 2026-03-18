@@ -206,17 +206,33 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
   let ctrlCount = 0;
   let ctrlTimer: ReturnType<typeof setTimeout> | null = null;
   let isExiting = false;
+  let lastInterruptTime = 0;
+  let interruptHandled = false;  // 标记这次打断是否已处理
   
   process.on('SIGINT', async () => {
     if (isExiting) return;
     
-    if (state.executing) {
+    const now = Date.now();
+    
+    // 如果在执行中，打断操作
+    if (state.executing && !interruptHandled) {
       console.log(chalk.yellow('\n[已打断当前操作]'));
       state.interrupted = true;
       if (state.abortController) {
         state.abortController.abort();
       }
+      lastInterruptTime = now;
+      interruptHandled = true;  // 标记已处理
       ctrlCount = 0;
+      
+      // 500ms 后重置 interruptHandled
+      setTimeout(() => { interruptHandled = false; }, 500);
+      return;
+    }
+    
+    // 如果距离上次打断不到 800ms，忽略这次 Ctrl+C
+    // （因为这是打断操作后的残留信号）
+    if (now - lastInterruptTime < 800) {
       return;
     }
     
