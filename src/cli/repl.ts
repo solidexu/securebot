@@ -218,12 +218,19 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
   let ctrlTimer: ReturnType<typeof setTimeout> | null = null;
   let isExiting = false;
   let lastInterruptTime = 0;
-  let interruptHandled = false;  // 标记这次打断是否已处理
+  let interruptHandled = false;
+  let justInterrupted = false;  // 刚刚打断过，需要更长的忽略窗口
   
   process.on('SIGINT', async () => {
     if (isExiting) return;
     
     const now = Date.now();
+    
+    // 如果刚刚打断过，忽略所有后续 Ctrl+C（1秒内）
+    if (justInterrupted && now - lastInterruptTime < 1000) {
+      return;
+    }
+    justInterrupted = false;  // 超过 1 秒，重置
     
     // 如果在执行中，打断操作
     if (state.executing && !interruptHandled) {
@@ -233,20 +240,16 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
         state.abortController.abort();
       }
       lastInterruptTime = now;
-      interruptHandled = true;  // 标记已处理
+      interruptHandled = true;
+      justInterrupted = true;  // 标记刚刚打断过
       ctrlCount = 0;
       
-      // 500ms 后重置 interruptHandled
-      setTimeout(() => { interruptHandled = false; }, 500);
+      // 800ms 后重置 interruptHandled
+      setTimeout(() => { interruptHandled = false; }, 800);
       return;
     }
     
-    // 如果距离上次打断不到 800ms，忽略这次 Ctrl+C
-    // （因为这是打断操作后的残留信号）
-    if (now - lastInterruptTime < 800) {
-      return;
-    }
-    
+    // 非执行状态的 Ctrl+C 处理
     ctrlCount++;
     if (ctrlCount >= 2) {
       isExiting = true;
