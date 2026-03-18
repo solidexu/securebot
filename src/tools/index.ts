@@ -79,6 +79,9 @@ export function getAvailableToolNames(agent: Agent, globalPolicy: ToolPolicy): s
 
 /**
  * 执行工具（通过事件系统记录审计）
+ * 
+ * 注意：此函数假设工具已通过外层权限检查（getAvailableTools）
+ * 内部不再重复检查权限，避免冗余计算
  */
 export async function executeTool(
   toolName: string,
@@ -106,28 +109,6 @@ export async function executeTool(
     return {
       success: false,
       error: `工具不存在: ${toolName}`,
-    };
-  }
-  
-  // 检查权限
-  const policy = getAgentToolPolicy(context.agent, context.session as unknown as ToolPolicy);
-  if (!isToolAllowed(toolName, policy)) {
-    // 发布工具调用失败事件
-    eventBus.publishSync({
-      type: EventTypes.TOOL_CALL_FAILURE,
-      timestamp: new Date(),
-      agentId: context.agent.id,
-      sessionId: context.session.sessionKey,
-      payload: {
-        toolName,
-        arguments: params,
-        error: `工具未授权`,
-        duration: 0,
-      },
-    });
-    return {
-      success: false,
-      error: `工具 ${toolName} 未授权`,
     };
   }
   

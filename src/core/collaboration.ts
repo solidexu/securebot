@@ -321,6 +321,17 @@ export class AgentMessageBus {
 
     return cleaned;
   }
+
+  /**
+   * 获取全局待处理消息数量（用于统计）
+   */
+  getTotalPendingCount(): number {
+    let count = 0;
+    for (const queue of this.messageQueue.values()) {
+      count += queue.filter(m => m.status === 'pending').length;
+    }
+    return count;
+  }
 }
 
 // ============ 任务委派管理器 ============
@@ -485,6 +496,15 @@ export class DelegationManager {
   private async persistDelegation(delegation: DelegationRequest): Promise<void> {
     const filePath = join(this.dataDir, 'delegations', `${delegation.id}.json`);
     writeFileSync(filePath, JSON.stringify(delegation, null, 2), 'utf-8');
+  }
+
+  /**
+   * 获取活跃委派数量（用于统计）
+   */
+  getActiveCount(): number {
+    return Array.from(this.delegations.values())
+      .filter(d => d.status === 'in_progress' || d.status === 'accepted')
+      .length;
   }
 }
 
@@ -691,6 +711,13 @@ export class SharedWorkspaceManager {
     };
     writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
   }
+
+  /**
+   * 获取工作空间总数（用于统计）
+   */
+  getWorkspaceCount(): number {
+    return this.workspaces.size;
+  }
 }
 
 // ============ 协作管理器（统一入口） ============
@@ -806,15 +833,10 @@ export class CollaborationManager {
         .filter(d => d.status === 'in_progress' || d.status === 'accepted').length;
       sharedWorkspaces = this.workspaceManager.getAgentWorkspaces(agentId).length;
     } else {
-      // 访问内部属性以获取全局统计
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      for (const queue of (this.messageBus as any).messageQueue.values()) {
-        pendingMessages += queue.filter((m: AgentMessage) => m.status === 'pending').length;
-      }
-      activeDelegations = Array.from(this.delegationManager.getDelegations(''))
-        .filter(d => d.status === 'in_progress').length;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      sharedWorkspaces = (this.workspaceManager as any).workspaces.size;
+      // 使用公开方法获取全局统计
+      pendingMessages = this.messageBus.getTotalPendingCount();
+      activeDelegations = this.delegationManager.getActiveCount();
+      sharedWorkspaces = this.workspaceManager.getWorkspaceCount();
     }
 
     return { pendingMessages, activeDelegations, sharedWorkspaces };
