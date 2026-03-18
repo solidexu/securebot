@@ -26,6 +26,10 @@ export type {
   TaskExecution,
   TaskStep,
   AvoidCheckResult,
+  // Phase 3 类型
+  ReflectionResult,
+  SuggestedAction,
+  ReflectionEngineConfig,
 } from './types.js';
 
 export { DEFAULT_SELF_IMPROVEMENT_CONFIG } from './types.js';
@@ -59,3 +63,10 @@ export {
   getErrorPatternStore, 
   resetErrorPatternStore,
 } from './error-pattern-store.js';
+
+// 自我反思引擎
+export { 
+  SelfReflectionEngine, 
+  getSelfReflectionEngine, 
+  resetSelfReflectionEngine,
+} from './reflection-engine.js';

@@ -365,6 +365,79 @@ export interface TaskStep {
   success: boolean;
 }
 
+// ============ 反思结果 ============
+
+/**
+ * 反思结果
+ */
+export interface ReflectionResult {
+  /** 反思 ID */
+  id: string;
+  /** Agent ID */
+  agentId: string;
+  /** 反思时间 */
+  reflectedAt: string;
+  /** 分析的时间范围 */
+  timeRange: {
+    start: string;
+    end: string;
+  };
+  /** 分析的任务数量 */
+  tasksAnalyzed: number;
+  
+  /** 做得好的方面 */
+  whatWentWell: string[];
+  /** 可以改进的方面 */
+  whatCouldBeImproved: string[];
+  /** 学到的教训 */
+  lessonsLearned: string[];
+  /** 改进建议 */
+  suggestedActions: SuggestedAction[];
+  
+  /** 自我评估 */
+  selfAssessment: {
+    overallPerformance: number;  // 0-100
+    confidenceLevel: number;      // 0-100
+    areasToFocus: string[];
+  };
+}
+
+/**
+ * 改进建议
+ */
+export interface SuggestedAction {
+  /** 建议 ID */
+  id: string;
+  /** 优先级 */
+  priority: 'high' | 'medium' | 'low';
+  /** 类型 */
+  type: ImprovementType;
+  /** 描述 */
+  description: string;
+  /** 预期效果 */
+  expectedOutcome: string;
+  /** 实施难度 */
+  difficulty: 'easy' | 'medium' | 'hard';
+  /** 相关的成功模式 */
+  relatedSuccessPattern?: string;
+  /** 相关的错误模式 */
+  relatedErrorPattern?: string;
+}
+
+/**
+ * 反思引擎配置
+ */
+export interface ReflectionEngineConfig {
+  /** 反思模型 */
+  model: string;
+  /** 默认分析时间窗口（毫秒） */
+  defaultTimeWindow: number;
+  /** 最大分析任务数 */
+  maxTasksToAnalyze: number;
+  /** 存储目录 */
+  storageDir: string;
+}
+
 // ============ 配置 ============
 
 /**

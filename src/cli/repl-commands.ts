@@ -16,7 +16,7 @@ import { getSkillManager } from '../core/skills.js';
 import { getTaskManager } from '../core/task-manager.js';
 import { getConfirmationManager } from '../core/confirmation.js';
 import { getMemoryMonitor, performMemoryCleanup } from '../core/memory-monitor.js';
-import { getFeedbackCollector, getImprovementLogManager, getSuccessPatternStore, getErrorPatternStore } from '../core/self-improving/index.js';
+import { getFeedbackCollector, getImprovementLogManager, getSuccessPatternStore, getErrorPatternStore, getSelfReflectionEngine } from '../core/self-improving/index.js';
 import { saveAllSessions } from './repl-session.js';
 import { clearPlanFromSession, popSubPlan, renderHierarchicalPlan } from './repl-plan.js';
 import { eventBus } from '../core/event-bus.js';
@@ -1235,6 +1235,7 @@ async function handleImproveCommand(
     console.log(chalk.gray('  /improve feedback  查看用户反馈'));
     console.log(chalk.gray('  /improve success   查看成功模式'));
     console.log(chalk.gray('  /improve errors    查看错误模式'));
+    console.log(chalk.gray('  /improve reflect   执行自我反思'));
     console.log(chalk.gray('  /improve clear     清除改进数据'));
     console.log(chalk.gray('\n  /patterns          查看经验模式'));
     return;
@@ -1362,9 +1363,60 @@ async function handleImproveCommand(
       break;
     }
     
+    case 'reflect': {
+      console.log(chalk.cyan('\n🤔 正在进行自我反思...\n'));
+      
+      const reflectionEngine = getSelfReflectionEngine();
+      const result = await reflectionEngine.reflect(agent.id);
+      
+      console.log(chalk.cyan.bold('📋 反思报告\n'));
+      console.log(chalk.gray(`分析时间范围: ${new Date(result.timeRange.start).toLocaleString('zh-CN')} - ${new Date(result.timeRange.end).toLocaleString('zh-CN')}`));
+      console.log(chalk.gray(`分析任务数: ${result.tasksAnalyzed}\n`));
+      
+      // 做得好的方面
+      console.log(chalk.green.bold('✅ 做得好的方面:'));
+      for (const item of result.whatWentWell) {
+        console.log(chalk.green(`  • ${item}`));
+      }
+      
+      // 需要改进
+      console.log(chalk.yellow.bold('\n⚠️ 需要改进:'));
+      for (const item of result.whatCouldBeImproved) {
+        console.log(chalk.yellow(`  • ${item}`));
+      }
+      
+      // 学到的教训
+      console.log(chalk.blue.bold('\n📚 学到的教训:'));
+      for (const item of result.lessonsLearned) {
+        console.log(chalk.blue(`  • ${item}`));
+      }
+      
+      // 改进建议
+      if (result.suggestedActions.length > 0) {
+        console.log(chalk.magenta.bold('\n💡 改进建议:'));
+        for (const action of result.suggestedActions) {
+          const priorityEmoji = action.priority === 'high' ? '🔴' : 
+                               action.priority === 'medium' ? '🟡' : '🟢';
+          console.log(chalk.magenta(`  ${priorityEmoji} ${action.description}`));
+          console.log(chalk.gray(`     预期效果: ${action.expectedOutcome}`));
+        }
+      }
+      
+      // 自我评估
+      console.log(chalk.white.bold('\n📊 自我评估:'));
+      console.log(`  整体表现: ${result.selfAssessment.overallPerformance}/100`);
+      console.log(`  信心水平: ${result.selfAssessment.confidenceLevel}/100`);
+      if (result.selfAssessment.areasToFocus.length > 0) {
+        console.log(chalk.gray(`  关注领域: ${result.selfAssessment.areasToFocus.join(', ')}`));
+      }
+      
+      console.log();
+      break;
+    }
+    
     default:
       console.log(chalk.yellow(`未知参数: ${arg}`));
-      console.log(chalk.gray('可用: log, stats, feedback, success, errors, clear'));
+      console.log(chalk.gray('可用: log, stats, feedback, success, errors, reflect, clear'));
   }
 }
 
@@ -1483,6 +1535,7 @@ function printHelp(): void {
   console.log('  /improve          查看 Agent 改进状态');
   console.log('  /improve log      查看改进日志');
   console.log('  /improve feedback 查看用户反馈');
+  console.log('  /improve reflect  执行自我反思');
   console.log();
   console.log(chalk.cyan('经验模式:'));
   console.log('  /patterns success 查看成功模式');
