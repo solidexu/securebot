@@ -776,9 +776,8 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
           console.log(showTaskProgress(currentPlan, ctx.executionState));
           updateExecutionState(ctx.executionState, 'step_complete');
           
-          // 提示下一步
+          // 显示下一步（不提示用户，让模型自动继续）
           console.log(chalk.cyan('\n📍 下一步: ') + advanceResult.nextStep.description);
-          console.log(chalk.gray('请继续执行，或告诉我需要调整计划。'));
         }
       }
     }
