@@ -26,11 +26,19 @@ import {
   type TaskPlan,
 } from '../core/smart-task.js';
 import { savePlanToSession, clearPlanFromSession, renderHierarchicalPlan } from './repl-plan.js';
+import { recordTaskExecution, buildEnhancedSystemPrompt } from '../core/self-improving-integration.js';
 
 // ============ 常量 ============
 
 /** 最大工具调用轮数（安全兜底，正常情况下不触发） */
 const MAX_TOOL_ROUNDS = 100;
+
+/** 任务追踪状态 */
+interface TaskTracker {
+  toolsUsed: Set<string>;
+  steps: { id: string; description: string; success: boolean }[];
+  startTime: number;
+}
 
 // ============ 消息处理入口 ============
 
@@ -165,13 +173,16 @@ export async function processMessage(
     
     const skillsPrompt = await skillManager.buildSkillsPrompt(agent.id, activeSkills);
     
-    // 构建系统提示
-    let systemPrompt = await buildSystemPrompt(
+    // 构建基础系统提示
+    let baseSystemPrompt = await buildSystemPrompt(
       agent,
       state.config,
       getAvailableToolNames(agent, state.config.tools),
       skillsPrompt
     );
+    
+    // 使用增强的 Prompt（自动注入学习到的经验）
+    let systemPrompt = await buildEnhancedSystemPrompt(agent, baseSystemPrompt);
     
     // 复杂任务规划指令
     if (complexity === 'complex') {
@@ -199,6 +210,12 @@ export async function processMessage(
     }
     
     // 多轮工具调用循环
+    const taskTracker: TaskTracker = {
+      toolsUsed: new Set(),
+      steps: [],
+      startTime: Date.now(),
+    };
+    
     await runToolCallLoop({
       state,
       agent,
@@ -213,6 +230,7 @@ export async function processMessage(
       sessionStorage,
       rl,
       abortController,
+      taskTracker,
     });
     
   } finally {
@@ -238,6 +256,8 @@ interface ToolCallLoopContext {
   sessionStorage?: ReturnType<typeof import('../core/session-storage.js').getSessionStorage>;
   rl: readlinePromises.Interface;
   abortController: AbortController;
+  /** 任务追踪器 */
+  taskTracker: TaskTracker;
 }
 
 async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
@@ -384,6 +404,22 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
             clearPlanFromSession(session);
           }
           
+          // 记录任务成功
+          await recordTaskExecution(
+            {
+              agent,
+              session,
+              taskDescription: message,
+              approach: '完成任务',
+              toolsUsed: Array.from(ctx.taskTracker.toolsUsed),
+              steps: ctx.taskTracker.steps,
+            },
+            {
+              success: true,
+              summary: result.content?.slice(0, 200),
+            }
+          );
+          
           if (sessionStorage) {
             await sessionStorage.saveSession(session);
           }
@@ -459,6 +495,22 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         console.log(getPlanSummary(currentPlan));
       }
       
+      // 记录任务成功
+      await recordTaskExecution(
+        {
+          agent,
+          session,
+          taskDescription: message,
+          approach: '完成任务',
+          toolsUsed: Array.from(ctx.taskTracker.toolsUsed),
+          steps: ctx.taskTracker.steps,
+        },
+        {
+          success: true,
+          summary: result.content?.slice(0, 200),
+        }
+      );
+      
       if (sessionStorage) {
         await sessionStorage.saveSession(session);
       }
@@ -527,13 +579,21 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
     noToolCallRounds = 0;
     
     for (const toolCall of result.toolCalls) {
-      await executeToolCall({
+      const toolResult = await executeToolCall({
         toolCall,
         agent,
         session,
         state,
         currentPlan,
         sessionStorage,
+      });
+      
+      // 追踪工具使用
+      ctx.taskTracker.toolsUsed.add(toolCall.name);
+      ctx.taskTracker.steps.push({
+        id: toolCall.id,
+        description: `调用 ${toolCall.name}`,
+        success: toolResult?.success ?? false,
       });
     }
     
@@ -557,7 +617,7 @@ interface ToolCallExecuteContext {
   sessionStorage?: ReturnType<typeof import('../core/session-storage.js').getSessionStorage>;
 }
 
-async function executeToolCall(ctx: ToolCallExecuteContext): Promise<void> {
+async function executeToolCall(ctx: ToolCallExecuteContext): Promise<{ success: boolean; content?: string; error?: string }> {
   const { toolCall, agent, session, state, currentPlan } = ctx;
   
   console.log(chalk.blue(`\n调用工具: ${toolCall.name}`));
@@ -603,7 +663,7 @@ async function executeToolCall(ctx: ToolCallExecuteContext): Promise<void> {
           `已取消: 用户拒绝执行`
         );
         console.log(chalk.gray('✗ 用户取消'));
-        return;
+        return { success: false, error: '用户取消' };
       }
       
       if (confirmResult.remember) {
@@ -699,4 +759,6 @@ async function executeToolCall(ctx: ToolCallExecuteContext): Promise<void> {
       : toolResult.content;
     console.log(chalk.gray(preview));
   }
+  
+  return toolResult;
 }
