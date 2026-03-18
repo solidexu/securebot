@@ -414,6 +414,83 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       
       if (complexity === 'complex') {
         if (isTaskCompleted) {
+          // 任务完成
+          addAssistantMessage(session, result.content);
+          
+          // ... 任务完成处理
+          
+          eventBus.publishSync({
+            type: EventTypes.TASK_COMPLETE,
+            timestamp: new Date(),
+            agentId: agent.id,
+            sessionId: session.sessionKey,
+            payload: {
+              taskDescription: message,
+              planId: session.plan?.id,
+              stepsCompleted: currentPlan?.steps.filter(s => s.status === 'completed').length ?? 0,
+              stepsTotal: currentPlan?.steps.length ?? 0,
+            },
+          });
+          
+          if (currentPlan) {
+            console.log();
+            console.log(chalk.green('✓ 任务完成'));
+            console.log(getPlanSummary(currentPlan));
+            clearPlanFromSession(session);
+          }
+          
+          // 记录任务成功
+          await recordTaskExecution(
+            {
+              agent,
+              session,
+              taskDescription: message,
+              approach: '完成任务',
+              toolsUsed: Array.from(ctx.taskTracker.toolsUsed),
+              steps: ctx.taskTracker.steps,
+            },
+            {
+              success: true,
+              summary: result.content?.slice(0, 200),
+            }
+          );
+          
+          if (sessionStorage) {
+            await sessionStorage.saveSession(session);
+          }
+          
+          if (result.usage) {
+            console.log(chalk.gray(
+              `\nToken: 输入 ${result.usage.promptTokens} / 输出 ${result.usage.completionTokens} / 总计 ${result.usage.totalTokens}`
+            ));
+          }
+          console.log();
+          return;
+        }
+        
+        // 复杂任务但没完成，也没有工具调用
+        // 可能是模型在"思考"，需要引导
+        addAssistantMessage(session, result.content);
+        
+        // 如果有当前计划，引导模型执行下一步
+        if (currentPlan) {
+          const nextStep = getNextPendingStep(currentPlan);
+          if (nextStep) {
+            console.log(chalk.yellow('\n💡 模型似乎在思考，但没有执行操作'));
+            console.log(chalk.cyan(`下一步: ${nextStep.description}`));
+            console.log(chalk.gray('请使用工具执行这一步。'));
+            
+            // 添加引导消息
+            addUserMessage(session,
+              `请继续执行计划。当前步骤: ${nextStep.description}\n\n使用可用工具完成这一步。`
+            );
+          }
+        }
+        
+        consecutiveNoProgress++;
+        continue;
+      }
+        if (isTaskCompleted) {
           addAssistantMessage(session, result.content);
           
           eventBus.publishSync({
