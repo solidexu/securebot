@@ -499,12 +499,33 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
           continue;
         }
         
+        // 复杂任务但没完成，也没有工具调用
+        // 可能是模型在"思考"，需要引导
         addAssistantMessage(session, result.content);
-        if (result.content?.includes('步骤') || result.content?.includes('计划') || result.content?.includes('执行')) {
+        
+        // 如果有当前计划，引导模型执行下一步
+        if (currentPlan) {
+          const nextStep = getNextPendingStep(currentPlan);
+          if (nextStep) {
+            console.log(chalk.yellow('\n💡 模型似乎在思考，但没有执行操作'));
+            console.log(chalk.cyan(`下一步: ${nextStep.description}`));
+            console.log(chalk.gray('请使用工具执行这一步。'));
+            
+            // 添加引导消息
+            addUserMessage(session,
+              `请继续执行计划。当前步骤: ${nextStep.description}\n\n使用可用工具完成这一步。`
+            );
+          }
           noToolCallRounds = 0;
           consecutiveNoProgress = 0;
         } else {
-          consecutiveNoProgress++;
+          // 没有计划，检查内容是否包含计划关键词
+          if (result.content?.includes('步骤') || result.content?.includes('计划') || result.content?.includes('执行')) {
+            noToolCallRounds = 0;
+            consecutiveNoProgress = 0;
+          } else {
+            consecutiveNoProgress++;
+          }
         }
         continue;
       }
