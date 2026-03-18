@@ -8,7 +8,7 @@ import * as readlinePromises from 'node:readline/promises';
 import chalk from 'chalk';
 import type { ReplState } from '../core/types.js';
 import { loadConfig, createDefaultConfig } from '../core/config.js';
-import { createAgents, parseAgentPrefix, getDefaultAgent } from '../core/agent.js';
+import { createAgents, parseAgentPrefix, getDefaultAgent, getOrCreateMainSession } from '../core/agent.js';
 import { OllamaAdapter } from '../model/ollama.js';
 import { getSessionStorage } from '../core/session-storage.js';
 import { getMemoryManager } from '../core/memory.js';
@@ -153,10 +153,40 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
   // 打印欢迎信息
   printWelcome(state);
 
+  // 创建 tab 补全函数
+  const completer = (line: string): [string[], string] => {
+    // 命令补全
+    if (line.startsWith('/')) {
+      const commands = [
+        '/help', '/h', '/?', '/exit', '/quit', '/q',
+        '/agent', '/agents', '/clear', '/reset', '/history',
+        '/init-memory', '/init-rag', '/model', '/models',
+        '/monitor', '/audit', '/plan', '/checkpoint',
+        '/collab', '/errors', '/perf', '/summary',
+        '/feedback', '/improve', '/skills', '/reload',
+        '/config', '/status', '/memory', '/rag',
+        '/export', '/import', '/task',
+      ];
+      const hits = commands.filter(cmd => cmd.startsWith(line));
+      return [hits.length ? hits : commands, line];
+    }
+    
+    // Agent 补全
+    if (line.startsWith('@')) {
+      const agentNames = Array.from(agents.keys()).map(id => `@${id}`);
+      const hits = agentNames.filter(name => name.startsWith(line));
+      return [hits.length ? hits : agentNames, line];
+    }
+    
+    // 无补全
+    return [[], line];
+  };
+
   // 创建 readline 接口
   const rl = readlinePromises.createInterface({ 
     input: process.stdin, 
-    output: process.stdout 
+    output: process.stdout,
+    completer,
   });
 
   // 设置确认处理器
@@ -224,10 +254,24 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
         break;
       }
 
-      const prompt = chalk.cyan(`[${agent.name}] > `);
+      // 构建提示符
+      let prompt = chalk.cyan(`[${agent.name}]`);
+      
+      // 如果有正在进行的计划，显示进度
+      const session = getOrCreateMainSession(agent);
+      if (session.plan && session.plan.steps.some(s => s.status === 'pending' || s.status === 'in_progress')) {
+        const completed = session.plan.steps.filter(s => s.status === 'completed').length;
+        const total = session.plan.steps.length;
+        prompt += chalk.gray(` [${completed}/${total}]`);
+      }
+      
+      prompt += chalk.cyan(' > ');
+      
       const inputLine = await rl.question(prompt);
 
       if (!inputLine.trim()) {
+        // 空行时显示快捷提示
+        console.log(chalk.gray('提示: 输入消息开始对话，/help 查看命令，@<agent> 切换 Agent'));
         continue;
       }
 
@@ -320,7 +364,17 @@ function printWelcome(state: ReplState): void {
   }
   
   console.log();
-  console.log(chalk.gray('输入消息开始对话，或 /help 查看帮助'));
-  console.log(chalk.gray('使用 @<agent> 切换 Agent，如: @dev 帮我写代码'));
+  console.log(chalk.cyan('快捷键:'));
+  console.log(chalk.gray('  Tab       - 命令/Agent 补全'));
+  console.log(chalk.gray('  Ctrl+C    - 打断当前操作'));
+  console.log(chalk.gray('  Ctrl+C 2x - 退出程序'));
+  console.log();
+  console.log(chalk.cyan('常用命令:'));
+  console.log(chalk.gray('  /help     - 查看所有命令'));
+  console.log(chalk.gray('  /agent    - 切换 Agent'));
+  console.log(chalk.gray('  /reset    - 重置会话'));
+  console.log(chalk.gray('  /status   - 查看状态'));
+  console.log();
+  console.log(chalk.gray('提示: 输入 / 或 @ 后按 Tab 可自动补全'));
   console.log();
 }
