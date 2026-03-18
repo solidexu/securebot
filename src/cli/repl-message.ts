@@ -263,6 +263,40 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
   const { state, agent, session, message, systemPrompt, availableTools, sessionStorage } = ctx;
   let { currentPlan, lastPlanRender, shouldExecutePlan, complexity } = ctx;
   
+  // 创建可中断的 question 函数
+  const interruptibleQuestion = async (prompt: string): Promise<string> => {
+    // 如果已经被打断，直接返回空
+    if (state.interrupted) {
+      return '';
+    }
+    
+    // 创建 AbortController 用于打断 rl.question
+    const questionAbort = new AbortController();
+    const abortHandler = () => {
+      questionAbort.abort();
+    };
+    
+    // 监听打断信号
+    if (state.abortController) {
+      state.abortController.signal.addEventListener('abort', abortHandler);
+    }
+    
+    try {
+      const answer = await ctx.rl.question(prompt, { signal: questionAbort.signal });
+      return answer;
+    } catch (error) {
+      // 如果是被打断的，返回空
+      if (state.interrupted || (error instanceof Error && error.name === 'AbortError')) {
+        return '';
+      }
+      throw error;
+    } finally {
+      if (state.abortController) {
+        state.abortController.signal.removeEventListener('abort', abortHandler);
+      }
+    }
+  };
+  
   let round = 0;
   let planAttempts = 0;
   let noToolCallRounds = 0;
@@ -291,7 +325,11 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       console.log(chalk.gray('  3. 重新描述任务'));
       
       // 询问用户是否继续
-      const answer = await ctx.rl.question(chalk.cyan('\n是否继续尝试？ [y/N]: '));
+      const answer = await interruptibleQuestion(chalk.cyan('\n是否继续尝试？ [y/N]: '));
+      if (state.interrupted) {
+        console.log(chalk.gray('\n[已取消]'));
+        return;
+      }
       if (answer.toLowerCase() !== 'y') {
         console.log(chalk.gray('已停止'));
         return;
@@ -641,7 +679,12 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         console.log(chalk.gray('  2. 跳过规划，直接执行（输入 s）'));
         console.log(chalk.gray('  3. 取消任务（输入其他）'));
         
-        const answer = await ctx.rl.question(chalk.cyan('\n请选择 [y/s/N]: '));
+        const answer = await interruptibleQuestion(chalk.cyan('\n请选择 [y/s/N]: '));
+        
+        if (state.interrupted) {
+          console.log(chalk.gray('\n[已取消]'));
+          return;
+        }
         
         if (answer.toLowerCase() === 'y') {
           planAttempts = 0;
