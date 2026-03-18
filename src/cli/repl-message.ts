@@ -285,8 +285,13 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       const answer = await ctx.rl.question(prompt, { signal: questionAbort.signal });
       return answer;
     } catch (error) {
-      // 如果是被打断的，返回空
-      if (state.interrupted || (error instanceof Error && error.name === 'AbortError')) {
+      // 如果是被打断的或 readline 被关闭，返回空
+      if (
+        state.interrupted ||
+        (error instanceof Error && error.name === 'AbortError') ||
+        (error instanceof Error && error.name === 'ERR_USE_AFTER_CLOSE') ||
+        (error instanceof Error && error.message.includes('readline was closed'))
+      ) {
         return '';
       }
       throw error;
@@ -403,6 +408,11 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         process.stdout.write('\r' + ' '.repeat(30) + '\r');
       }
     } catch (error) {
+      // 检查是否是用户主动打断
+      if (state.interrupted || (error instanceof Error && error.name === 'AbortError')) {
+        console.log(chalk.gray('\n[已取消]'));
+        return;
+      }
       const errMsg = error instanceof Error ? error.message : String(error);
       console.log(chalk.red(`\n模型调用失败: ${errMsg}`));
       return;

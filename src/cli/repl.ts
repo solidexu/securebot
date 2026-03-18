@@ -274,6 +274,13 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
       const errorMsg = error instanceof Error ? error.message : String(error);
       const errorName = error instanceof Error ? error.name : '';
       
+      // 如果是打断操作导致的错误，忽略它，继续主循环
+      if (state.interrupted || errorName === 'AbortError') {
+        state.interrupted = false;
+        state.executing = false;
+        continue;
+      }
+      
       if (errorName === 'ERR_USE_AFTER_CLOSE' || errorMsg.includes('readline was closed')) {
         console.log(chalk.yellow('\n程序正在退出...'));
         state.running = false;
