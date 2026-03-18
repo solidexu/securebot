@@ -27,6 +27,14 @@ import {
 } from '../core/smart-task.js';
 import { savePlanToSession, clearPlanFromSession, renderHierarchicalPlan } from './repl-plan.js';
 import { recordTaskExecution, buildEnhancedSystemPrompt } from '../core/self-improving-integration.js';
+import {
+  showTaskProgress,
+  showProgressBar,
+  advanceToNextStep,
+  createExecutionState,
+  updateExecutionState,
+  type ExecutionState,
+} from './task-executor.js';
 
 // ============ 常量 ============
 
@@ -90,30 +98,20 @@ export async function processMessage(
         createdAt: new Date(session.plan.createdAt),
         updatedAt: new Date(session.plan.updatedAt),
       };
+      
+      const completed = currentPlan.steps.filter(s => s.status === 'completed').length;
+      const total = currentPlan.steps.length;
+      
       console.log();
       console.log(chalk.cyan('📋 恢复上次未完成的任务规划:'));
       console.log(renderHierarchicalPlan(session));
       
-      const completed = currentPlan.steps.filter(s => s.status === 'completed').length;
-      const total = currentPlan.steps.length;
-      const levelInfo = session.plan.level && session.plan.level > 0 ? 
-        ` (子规划 Level ${session.plan.level})` : '';
-      console.log(chalk.gray(`  进度: ${completed}/${total} 步骤已完成${levelInfo}`));
+      // 显示进度条
+      console.log();
+      console.log(chalk.gray('进度: ' + showProgressBar(completed, total)));
       
       if (session.plan.originalTask) {
-        console.log(chalk.gray(`  原始任务: ${session.plan.originalTask.slice(0, 100)}...`));
-      }
-      
-      if (session.plan.context) {
-        if (session.plan.context.currentStepDetail) {
-          console.log(chalk.gray(`  当前步骤: ${session.plan.context.currentStepDetail}`));
-        }
-        if (session.plan.context.notes && session.plan.context.notes.length > 0) {
-          console.log(chalk.yellow(`  注意事项:`));
-          for (const note of session.plan.context.notes) {
-            console.log(chalk.yellow(`    - ${note}`));
-          }
-        }
+        console.log(chalk.gray(`原始任务: ${session.plan.originalTask.slice(0, 100)}...`));
       }
       
       const continueKeywords = ['继续', '继续开发', '继续执行', '执行', '开始', 'run', 'continue'];
@@ -123,9 +121,14 @@ export async function processMessage(
         console.log(chalk.green('\n✓ 继续执行已有计划...'));
         const nextStep = getNextPendingStep(currentPlan);
         if (nextStep) {
-          console.log(chalk.cyan(`执行步骤: ${nextStep.description}`));
+          console.log(chalk.cyan(`📍 下一步: ${nextStep.description}`));
+          // 标记为进行中
+          updateStepStatus(currentPlan, nextStep.id, 'in_progress');
+          savePlanToSession(session, currentPlan);
         }
         shouldExecutePlan = true;
+      } else {
+        console.log(chalk.gray('\n输入"继续"恢复执行，或描述新任务。'));
       }
       
       console.log();
@@ -258,6 +261,8 @@ interface ToolCallLoopContext {
   abortController: AbortController;
   /** 任务追踪器 */
   taskTracker: TaskTracker;
+  /** 执行状态 */
+  executionState?: ExecutionState;
 }
 
 async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
@@ -371,11 +376,28 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       if (parsedPlan && parsedPlan.steps.length > 0) {
         currentPlan = parsedPlan;
         savePlanToSession(session, currentPlan, message);
+        
+        // 初始化执行状态
+        if (!ctx.executionState) {
+          ctx.executionState = createExecutionState(currentPlan, 'guided');
+          // 标记第一个步骤为进行中
+          if (currentPlan.steps[0]) {
+            updateStepStatus(currentPlan, currentPlan.steps[0].id, 'in_progress');
+            savePlanToSession(session, currentPlan);
+          }
+        }
+        
         const newRender = renderTaskProgress(currentPlan);
         if (newRender !== lastPlanRender) {
           console.log();
           console.log(chalk.cyan('📋 任务计划已生成:'));
           console.log(newRender);
+          
+          // 显示进度条
+          if (ctx.executionState) {
+            console.log(showTaskProgress(currentPlan, ctx.executionState));
+          }
+          
           lastPlanRender = newRender;
         }
       }
@@ -632,6 +654,22 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         description: `调用 ${toolCall.name}`,
         success: toolResult?.success ?? false,
       });
+      
+      // 如果有计划，在工具执行成功后推进步骤
+      if (currentPlan && toolResult?.success && ctx.executionState) {
+        const advanceResult = advanceToNextStep(currentPlan, session);
+        
+        if (advanceResult.advanced && advanceResult.nextStep) {
+          // 显示进度
+          console.log();
+          console.log(showTaskProgress(currentPlan, ctx.executionState));
+          updateExecutionState(ctx.executionState, 'step_complete');
+          
+          // 提示下一步
+          console.log(chalk.cyan('\n📍 下一步: ') + advanceResult.nextStep.description);
+          console.log(chalk.gray('请继续执行，或告诉我需要调整计划。'));
+        }
+      }
     }
     
     if (sessionStorage) {
