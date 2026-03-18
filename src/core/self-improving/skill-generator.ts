@@ -4,7 +4,7 @@
  * 从成功模式自动生成技能
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { v4 as uuidv4 } from 'uuid';
@@ -14,6 +14,7 @@ import type {
   SuccessPattern,
 } from './types.js';
 import { getSuccessPatternStore } from './success-pattern-store.js';
+import { writeJsonAtomic } from './atomic-write.js';
 
 // ============ 默认配置 ============
 
@@ -163,7 +164,7 @@ export class SkillGenerator {
    */
   private async persist(skill: GeneratedSkill): Promise<void> {
     const filePath = join(this.config.storageDir, `${skill.id}.json`);
-    writeFileSync(filePath, JSON.stringify(skill, null, 2), 'utf-8');
+    writeJsonAtomic(filePath, skill);
   }
   
   /**

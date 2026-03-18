@@ -4,7 +4,7 @@
  * 记录和管理 Agent 的错误经验
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { v4 as uuidv4 } from 'uuid';
@@ -14,6 +14,7 @@ import type {
   ErrorType,
   AvoidCheckResult,
 } from './types.js';
+import { writeJsonAtomic } from './atomic-write.js';
 
 // ============ 默认配置 ============
 
@@ -75,7 +76,7 @@ export class ErrorPatternStore {
    */
   private async persist(pattern: ErrorPattern): Promise<void> {
     const filePath = join(this.config.storageDir, `${pattern.id}.json`);
-    writeFileSync(filePath, JSON.stringify(pattern, null, 2), 'utf-8');
+    writeJsonAtomic(filePath, pattern);
   }
   
   /**
@@ -87,7 +88,10 @@ export class ErrorPatternStore {
       if (!this.avoidIndex.has(lower)) {
         this.avoidIndex.set(lower, new Set());
       }
-      this.avoidIndex.get(lower)!.add(pattern.id);
+      const set = this.avoidIndex.get(lower);
+      if (set) {
+        set.add(pattern.id);
+      }
     }
   }
   

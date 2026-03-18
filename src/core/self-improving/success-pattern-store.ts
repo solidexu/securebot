@@ -4,7 +4,7 @@
  * 记录和管理 Agent 的成功经验
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { v4 as uuidv4 } from 'uuid';
@@ -14,6 +14,7 @@ import type {
   TaskType,
   TaskExecution,
 } from './types.js';
+import { writeJsonAtomic } from './atomic-write.js';
 
 // ============ 默认配置 ============
 
@@ -38,7 +39,10 @@ class KeywordIndex {
       if (!this.index.has(lower)) {
         this.index.set(lower, new Set());
       }
-      this.index.get(lower)!.add(pattern.id);
+      const set = this.index.get(lower);
+      if (set) {
+        set.add(pattern.id);
+      }
     }
   }
   
@@ -122,7 +126,7 @@ export class SuccessPatternStore {
    */
   private async persist(pattern: SuccessPattern): Promise<void> {
     const filePath = join(this.config.storageDir, `${pattern.id}.json`);
-    writeFileSync(filePath, JSON.stringify(pattern, null, 2), 'utf-8');
+    writeJsonAtomic(filePath, pattern);
   }
   
   /**

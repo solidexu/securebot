@@ -4,7 +4,7 @@
  * 收集和管理用户对 Agent 的反馈
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { v4 as uuidv4 } from 'uuid';
@@ -15,6 +15,7 @@ import type {
 } from './types.js';
 import { eventBus } from '../event-bus.js';
 import { EventTypes } from '../events.js';
+import { writeJsonAtomic } from './atomic-write.js';
 
 // ============ 反馈存储 ============
 
@@ -40,7 +41,7 @@ class FeedbackStorage {
     this.cache.set(feedback.id, feedback);
     
     const filePath = join(this.dataDir, `${feedback.id}.json`);
-    writeFileSync(filePath, JSON.stringify(feedback, null, 2), 'utf-8');
+    writeJsonAtomic(filePath, feedback);
   }
   
   async load(feedbackId: string): Promise<UserFeedback | null> {
@@ -110,7 +111,7 @@ class FeedbackStorage {
     this.cache.set(feedbackId, updated);
     
     const filePath = join(this.dataDir, `${feedbackId}.json`);
-    writeFileSync(filePath, JSON.stringify(updated, null, 2), 'utf-8');
+    writeJsonAtomic(filePath, updated);
   }
   
   async listByTimeRange(agentId: string, startTime: number, endTime: number): Promise<UserFeedback[]> {

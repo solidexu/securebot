@@ -4,7 +4,7 @@
  * 记录 Agent 的改进历史
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { v4 as uuidv4 } from 'uuid';
@@ -13,6 +13,7 @@ import type {
   ImprovementTrigger, 
   ImprovementType 
 } from './types.js';
+import { writeJsonAtomic } from './atomic-write.js';
 
 // ============ 改进日志存储 ============
 
@@ -61,7 +62,7 @@ class ImprovementLogStorage {
     this.cache.set(agentId, entries);
     
     const filePath = this.getFilePath(agentId);
-    writeFileSync(filePath, JSON.stringify(entries, null, 2), 'utf-8');
+    writeJsonAtomic(filePath, entries);
   }
   
   async append(agentId: string, entry: ImprovementLogEntry): Promise<void> {

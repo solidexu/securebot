@@ -4,7 +4,7 @@
  * 分析 Agent 的执行记录，提取经验教训
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { v4 as uuidv4 } from 'uuid';
@@ -20,6 +20,7 @@ import { getSuccessPatternStore } from './success-pattern-store.js';
 import { getErrorPatternStore } from './error-pattern-store.js';
 import { getFeedbackCollector } from './feedback-collector.js';
 import { getImprovementLogManager } from './improvement-log.js';
+import { writeJsonAtomic } from './atomic-write.js';
 
 // ============ 默认配置 ============
 
@@ -489,7 +490,7 @@ export class SelfReflectionEngine {
   private async persistReflection(result: ReflectionResult): Promise<void> {
     const date = result.reflectedAt.split('T')[0];
     const filePath = join(this.config.storageDir, `${result.agentId}_${date}.json`);
-    writeFileSync(filePath, JSON.stringify(result, null, 2), 'utf-8');
+    writeJsonAtomic(filePath, result);
   }
   
   /**
