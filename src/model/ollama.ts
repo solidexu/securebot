@@ -206,94 +206,142 @@ export class OllamaAdapter implements ModelAdapter {
     onStream: StreamCallback,
     signal?: AbortSignal
   ): Promise<ChatResult> {
-    const response = await request(`${this.baseUrl}/api/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ ...requestBody, stream: true }),
-      bodyTimeout: this.timeout,
-      signal,  // 传递 AbortSignal
+    let aborted = false;
+    let abortHandler: (() => void) | null = null;
+    
+    // 创建一个 Promise 用于在 abort 时立即返回
+    let abortReject: ((error: Error) => void) | null = null;
+    const abortPromise = new Promise<never>((_, reject) => {
+      abortReject = reject;
     });
-
-    if (response.statusCode >= 400) {
-      const errorBody = await response.body.text();
-      throw new Error(`HTTP ${response.statusCode}: ${errorBody}`);
+    
+    // 监听 abort 事件
+    if (signal) {
+      abortHandler = () => {
+        aborted = true;
+        abortReject?.(new Error('Request aborted'));
+      };
+      signal.addEventListener('abort', abortHandler);
     }
+    
+    try {
+      const response = await request(`${this.baseUrl}/api/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ ...requestBody, stream: true }),
+        bodyTimeout: this.timeout,
+        signal,  // 传递 AbortSignal
+      });
 
-    // 读取流式响应
-    let fullContent = '';
-    let toolCalls: Array<{ name: string; arguments: Record<string, unknown> }> = [];
-    let usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
-
-    // 使用 async iterator 读取 NDJSON 流
-    for await (const chunk of response.body) {
-      // 检查是否被取消
-      if (signal?.aborted) {
-        break;
+      if (response.statusCode >= 400) {
+        const errorBody = await response.body.text();
+        throw new Error(`HTTP ${response.statusCode}: ${errorBody}`);
       }
-      
-      const text = chunk.toString();
-      
-      // NDJSON 格式，每行一个 JSON
-      const lines = text.split('\n').filter((line: string) => line.trim());
-      
-      for (const line of lines) {
-        // 再次检查取消
-        if (signal?.aborted) break;
+
+      // 读取流式响应
+      let fullContent = '';
+      let toolCalls: Array<{ name: string; arguments: Record<string, unknown> }> = [];
+      let usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+
+      // 使用 async iterator 读取 NDJSON 流，同时监听 abort
+      try {
+        // 创建迭代器
+        const iterator = response.body[Symbol.asyncIterator]();
         
-        try {
-          const data = JSON.parse(line) as OllamaStreamResponse;
+        while (!aborted) {
+          // 使用 Promise.race 来支持 abort
+          const { done, value } = await Promise.race([
+            iterator.next(),
+            abortPromise,
+          ]);
           
-          if (data.message?.content) {
-            fullContent += data.message.content;
-            onStream({
-              content: data.message.content,
-              done: data.done,
-            });
-          }
+          if (done || aborted) break;
           
-          // 收集工具调用
-          if (data.message?.tool_calls) {
-            for (const tc of data.message.tool_calls) {
-              // 合并同名的工具调用参数
-              const existing = toolCalls.find(t => t.name === tc.function.name);
-              if (existing) {
-                // 合并参数（流式可能分段返回）
-                existing.arguments = { ...existing.arguments, ...tc.function.arguments };
-              } else {
-                toolCalls.push({
-                  name: tc.function.name,
-                  arguments: tc.function.arguments,
+          const chunk = value;
+          const text = chunk.toString();
+          
+          // NDJSON 格式，每行一个 JSON
+          const lines = text.split('\n').filter((line: string) => line.trim());
+          
+          for (const line of lines) {
+            if (aborted) break;
+            
+            try {
+              const data = JSON.parse(line) as OllamaStreamResponse;
+              
+              if (data.message?.content) {
+                fullContent += data.message.content;
+                onStream({
+                  content: data.message.content,
+                  done: data.done,
                 });
               }
+              
+              // 收集工具调用
+              if (data.message?.tool_calls) {
+                for (const tc of data.message.tool_calls) {
+                  // 合并同名的工具调用参数
+                  const existing = toolCalls.find(t => t.name === tc.function.name);
+                  if (existing) {
+                    // 合并参数（流式可能分段返回）
+                    existing.arguments = { ...existing.arguments, ...tc.function.arguments };
+                  } else {
+                    toolCalls.push({
+                      name: tc.function.name,
+                      arguments: tc.function.arguments,
+                    });
+                  }
+                }
+              }
+              
+              // 最后一个 chunk 包含使用统计
+              if (data.done) {
+                usage = {
+                  promptTokens: data.prompt_eval_count ?? 0,
+                  completionTokens: data.eval_count ?? 0,
+                  totalTokens: (data.prompt_eval_count ?? 0) + (data.eval_count ?? 0),
+                };
+                onStream({ content: '', done: true });
+              }
+            } catch {
+              // 忽略解析错误
             }
           }
-          
-          // 最后一个 chunk 包含使用统计
-          if (data.done) {
-            usage = {
-              promptTokens: data.prompt_eval_count ?? 0,
-              completionTokens: data.eval_count ?? 0,
-              totalTokens: (data.prompt_eval_count ?? 0) + (data.eval_count ?? 0),
-            };
-            onStream({ content: '', done: true });
-          }
-        } catch {
-          // 忽略解析错误
         }
+      } catch (error) {
+        // 如果是 abort 导致的，返回已收集的内容
+        if (aborted || (error instanceof Error && error.message === 'Request aborted')) {
+          // 返回部分结果
+          return {
+            content: fullContent,
+            toolCalls: toolCalls.length > 0 ? toolCalls.map(tc => ({
+              id: this.generateToolCallId(),
+              name: tc.name,
+              arguments: tc.arguments,
+            })) : undefined,
+            usage,
+          };
+        }
+        throw error;
+      }
+
+      return {
+        content: fullContent,
+        toolCalls: toolCalls.length > 0 ? toolCalls.map(tc => ({
+          id: this.generateToolCallId(),
+          name: tc.name,
+          arguments: tc.arguments,
+        })) : undefined,
+        usage,
+      };
+    } finally {
+      // 清理 abort 监听器
+      if (signal && abortHandler) {
+        signal.removeEventListener('abort', abortHandler);
       }
     }
-
-    return {
-      content: fullContent,
-      toolCalls: toolCalls.length > 0 ? toolCalls.map(tc => ({
-        id: this.generateToolCallId(),
-        name: tc.name,
-        arguments: tc.arguments,
-      })) : undefined,
-      usage,
-    };
   }
 
   /**
