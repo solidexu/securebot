@@ -20,6 +20,7 @@ import { getMemoryMonitor, type MemoryAlert } from '../core/memory-monitor.js';
 import { handleCommand } from './repl-commands.js';
 import { processMessage } from './repl-message.js';
 import { loadPersistedSessions, saveAllSessions, showConfirmationDialog } from './repl-session.js';
+import { ContextualHints, MessageFormatter } from './message-formatter.js';
 
 // ============ REPL 启动 ============
 
@@ -270,13 +271,23 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
       const inputLine = await rl.question(prompt);
 
       if (!inputLine.trim()) {
-        // 空行时显示快捷提示
-        console.log(chalk.gray('提示: 输入消息开始对话，/help 查看命令，@<agent> 切换 Agent'));
+        // 空行时显示上下文感知提示
+        const hint = ContextualHints.getSuggestion('waiting');
+        if (hint) {
+          console.log(hint);
+        } else {
+          console.log(chalk.gray('提示: 输入消息开始对话，/help 查看命令，@<agent> 切换 Agent'));
+        }
         continue;
       }
 
       // 处理命令
       if (inputLine.startsWith('/')) {
+        // 检查是否有上下文提示
+        const hint = ContextualHints.getHint(inputLine);
+        if (hint) {
+          console.log(hint);
+        }
         await handleCommand(state, inputLine.trim(), rl, sessionStorage);
         continue;
       }
@@ -332,15 +343,21 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
       }
       
       console.log();
-      console.log(chalk.red('❌ 操作失败'));
+      console.log(MessageFormatter.error('操作失败'));
       console.log();
       console.log(chalk.white(`原因: ${errorMsg}`));
       console.log();
       console.log(chalk.cyan('建议:'));
-      console.log(chalk.gray('  1. 使用 /reset 重置会话'));
-      console.log(chalk.gray('  2. 使用 /monitor errors 查看详细错误'));
-      console.log(chalk.gray('  3. 如问题持续，请重新启动 SecureBot'));
+      console.log(MessageFormatter.listItem('使用 /reset 重置会话', 2));
+      console.log(MessageFormatter.listItem('使用 /errors 查看详细错误', 2));
+      console.log(MessageFormatter.listItem('如问题持续，请重新启动 SecureBot', 2));
       console.log();
+      
+      // 显示上下文提示
+      const hint = ContextualHints.getSuggestion('error');
+      if (hint) {
+        console.log(hint);
+      }
     }
   }
 

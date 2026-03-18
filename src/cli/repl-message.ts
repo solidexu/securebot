@@ -27,6 +27,7 @@ import {
 } from '../core/smart-task.js';
 import { savePlanToSession, clearPlanFromSession, renderHierarchicalPlan } from './repl-plan.js';
 import { recordTaskExecution, buildEnhancedSystemPrompt } from '../core/self-improving-integration.js';
+import { ProgressAnimation } from './progress-animation.js';
 import {
   showTaskProgress,
   showProgressBar,
@@ -349,11 +350,10 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       ...session.history,
     ];
     
-    if (round === 1) {
-      process.stdout.write(chalk.gray('思考中... '));
-    } else {
-      process.stdout.write(chalk.gray(`继续思考 (轮次 ${round})... `));
-    }
+    // 创建进度动画
+    const thinkingMessage = round === 1 ? '思考中' : `继续思考 (轮次 ${round})`;
+    const progressAnimation = new ProgressAnimation(thinkingMessage);
+    progressAnimation.start();
     
     // 复杂任务：有计划之前不传工具
     let toolsForThisRound = availableTools;
@@ -370,6 +370,8 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         if (state.interrupted) return;
         
         if (!streamStarted && chunk.content) {
+          // 流式输出开始，停止动画
+          progressAnimation.stop();
           process.stdout.write('\n' + chalk.cyan(`[${agent.name}]`) + '\n');
           streamStarted = true;
         }
@@ -401,13 +403,20 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       }
       
       if (state.interrupted) {
+        progressAnimation.stop();
         return;
+      }
+      
+      // 如果没有流式输出，停止动画
+      if (!streamStarted) {
+        progressAnimation.stop();
       }
       
       if (!result.content) {
         process.stdout.write('\r' + ' '.repeat(30) + '\r');
       }
     } catch (error) {
+      progressAnimation.stop();
       // 检查是否是用户主动打断
       if (state.interrupted || (error instanceof Error && error.name === 'AbortError')) {
         console.log(chalk.gray('\n[已取消]'));
