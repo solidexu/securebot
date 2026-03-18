@@ -16,6 +16,7 @@ import { getSkillManager } from '../core/skills.js';
 import { getTaskManager } from '../core/task-manager.js';
 import { getConfirmationManager } from '../core/confirmation.js';
 import { getMemoryMonitor, performMemoryCleanup } from '../core/memory-monitor.js';
+import { getFeedbackCollector, getImprovementLogManager } from '../core/self-improving/index.js';
 import { saveAllSessions } from './repl-session.js';
 import { clearPlanFromSession, popSubPlan, renderHierarchicalPlan } from './repl-plan.js';
 import { eventBus } from '../core/event-bus.js';
@@ -150,6 +151,14 @@ export async function handleCommand(
 
     case 'perf':
       handlePerfCommand(arg);
+      break;
+
+    case 'feedback':
+      await handleFeedbackCommand(state, arg, parts);
+      break;
+
+    case 'improve':
+      await handleImproveCommand(state, arg, parts, sessionStorage);
       break;
 
     default:
@@ -1072,6 +1081,242 @@ function handlePerfCommand(arg?: string): void {
   }
 }
 
+// ============ Self-Improving 命令 ============
+
+/**
+ * 处理 /feedback 命令
+ */
+async function handleFeedbackCommand(
+  state: ReplState,
+  arg: string | undefined,
+  parts: string[]
+): Promise<void> {
+  const feedbackCollector = getFeedbackCollector();
+  
+  if (!arg) {
+    // 显示反馈帮助
+    console.log(chalk.cyan('用户反馈:'));
+    console.log('  /feedback <1-5> [评论]   提交评分（1-5分）');
+    console.log('  /feedback good [评论]    正面反馈');
+    console.log('  /feedback bad [评论]     负面反馈');
+    console.log('  /feedback stats          查看反馈统计');
+    console.log();
+    console.log(chalk.gray('示例:'));
+    console.log(chalk.gray('  /feedback 5 完美解决'));
+    console.log(chalk.gray('  /feedback 3 还可以更快'));
+    return;
+  }
+  
+  const agent = state.agents.get(state.currentAgentId);
+  if (!agent) return;
+  
+  const session = getOrCreateMainSession(agent);
+  
+  // 统计
+  if (arg === 'stats') {
+    const trends = await feedbackCollector.analyzeTrends(agent.id);
+    console.log(chalk.cyan('反馈统计:'));
+    console.log(`  总反馈数: ${trends.totalFeedback}`);
+    console.log(`  平均评分: ${trends.averageRating.toFixed(2)}`);
+    console.log(chalk.gray('\n  按类型:'));
+    for (const [type, count] of Object.entries(trends.feedbackByType)) {
+      if (count > 0) {
+        console.log(chalk.gray(`    ${type}: ${count}`));
+      }
+    }
+    if (trends.commonIssues.length > 0) {
+      console.log(chalk.yellow('\n  常见问题:'));
+      for (const issue of trends.commonIssues.slice(0, 3)) {
+        console.log(chalk.yellow(`    - ${issue.slice(0, 50)}...`));
+      }
+    }
+    return;
+  }
+  
+  // 解析评分
+  let rating: number | undefined;
+  let content: string;
+  
+  if (/^[1-5]$/.test(arg)) {
+    rating = parseInt(arg, 10);
+    content = parts.slice(2).join(' ') || `用户评分: ${rating}/5`;
+  } else if (arg === 'good') {
+    rating = 5;
+    content = parts.slice(2).join(' ') || '正面反馈';
+  } else if (arg === 'bad') {
+    rating = 2;
+    content = parts.slice(2).join(' ') || '负面反馈';
+  } else {
+    // 其他情况当作评论
+    content = [arg, ...parts.slice(2)].join(' ');
+  }
+  
+  // 收集反馈
+  await feedbackCollector.collect({
+    agentId: agent.id,
+    sessionId: session.sessionKey,
+    type: rating !== undefined ? 'rating' : 'suggestion',
+    rating,
+    content,
+  });
+  
+  console.log(chalk.green('✓ 感谢您的反馈！'));
+  if (rating) {
+    console.log(chalk.gray(`  评分: ${rating}/5`));
+  }
+  console.log(chalk.gray(`  内容: ${content}`));
+  
+  // 如果是低分，记录改进日志
+  if (rating !== undefined && rating < 3) {
+    const improvementLog = getImprovementLogManager();
+    await improvementLog.log({
+      agentId: agent.id,
+      trigger: 'user_feedback',
+      type: 'behavior_change',
+      before: '当前行为',
+      after: '需要改进',
+      reason: content,
+      userFeedback: content,
+    });
+    console.log(chalk.yellow('  已记录改进点，Agent 会从中学习'));
+  }
+}
+
+/**
+ * 处理 /improve 命令
+ */
+async function handleImproveCommand(
+  state: ReplState,
+  arg: string | undefined,
+  _parts: string[],
+  _sessionStorage: ReturnType<typeof getSessionStorage>
+): Promise<void> {
+  const improvementLog = getImprovementLogManager();
+  const feedbackCollector = getFeedbackCollector();
+  
+  if (!arg) {
+    // 显示改进状态
+    const agent = state.agents.get(state.currentAgentId);
+    if (!agent) return;
+    
+    const stats = await improvementLog.getStats(agent.id);
+    const trends = await feedbackCollector.analyzeTrends(agent.id);
+    
+    console.log(chalk.cyan.bold(`\n📊 ${agent.name} 自我改进状态\n`));
+    console.log(chalk.white('改进统计:'));
+    console.log(`  总改进数: ${stats.totalImprovements}`);
+    console.log(`  最近 7 天: ${stats.recentCount}`);
+    console.log(`  平均效果: ${(stats.averageEffectiveness * 100).toFixed(0)}%`);
+    
+    console.log(chalk.white('\n用户反馈:'));
+    console.log(`  总反馈: ${trends.totalFeedback}`);
+    console.log(`  平均评分: ${trends.averageRating.toFixed(2)}/5`);
+    
+    // 显示最近改进
+    const recentImprovements = await improvementLog.getRecentImprovements(agent.id, 7);
+    if (recentImprovements.length > 0) {
+      console.log(chalk.cyan('\n最近改进:'));
+      for (const imp of recentImprovements.slice(0, 5)) {
+        const time = new Date(imp.timestamp).toLocaleDateString('zh-CN');
+        const emoji = imp.trigger === 'user_feedback' ? '💬' :
+                     imp.trigger === 'task_success' ? '✅' :
+                     imp.trigger === 'task_failure' ? '❌' : '📝';
+        console.log(chalk.gray(`  ${time} ${emoji} ${imp.reason.slice(0, 50)}...`));
+      }
+    }
+    
+    console.log(chalk.gray('\n命令:'));
+    console.log(chalk.gray('  /improve log       查看改进日志'));
+    console.log(chalk.gray('  /improve stats     详细统计'));
+    console.log(chalk.gray('  /improve feedback  查看用户反馈'));
+    console.log(chalk.gray('  /improve clear     清除改进数据'));
+    return;
+  }
+  
+  const agent = state.agents.get(state.currentAgentId);
+  if (!agent) return;
+  
+  switch (arg) {
+    case 'log': {
+      const entries = await improvementLog.getLog(agent.id, 20);
+      if (entries.length === 0) {
+        console.log(chalk.gray('暂无改进日志'));
+      } else {
+        console.log(chalk.cyan(`改进日志 (${entries.length} 条):\n`));
+        for (const entry of entries) {
+          const time = new Date(entry.timestamp).toLocaleString('zh-CN', {
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+          });
+          console.log(chalk.gray(`[${time}] ${entry.trigger} - ${entry.type}`));
+          console.log(chalk.white(`  原因: ${entry.reason}`));
+          if (entry.userFeedback) {
+            console.log(chalk.gray(`  反馈: ${entry.userFeedback}`));
+          }
+          console.log();
+        }
+      }
+      break;
+    }
+    
+    case 'stats': {
+      const stats = await improvementLog.getStats(agent.id);
+      console.log(chalk.cyan('详细统计:\n'));
+      console.log(chalk.white('按类型:'));
+      for (const [type, count] of Object.entries(stats.byType)) {
+        if (count > 0) {
+          console.log(chalk.gray(`  ${type}: ${count}`));
+        }
+      }
+      console.log(chalk.white('\n按触发源:'));
+      for (const [trigger, count] of Object.entries(stats.byTrigger)) {
+        if (count > 0) {
+          console.log(chalk.gray(`  ${trigger}: ${count}`));
+        }
+      }
+      break;
+    }
+    
+    case 'feedback': {
+      const feedbacks = await feedbackCollector.getFeedbackForAgent(agent.id, 20);
+      if (feedbacks.length === 0) {
+        console.log(chalk.gray('暂无用户反馈'));
+      } else {
+        console.log(chalk.cyan(`用户反馈 (${feedbacks.length} 条):\n`));
+        for (const fb of feedbacks) {
+          const time = new Date(fb.createdAt).toLocaleString('zh-CN', {
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+          });
+          const ratingStr = fb.rating ? ` [${fb.rating}/5]` : '';
+          console.log(chalk.gray(`[${time}]${ratingStr} ${fb.type}`));
+          console.log(chalk.white(`  ${fb.content}`));
+          console.log();
+        }
+      }
+      break;
+    }
+    
+    case 'clear': {
+      console.log(chalk.yellow('确定要清除所有改进数据吗？'));
+      console.log(chalk.gray('这将删除: 改进日志、用户反馈'));
+      // 简单起见，直接清除
+      await improvementLog.clear(agent.id);
+      await feedbackCollector.clearAgentFeedback(agent.id);
+      console.log(chalk.green('✓ 已清除所有改进数据'));
+      break;
+    }
+    
+    default:
+      console.log(chalk.yellow(`未知参数: ${arg}`));
+      console.log(chalk.gray('可用: log, stats, feedback, clear'));
+  }
+}
+
 // ============ 帮助函数 ============
 
 function printHelp(): void {
@@ -1096,6 +1341,15 @@ function printHelp(): void {
   console.log('  /export [format] 导出会话 (markdown/json/txt)');
   console.log('  /confirm [on/off/always]  敏感操作确认设置');
   console.log('  /clear           清屏');
+  console.log();
+  console.log(chalk.cyan('用户反馈:'));
+  console.log('  /feedback <1-5> [评论]   提交评分');
+  console.log('  /feedback stats          查看反馈统计');
+  console.log();
+  console.log(chalk.cyan('自我改进:'));
+  console.log('  /improve          查看 Agent 改进状态');
+  console.log('  /improve log      查看改进日志');
+  console.log('  /improve feedback 查看用户反馈');
   console.log();
   console.log(chalk.cyan('记忆系统:'));
   console.log('  /init-memory     初始化当前 Agent 的记忆');

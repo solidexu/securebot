@@ -94,9 +94,56 @@ export interface AgentProfile {
     totalSessions: number;
     totalMessages: number;
     lastUsed: string;
+    /** 总任务数 */
+    totalTasks?: number;
+    /** 成功任务数 */
+    successfulTasks?: number;
+    /** 失败任务数 */
+    failedTasks?: number;
+    /** 平均用户评分 */
+    averageUserRating?: number;
   };
   /** 学习到的偏好 */
   learnedPreferences: Record<string, unknown>;
+  
+  // ========== Self-Improving 扩展 ==========
+  
+  /** 自我认知 */
+  selfAwareness?: {
+    /** 自我评估的优势 */
+    strengths: string[];
+    /** 自我评估的劣势 */
+    weaknesses: string[];
+    /** 需要改进的领域 */
+    improvementAreas: string[];
+    /** 擅长的任务类型 */
+    preferredTaskTypes: string[];
+    /** 不擅长的任务类型 */
+    avoidedTaskTypes: string[];
+    /** 上次更新时间 */
+    updatedAt: string;
+  };
+  
+  /** 能力评分 */
+  capabilityScores?: {
+    /** 代码能力 (0-100) */
+    coding?: number;
+    /** 分析能力 (0-100) */
+    analysis?: number;
+    /** 沟通能力 (0-100) */
+    communication?: number;
+    /** 创造力 (0-100) */
+    creativity?: number;
+    /** 准确性 (0-100) */
+    accuracy?: number;
+    /** 响应速度评分 (0-100) */
+    responsiveness?: number;
+    /** 最后更新时间 */
+    updatedAt: string;
+  };
+  
+  /** 最后反思时间 */
+  lastReflectionAt?: string;
 }
 
 /**
