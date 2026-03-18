@@ -79,6 +79,10 @@ export async function handleCommand(
       handleInitRagCommand(state);
       break;
 
+    case 'remember':
+      await handleRememberCommand(state, parts.slice(1).join(' '));
+      break;
+
     case 'model':
       handleModelCommand(state, arg);
       break;
@@ -369,6 +373,36 @@ function handleInitRagCommand(state: ReplState): void {
     console.log(chalk.gray('  • rag_status          - 查看知识库状态'));
     console.log();
     console.log(chalk.yellow('提示: 使用 OLLAMA_NO_GPU=1 强制 CPU 运行'));
+  }
+}
+
+async function handleRememberCommand(state: ReplState, content: string): Promise<void> {
+  const { getMemoryManager } = await import('../core/memory.js');
+  const memoryManager = getMemoryManager(state.config);
+  
+  if (!content || content.trim().length === 0) {
+    console.log(chalk.yellow('用法: /remember <内容>'));
+    console.log(chalk.gray('示例: /remember 用户偏好使用 TypeScript'));
+    return;
+  }
+  
+  try {
+    // 使用 rememberToRAG 方法存储到 RAG 和记忆系统
+    const result = await memoryManager.rememberToRAG(
+      content.trim(),
+      undefined,  // 自动生成标题
+      ['user-memory']  // 标签
+    );
+    
+    if (result.success) {
+      console.log(chalk.green('✓ 已记住: ') + content.slice(0, 50) + (content.length > 50 ? '...' : ''));
+      console.log(chalk.gray('这条记忆将在相关对话中自动被唤醒'));
+    } else {
+      console.log(chalk.red('✗ 存储失败: ') + result.message);
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.log(chalk.red('✗ 存储失败: ') + msg);
   }
 }
 
@@ -1603,10 +1637,12 @@ function printHelp(): void {
   console.log();
   console.log(chalk.cyan('记忆系统:'));
   console.log('  /init-memory     初始化当前 Agent 的记忆');
+  console.log('  /remember <内容> 存储重要信息到记忆系统');
   console.log('  /memory stats    显示记忆统计和内存状态');
   console.log('  /memory cleanup  清理内存缓存');
   console.log('  /memory search   搜索记忆内容');
   console.log(chalk.gray('  提示: 告诉 Agent "记住xxx" 会自动记录'));
+  console.log(chalk.gray('  提示: /remember 存储的信息会在相关对话中自动唤醒'));
   console.log();
   console.log(chalk.cyan('任务规划:'));
   console.log('  /plan            查看当前任务规划');
