@@ -264,16 +264,54 @@ export class OllamaAdapter implements ModelAdapter {
       const decoder = new TextDecoder();
       let buffer = '';
 
+      // 创建一个 Promise 用于监听 abort
+      let abortPromiseResolve: () => void;
+      const createAbortPromise = () => new Promise<void>((resolve) => {
+        abortPromiseResolve = resolve;
+      });
+      
+      // 监听 abort，触发 Promise resolve
+      const streamAbortHandler = () => {
+        abortPromiseResolve?.();
+      };
+      signal?.addEventListener('abort', streamAbortHandler);
+      abortController.signal.addEventListener('abort', streamAbortHandler);
+
+      // 定义读取结果类型
+      type ReadResult = { done: boolean; value: Uint8Array | undefined };
+
       while (true) {
-        // 检查是否被取消
-        if (signal?.aborted || abortController.signal.aborted) {
-          reader.cancel();
-          break;
+        // 使用 Promise.race 同时监听 read 和 abort
+        const abortPromise = createAbortPromise();
+        
+        let readResult: ReadResult;
+        try {
+          readResult = await Promise.race([
+            reader.read(),
+            abortPromise.then(() => ({ done: true, value: undefined } as ReadResult)),
+          ]) as ReadResult;
+        } catch (error) {
+          // read 失败，可能是 abort 导致
+          if (signal?.aborted || abortController.signal.aborted) {
+            break;
+          }
+          throw error;
         }
 
-        const { done, value } = await reader.read();
+        const { done, value } = readResult;
         
         if (done) break;
+        if (!value) continue;
+        
+        // 再次检查取消
+        if (signal?.aborted || abortController.signal.aborted) {
+          try {
+            reader.cancel();
+          } catch {
+            // 忽略 cancel 错误
+          }
+          break;
+        }
         
         buffer += decoder.decode(value, { stream: true });
         
@@ -283,12 +321,6 @@ export class OllamaAdapter implements ModelAdapter {
         
         for (const line of lines) {
           if (!line.trim()) continue;
-          
-          // 再次检查取消
-          if (signal?.aborted || abortController.signal.aborted) {
-            reader.cancel();
-            break;
-          }
           
           try {
             const data = JSON.parse(line) as OllamaStreamResponse;
@@ -330,6 +362,9 @@ export class OllamaAdapter implements ModelAdapter {
           }
         }
       }
+      
+      signal?.removeEventListener('abort', streamAbortHandler);
+      abortController.signal.removeEventListener('abort', streamAbortHandler);
     } catch (error) {
       // 如果是被取消的，返回已收集的内容
       if (signal?.aborted || abortController.signal.aborted) {
