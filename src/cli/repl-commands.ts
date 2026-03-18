@@ -83,6 +83,10 @@ export async function handleCommand(
       await handleRememberCommand(state, parts.slice(1).join(' '));
       break;
 
+    case 'rag':
+      await handleRagCommand(state, arg, parts.slice(2));
+      break;
+
     case 'model':
       handleModelCommand(state, arg);
       break;
@@ -403,6 +407,139 @@ async function handleRememberCommand(state: ReplState, content: string): Promise
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.log(chalk.red('✗ 存储失败: ') + msg);
+  }
+}
+
+async function handleRagCommand(state: ReplState, action?: string, args?: string[]): Promise<void> {
+  const { ragManager } = await import('../rag/tools.js');
+  const agent = state.agents.get(state.currentAgentId);
+  
+  if (!agent) {
+    console.log(chalk.red('错误: 找不到 Agent'));
+    return;
+  }
+  
+  if (!action) {
+    console.log(chalk.cyan('RAG 知识库命令:'));
+    console.log('  /rag status       查看知识库状态');
+    console.log('  /rag search <查询> 搜索知识库');
+    console.log('  /rag index <路径>  添加文档到知识库');
+    console.log();
+    console.log(chalk.gray('提示: 需要在 Agent 配置中启用 rag.enabled = true'));
+    return;
+  }
+  
+  switch (action) {
+    case 'status': {
+      const store = await ragManager.getStore(agent);
+      if (!store) {
+        console.log(chalk.yellow('RAG 未为此 Agent 启用'));
+        console.log(chalk.gray('在 config.json 中设置 agent.rag.enabled = true'));
+        return;
+      }
+      
+      const stats = await store.getStats();
+      console.log(chalk.cyan.bold('\n📚 RAG 知识库状态\n'));
+      console.log(`  文档数量: ${stats.documentCount}`);
+      console.log(`  分块数量: ${stats.chunkCount}`);
+      console.log(`  嵌入状态: ${stats.hasEmbeddings ? '已启用' : '未启用'}`);
+      if (stats.embeddingDimension) {
+        console.log(`  嵌入维度: ${stats.embeddingDimension}`);
+      }
+      console.log(`  嵌入模型: ${agent.rag?.embeddingModel || '未设置'}`);
+      if (agent.rag?.enableRerank) {
+        console.log(`  重排序模型: ${agent.rag.rerankModel || '未设置'}`);
+      }
+      console.log();
+      break;
+    }
+    
+    case 'search': {
+      if (!args || args.length === 0) {
+        console.log(chalk.yellow('用法: /rag search <查询内容>'));
+        return;
+      }
+      
+      const store = await ragManager.getStore(agent);
+      if (!store) {
+        console.log(chalk.yellow('RAG 未为此 Agent 启用'));
+        return;
+      }
+      
+      const query = args.join(' ');
+      console.log(chalk.cyan(`\n🔍 搜索: ${query}\n`));
+      
+      const results = await store.advancedSearch(query, 5);
+      
+      if (results.length === 0) {
+        console.log(chalk.gray('未找到相关内容'));
+        return;
+      }
+      
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i]!;
+        console.log(chalk.white(`\n### 结果 ${i + 1} (相关度: ${(r.score * 100).toFixed(1)}%)`));
+        console.log(chalk.gray(`来源: ${r.chunk.metadata.source}`));
+        console.log(chalk.gray('─'.repeat(40)));
+        console.log(r.chunk.content.slice(0, 300) + (r.chunk.content.length > 300 ? '...' : ''));
+      }
+      console.log();
+      break;
+    }
+    
+    case 'index': {
+      if (!args || args.length === 0) {
+        console.log(chalk.yellow('用法: /rag index <文件或目录路径>'));
+        return;
+      }
+      
+      const store = await ragManager.getStore(agent);
+      if (!store) {
+        console.log(chalk.yellow('RAG 未为此 Agent 启用'));
+        return;
+      }
+      
+      const path = args?.[0];
+      if (!path) {
+        console.log(chalk.yellow('用法: /rag index <文件或目录路径>'));
+        return;
+      }
+      
+      const { resolve } = await import('node:path');
+      const { existsSync, statSync } = await import('node:fs');
+      const fullPath = resolve(agent.workspace, path);
+      
+      if (!existsSync(fullPath)) {
+        console.log(chalk.red(`路径不存在: ${path}`));
+        return;
+      }
+      
+      console.log(chalk.cyan(`\n📥 索引: ${path}\n`));
+      
+      const stat = statSync(fullPath);
+      let count = 0;
+      
+      if (stat.isDirectory()) {
+        count = await store.addDirectory(fullPath);
+        console.log(chalk.green(`✓ 已索引 ${count} 个文档`));
+      } else {
+        const { readFileSync } = await import('node:fs');
+        const { basename } = await import('node:path');
+        const content = readFileSync(fullPath, 'utf-8');
+        await store.addDocument(content, {
+          source: fullPath,
+          title: basename(fullPath),
+        });
+        count = 1;
+        console.log(chalk.green('✓ 已索引 1 个文档'));
+      }
+      console.log();
+      break;
+    }
+    
+    default:
+      console.log(chalk.yellow(`未知操作: ${action}`));
+      console.log(chalk.gray('可用操作: status, search, index'));
   }
 }
 
@@ -1672,6 +1809,9 @@ function printHelp(): void {
   console.log();
   console.log(chalk.cyan('RAG 知识库:'));
   console.log('  /init-rag                 RAG 初始化指引');
+  console.log('  /rag status               查看知识库状态');
+  console.log('  /rag search <查询>        搜索知识库');
+  console.log('  /rag index <路径>         添加文档到知识库');
   console.log(chalk.gray('  提示: 需要配置 agent.rag.enabled = true'));
   console.log();
   console.log(chalk.cyan('诊断工具:'));
