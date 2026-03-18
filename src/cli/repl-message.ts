@@ -266,13 +266,32 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
   
   let round = 0;
   let planAttempts = 0;
-  let noToolCallRounds = 0;  // 用于追踪，但不中断对话
+  let noToolCallRounds = 0;
+  let consecutiveNoProgress = 0;  // 连续无进展轮数
   const MAX_PLAN_ATTEMPTS = 3;
+  const MAX_NO_PROGRESS = 5;  // 连续 5 轮无进展则提示用户
   
   while (round < MAX_TOOL_ROUNDS) {
     if (state.interrupted) {
       console.log(chalk.yellow('\n[操作已打断]'));
       return;
+    }
+    
+    // 检查是否长时间无进展
+    if (consecutiveNoProgress >= MAX_NO_PROGRESS) {
+      console.log(chalk.yellow('\n⚠️ 检测到连续多轮无实质进展'));
+      console.log(chalk.gray('模型可能在循环中，建议：'));
+      console.log(chalk.gray('  1. 按 Ctrl+C 打断当前操作'));
+      console.log(chalk.gray('  2. 使用 /reset 清除会话历史'));
+      console.log(chalk.gray('  3. 重新描述任务'));
+      
+      // 询问用户是否继续
+      const answer = await ctx.rl.question(chalk.cyan('\n是否继续尝试？ [y/N]: '));
+      if (answer.toLowerCase() !== 'y') {
+        console.log(chalk.gray('已停止'));
+        return;
+      }
+      consecutiveNoProgress = 0;  // 重置
     }
     
     round++;
@@ -433,6 +452,7 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         if (currentPlan) {
           addAssistantMessage(session, result.content);
           noToolCallRounds = 0;
+          consecutiveNoProgress = 0;
           
           const isPlanOnlyRequest = 
             message.includes('计划') || 
@@ -466,6 +486,9 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         addAssistantMessage(session, result.content);
         if (result.content?.includes('步骤') || result.content?.includes('计划') || result.content?.includes('执行')) {
           noToolCallRounds = 0;
+          consecutiveNoProgress = 0;
+        } else {
+          consecutiveNoProgress++;
         }
         continue;
       }
@@ -474,9 +497,11 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       if (hasSubstantialContent) {
         // 有实质性内容输出，重置计数器
         noToolCallRounds = 0;
+        consecutiveNoProgress = 0;  // 有实质内容，重置
       } else {
         // 无实质性内容，计数
         noToolCallRounds++;
+        consecutiveNoProgress++;  // 无实质内容，增加
       }
       
       // 检查任务是否真的完成了
@@ -588,6 +613,7 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
     // 执行工具
     addAssistantMessage(session, result.content, result.toolCalls);
     noToolCallRounds = 0;
+    consecutiveNoProgress = 0;  // 有工具调用，重置无进展计数
     
     for (const toolCall of result.toolCalls) {
       const toolResult = await executeToolCall({
