@@ -412,6 +412,7 @@ async function handleRememberCommand(state: ReplState, content: string): Promise
 
 async function handleRagCommand(state: ReplState, action?: string, args?: string[]): Promise<void> {
   const { ragManager } = await import('../rag/tools.js');
+  const { getMemoryManager } = await import('../core/memory.js');
   const agent = state.agents.get(state.currentAgentId);
   
   if (!agent) {
@@ -429,15 +430,25 @@ async function handleRagCommand(state: ReplState, action?: string, args?: string
     return;
   }
   
+  // 尝试从 ragManager 获取 store，或者从 memoryManager 获取
+  const memoryManager = getMemoryManager(state.config);
+  let store = await ragManager.getStore(agent);
+  
+  // 如果 Agent 没有配置 RAG，尝试使用全局记忆系统的 RAG
+  if (!store) {
+    const ragStore = memoryManager.getRAGStore();
+    if (ragStore) {
+      store = ragStore;
+    } else {
+      console.log(chalk.yellow('RAG 未启用'));
+      console.log(chalk.gray('配置方法: 在 config.json 中设置 agent.rag.enabled = true'));
+      console.log(chalk.gray('或者使用 /init-rag 查看初始化指引'));
+      return;
+    }
+  }
+  
   switch (action) {
     case 'status': {
-      const store = await ragManager.getStore(agent);
-      if (!store) {
-        console.log(chalk.yellow('RAG 未为此 Agent 启用'));
-        console.log(chalk.gray('在 config.json 中设置 agent.rag.enabled = true'));
-        return;
-      }
-      
       const stats = await store.getStats();
       console.log(chalk.cyan.bold('\n📚 RAG 知识库状态\n'));
       console.log(`  文档数量: ${stats.documentCount}`);
@@ -446,7 +457,7 @@ async function handleRagCommand(state: ReplState, action?: string, args?: string
       if (stats.embeddingDimension) {
         console.log(`  嵌入维度: ${stats.embeddingDimension}`);
       }
-      console.log(`  嵌入模型: ${agent.rag?.embeddingModel || '未设置'}`);
+      console.log(`  嵌入模型: ${agent.rag?.embeddingModel || '默认'}`);
       if (agent.rag?.enableRerank) {
         console.log(`  重排序模型: ${agent.rag.rerankModel || '未设置'}`);
       }
@@ -457,12 +468,6 @@ async function handleRagCommand(state: ReplState, action?: string, args?: string
     case 'search': {
       if (!args || args.length === 0) {
         console.log(chalk.yellow('用法: /rag search <查询内容>'));
-        return;
-      }
-      
-      const store = await ragManager.getStore(agent);
-      if (!store) {
-        console.log(chalk.yellow('RAG 未为此 Agent 启用'));
         return;
       }
       
@@ -493,12 +498,6 @@ async function handleRagCommand(state: ReplState, action?: string, args?: string
         return;
       }
       
-      const store = await ragManager.getStore(agent);
-      if (!store) {
-        console.log(chalk.yellow('RAG 未为此 Agent 启用'));
-        return;
-      }
-      
       const path = args?.[0];
       if (!path) {
         console.log(chalk.yellow('用法: /rag index <文件或目录路径>'));
@@ -506,7 +505,8 @@ async function handleRagCommand(state: ReplState, action?: string, args?: string
       }
       
       const { resolve } = await import('node:path');
-      const { existsSync, statSync } = await import('node:fs');
+      const { existsSync, statSync, readFileSync } = await import('node:fs');
+      const { basename } = await import('node:path');
       const fullPath = resolve(agent.workspace, path);
       
       if (!existsSync(fullPath)) {
@@ -523,8 +523,6 @@ async function handleRagCommand(state: ReplState, action?: string, args?: string
         count = await store.addDirectory(fullPath);
         console.log(chalk.green(`✓ 已索引 ${count} 个文档`));
       } else {
-        const { readFileSync } = await import('node:fs');
-        const { basename } = await import('node:path');
         const content = readFileSync(fullPath, 'utf-8');
         await store.addDocument(content, {
           source: fullPath,
