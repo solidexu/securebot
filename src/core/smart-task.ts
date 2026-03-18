@@ -866,10 +866,30 @@ export function parseTaskPlan(content: string): TaskPlan | null {
       if (cleanDesc !== desc) {
         status = 'completed';
       }
-      // 检查是否看起来像步骤描述（更宽松的条件）
+      // 检查是否看起来像步骤描述
       if (cleanDesc.length > 3 && cleanDesc.length < 150) {
-        // 排除一些明显不是步骤的内容
-        if (!/^(是|否|注意|提示|警告|说明|参考|来源)/.test(cleanDesc)) {
+        // 排除明显不是步骤的内容
+        const notStepPatterns = [
+          /^(是|否|注意|提示|警告|说明|参考|来源)/,
+          /^(支持|具有|包含|提供|拥有)/,  // 功能描述
+          /^(✅|⬜|⚙️|💡|📝|🔧)/,  // 纯 emoji 开头
+          /^\*\*(.+)\*\*[：:]/,  // **标题**：描述格式（功能特性）
+          /时间复杂度|空间复杂度|复杂度/,  // 技术指标
+          /支持.*[：:]/,  // "支持XXX："格式
+        ];
+        
+        const isNotStep = notStepPatterns.some(p => p.test(cleanDesc));
+        
+        // 检查是否是动词开头的可执行操作
+        const verbPatterns = [
+          /^(创建|实现|编写|开发|设计|配置|测试|部署|安装|更新|修改|删除|添加|构建|运行|执行|编写|完成|整理|优化|重构|调试|分析)/,
+          /^(Create|Implement|Write|Develop|Design|Configure|Test|Deploy|Install|Update|Modify|Delete|Add|Build|Run|Execute|Complete|Organize|Optimize|Refactor|Debug|Analyze)/i,
+        ];
+        
+        const isAction = verbPatterns.some(p => p.test(cleanDesc));
+        
+        // 只添加动词开头的内容，或者明确不是功能描述的内容
+        if (isAction || (!isNotStep && !cleanDesc.includes('**'))) {
           steps.push({
             id: `step-${steps.length + 1}`,
             description: cleanDesc,
