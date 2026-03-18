@@ -98,8 +98,10 @@ export function showTaskProgress(
   
   // 进度条
   const completed = plan.steps.filter(s => s.status === 'completed').length;
+  const inProgress = plan.steps.filter(s => s.status === 'in_progress').length;
+  const done = completed + inProgress;  // 已完成 + 进行中
   const total = plan.steps.length;
-  lines.push(chalk.gray(showProgressBar(completed, total)));
+  lines.push(chalk.gray(showProgressBar(done, total)));
   lines.push('');
   
   // 步骤列表

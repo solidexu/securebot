@@ -278,8 +278,10 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
       const session = getOrCreateMainSession(agent);
       if (session.plan && session.plan.steps.some(s => s.status === 'pending' || s.status === 'in_progress')) {
         const completed = session.plan.steps.filter(s => s.status === 'completed').length;
+        const inProgress = session.plan.steps.filter(s => s.status === 'in_progress').length;
+        const done = completed + inProgress;
         const total = session.plan.steps.length;
-        prompt += chalk.gray(` [${completed}/${total}]`);
+        prompt += chalk.gray(` [${done}/${total}]`);
       }
       
       prompt += chalk.cyan(' > ');

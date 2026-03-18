@@ -328,8 +328,9 @@ describe('renderTaskProgress', () => {
     const rendered = renderTaskProgress(plan);
 
     expect(rendered).toContain('Test Plan');
-    expect(rendered).toContain('1/4');
-    expect(rendered).toContain('25%');
+    // 1 completed + 1 in_progress = 2 done
+    expect(rendered).toContain('2/4');
+    expect(rendered).toContain('50%');
   });
 });
 

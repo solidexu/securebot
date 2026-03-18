@@ -120,12 +120,20 @@ export async function processMessage(
       
       if (isContinueRequest) {
         console.log(chalk.green('\n✓ 继续执行已有计划...'));
-        const nextStep = getNextPendingStep(currentPlan);
-        if (nextStep) {
-          console.log(chalk.cyan(`📍 下一步: ${nextStep.description}`));
-          // 标记为进行中
-          updateStepStatus(currentPlan, nextStep.id, 'in_progress');
-          savePlanToSession(session, currentPlan);
+        
+        // 检查是否已有进行中的步骤
+        const currentInProgress = currentPlan.steps.find(s => s.status === 'in_progress');
+        if (currentInProgress) {
+          // 已有进行中的步骤，直接显示
+          console.log(chalk.cyan(`📍 当前步骤: ${currentInProgress.description}`));
+        } else {
+          // 没有进行中的步骤，从第一个待执行的步骤开始
+          const nextStep = getNextPendingStep(currentPlan);
+          if (nextStep) {
+            console.log(chalk.cyan(`📍 下一步: ${nextStep.description}`));
+            updateStepStatus(currentPlan, nextStep.id, 'in_progress');
+            savePlanToSession(session, currentPlan);
+          }
         }
         shouldExecutePlan = true;
       } else {
@@ -456,11 +464,8 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         // 初始化执行状态
         if (!ctx.executionState) {
           ctx.executionState = createExecutionState(currentPlan, 'guided');
-          // 标记第一个步骤为进行中
-          if (currentPlan.steps[0]) {
-            updateStepStatus(currentPlan, currentPlan.steps[0].id, 'in_progress');
-            savePlanToSession(session, currentPlan);
-          }
+          // 注意：不自动标记第一个步骤为 in_progress
+          // 等用户确认后才标记
         }
         
         const newRender = renderTaskProgress(currentPlan);

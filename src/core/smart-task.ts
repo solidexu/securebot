@@ -1071,11 +1071,13 @@ export function renderTaskProgress(plan: TaskPlan): string {
   
   // 统计
   const completed = plan.steps.filter(s => s.status === 'completed').length;
+  const inProgress = plan.steps.filter(s => s.status === 'in_progress').length;
+  const done = completed + inProgress;  // 已完成 + 进行中
   const total = plan.steps.length;
-  const progress = Math.round((completed / total) * 100);
+  const progress = Math.round((done / total) * 100);
   
   lines.push(chalk.cyan('├─────────────────────────────────────┤'));
-  lines.push(chalk.cyan('│') + chalk.gray(` 进度: ${completed}/${total} (${progress}%)`).padEnd(37) + chalk.cyan('│'));
+  lines.push(chalk.cyan('│') + chalk.gray(` 进度: ${done}/${total} (${progress}%)`).padEnd(37) + chalk.cyan('│'));
   lines.push(chalk.cyan('└─────────────────────────────────────┘'));
   
   return lines.join('\n');
