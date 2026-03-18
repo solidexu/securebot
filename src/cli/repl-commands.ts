@@ -298,11 +298,12 @@ async function handleInitMemoryCommand(state: ReplState): Promise<void> {
     const ragConfig = agent.rag;
     if (ragConfig?.enabled) {
       console.log();
-      console.log(chalk.cyan('检查 RAG 知识库配置...'));
+      console.log(chalk.cyan('📚 初始化 RAG 知识库...'));
       
       try {
+        // 检查嵌入模型
         const models = await state.modelAdapter.listModels();
-        const embeddingModel = ragConfig.embeddingModel || 'nomic-embed-text';
+        const embeddingModel = ragConfig.embeddingModel || 'all-minilm';
         const hasEmbeddingModel = models.some(m => m.includes(embeddingModel) || m === embeddingModel);
         
         if (hasEmbeddingModel) {
@@ -311,18 +312,48 @@ async function handleInitMemoryCommand(state: ReplState): Promise<void> {
           console.log(chalk.yellow(`⚠ 嵌入模型 ${embeddingModel} 未安装`));
           console.log(chalk.gray(`  安装命令: ollama pull ${embeddingModel}`));
         }
-      } catch {
-        console.log(chalk.yellow('⚠ 无法检查嵌入模型，确保 Ollama 正在运行'));
+        
+        // 设置 RAG 配置
+        const { ragManager } = await import('../rag/tools.js');
+        ragManager.setAgentConfig(agent.id, {
+          enabled: true,
+          knowledgeDirs: ragConfig.knowledgeDirs || [],
+          embeddingModel: ragConfig.embeddingModel || 'all-minilm',
+          chunkSize: ragConfig.chunkSize,
+          chunkOverlap: ragConfig.chunkOverlap,
+          topK: ragConfig.topK,
+          minScore: ragConfig.minScore,
+          enableRerank: ragConfig.enableRerank,
+          rerankModel: ragConfig.rerankModel,
+          enableQueryExpansion: ragConfig.enableQueryExpansion,
+          queryExpansionModel: ragConfig.queryExpansionModel,
+        });
+        
+        // 尝试初始化 RAG 存储
+        const ragStore = await ragManager.getStore(agent);
+        if (ragStore) {
+          const stats = await ragStore.getStats();
+          console.log(chalk.green(`✓ RAG 知识库已初始化`));
+          console.log(chalk.gray(`  文档数量: ${stats.documentCount}`));
+          console.log(chalk.gray(`  分块数量: ${stats.chunkCount}`));
+          
+          // 连接到记忆系统
+          memoryManager.setRAGStore(ragStore);
+          console.log(chalk.green('✓ RAG 已连接到记忆系统'));
+        }
+        
+        const knowledgeDirs = ragConfig.knowledgeDirs || [];
+        if (knowledgeDirs.length > 0) {
+          console.log(chalk.gray(`  知识库目录: ${knowledgeDirs.join(', ')}`));
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        console.log(chalk.yellow(`⚠ RAG 初始化失败: ${msg}`));
+        console.log(chalk.gray('  使用 /init-rag 查看初始化指引'));
       }
-      
-      const knowledgeDirs = ragConfig.knowledgeDirs || [];
-      if (knowledgeDirs.length > 0) {
-        console.log(chalk.gray(`  知识库目录: ${knowledgeDirs.join(', ')}`));
-        console.log(chalk.gray('  Agent 可使用 rag_search 搜索知识库'));
-      } else {
-        console.log(chalk.yellow('⚠ 未配置知识库目录'));
-        console.log(chalk.gray('  在 config.json 中设置 rag.knowledgeDirs'));
-      }
+    } else {
+      console.log();
+      console.log(chalk.gray('RAG 未启用。配置 agent.rag.enabled = true 后可使用知识库检索功能。'));
     }
   }
 }

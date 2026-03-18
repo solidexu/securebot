@@ -176,7 +176,8 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
         '/collab', '/errors', '/perf', '/summary',
         '/feedback', '/improve', '/skills', '/reload',
         '/config', '/status', '/memory', '/rag',
-        '/export', '/import', '/task',
+        '/export', '/import', '/task', '/remember',
+        '/patterns',
       ];
       const hits = commands.filter(cmd => cmd.startsWith(line));
       return [hits.length ? hits : commands, line];
