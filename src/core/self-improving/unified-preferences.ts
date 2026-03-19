@@ -378,9 +378,13 @@ export class UnifiedPreferenceManager {
       
       // 同步全局偏好到用户档案
       const globalPrefs = this.getGlobalPreferences();
-      await memoryManager.updateUserProfile('language', globalPrefs.language);
-      await memoryManager.updateUserProfile('detailLevel', globalPrefs.detailLevel);
-      await memoryManager.updateUserProfile('communicationStyle', globalPrefs.communicationStyle);
+      
+      // 使用正确的方法名
+      if (typeof memoryManager.setUserPreference === 'function') {
+        await memoryManager.setUserPreference('language', globalPrefs.language);
+        await memoryManager.setUserPreference('detailLevel', globalPrefs.detailLevel);
+        await memoryManager.setUserPreference('communicationStyle', globalPrefs.communicationStyle);
+      }
     } catch (error) {
       // 旧系统同步失败不影响主流程
       console.error('同步到旧系统失败:', error);
