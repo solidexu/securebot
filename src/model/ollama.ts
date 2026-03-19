@@ -245,7 +245,9 @@ export class OllamaAdapter implements ModelAdapter {
       });
     } catch (error) {
       clearTimeout(timeoutId);
-      signal?.removeEventListener('abort', abortHandler);
+      if (signal && typeof signal.removeEventListener === 'function') {
+        signal.removeEventListener('abort', abortHandler);
+      }
       
       // 如果是被取消的，返回空结果
       if (signal?.aborted || abortController.signal.aborted) {
@@ -259,7 +261,9 @@ export class OllamaAdapter implements ModelAdapter {
 
     if (!response.ok) {
       clearTimeout(timeoutId);
-      signal?.removeEventListener('abort', abortHandler);
+      if (signal && typeof signal.removeEventListener === 'function') {
+        signal.removeEventListener('abort', abortHandler);
+      }
       const errorBody = await response.text();
       throw new Error(`HTTP ${response.status}: ${errorBody}`);
     }
@@ -268,6 +272,9 @@ export class OllamaAdapter implements ModelAdapter {
     let fullContent = '';
     let toolCalls: Array<{ name: string; arguments: Record<string, unknown> }> = [];
     let usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+    
+    // 在 try 块外定义，确保 catch/finally 可以访问
+    let streamAbortHandler: (() => void) | undefined;
 
     try {
       const reader = response.body?.getReader();
@@ -285,7 +292,7 @@ export class OllamaAdapter implements ModelAdapter {
       });
       
       // 监听 abort，触发 Promise resolve（兼容性处理）
-      const streamAbortHandler = () => {
+      streamAbortHandler = () => {
         abortPromiseResolve?.();
       };
       // 兼容性处理：检查是否支持 addEventListener
@@ -380,12 +387,21 @@ export class OllamaAdapter implements ModelAdapter {
         }
       }
       
-      signal?.removeEventListener('abort', streamAbortHandler);
-      abortController.signal.removeEventListener('abort', streamAbortHandler);
+      // 正常结束时移除监听器
+      if (streamAbortHandler && signal && typeof signal.removeEventListener === 'function') {
+        signal.removeEventListener('abort', streamAbortHandler);
+      }
+      if (streamAbortHandler) {
+        abortController.signal.removeEventListener('abort', streamAbortHandler);
+      }
     } catch (error) {
-      // ★ 修复：确保在异常时也移除监听器
-      signal?.removeEventListener('abort', streamAbortHandler);
-      abortController.signal.removeEventListener('abort', streamAbortHandler);
+      // ★ 修复：确保在异常时也移除监听器（检查是否已定义）
+      if (streamAbortHandler) {
+        if (signal && typeof signal.removeEventListener === 'function') {
+          signal.removeEventListener('abort', streamAbortHandler);
+        }
+        abortController.signal.removeEventListener('abort', streamAbortHandler);
+      }
       
       // 如果是被取消的，返回已收集的内容
       if (signal?.aborted || abortController.signal.aborted) {
@@ -406,11 +422,13 @@ export class OllamaAdapter implements ModelAdapter {
       if (signal && typeof signal.removeEventListener === 'function') {
         signal.removeEventListener('abort', abortHandler);
       }
-      // ★ 修复：双重保险，确保所有监听器都被清理
-      if (signal && typeof signal.removeEventListener === 'function') {
+      // ★ 修复：双重保险，确保所有监听器都被清理（检查是否已定义）
+      if (streamAbortHandler && signal && typeof signal.removeEventListener === 'function') {
         signal.removeEventListener('abort', streamAbortHandler);
       }
-      abortController.signal.removeEventListener('abort', streamAbortHandler);
+      if (streamAbortHandler) {
+        abortController.signal.removeEventListener('abort', streamAbortHandler);
+      }
     }
 
     return {
