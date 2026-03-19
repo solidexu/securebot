@@ -25,8 +25,8 @@ export interface ContextManagerConfig {
 }
 
 const DEFAULT_CONFIG: ContextManagerConfig = {
-  maxTokens: 32768,  // 默认 32K
-  reservedOutputTokens: 4096,  // 预留 4K 用于输出
+  maxTokens: 128000,  // 默认 128K（支持 GPT-4-Turbo, Claude, GLM-4/5）
+  reservedOutputTokens: 8192,  // 预留 8K 用于输出
   enableSummarization: true,
   summarizationThreshold: 0.75,  // 使用率超过 75% 触发摘要
 };
@@ -50,10 +50,23 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'glm-4': 128000,
   'glm-5': 128000,
   
-  // Ollama (默认值)
-  'llama3': 8192,
-  'qwen': 32768,
+  // Ollama - Qwen 系列
+  'qwen3': 32768,
+  'qwen3.5': 32768,
+  'qwen2.5': 128000,  // Qwen2.5 支持 128K
   'qwen2': 32768,
+  'qwen': 32768,
+  
+  // Ollama - 其他模型
+  'llama3': 8192,
+  'llama3.1': 128000,
+  'llama3.2': 128000,
+  'deepseek': 64000,
+  'deepseek-coder': 16384,
+  'codellama': 16384,
+  'mistral': 32768,
+  'mixtral': 32768,
+  'phi3': 128000,
 };
 
 /**
