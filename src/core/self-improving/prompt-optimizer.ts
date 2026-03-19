@@ -113,6 +113,51 @@ export class PromptOptimizer {
    */
   private async buildPreferencesSection(agentId: string): Promise<string> {
     try {
+      // 优先使用统一偏好管理器
+      const { getUnifiedPreferenceManager } = await import('./unified-preferences.js');
+      const manager = getUnifiedPreferenceManager();
+      
+      const globalPrefs = manager.getGlobalPreferences();
+      const agentPrefs = manager.getAgentPreferences(agentId);
+      
+      const lines: string[] = ['### 用户偏好'];
+      
+      // 全局偏好
+      if (globalPrefs.language !== 'auto') {
+        lines.push(`- 语言: ${globalPrefs.language === 'zh' ? '中文' : 'English'}`);
+      }
+      if (globalPrefs.detailLevel !== 'normal') {
+        const levelText = { brief: '简洁', normal: '适中', detailed: '详细' };
+        lines.push(`- 详细程度: ${levelText[globalPrefs.detailLevel]}`);
+      }
+      if (globalPrefs.communicationStyle !== 'casual') {
+        const styleText = { formal: '正式', casual: '轻松', technical: '技术性' };
+        lines.push(`- 沟通风格: ${styleText[globalPrefs.communicationStyle]}`);
+      }
+      
+      // Agent 偏好
+      if (agentPrefs.preferredTools.length > 0) {
+        lines.push(`- 偏好工具: ${agentPrefs.preferredTools.slice(0, 5).join(', ')}`);
+      }
+      if (agentPrefs.avoidedTools.length > 0) {
+        lines.push(`- 避免工具: ${agentPrefs.avoidedTools.slice(0, 3).join(', ')}`);
+      }
+      if (agentPrefs.preferredApproaches.length > 0) {
+        lines.push(`- 偏好方法: ${agentPrefs.preferredApproaches[0]}`);
+      }
+      
+      return lines.length > 1 ? lines.join('\n') : '';
+    } catch {
+      // 回退到旧系统
+      return this.buildPreferencesSectionLegacy(agentId);
+    }
+  }
+  
+  /**
+   * 构建偏好部分（旧系统回退）
+   */
+  private async buildPreferencesSectionLegacy(agentId: string): Promise<string> {
+    try {
       const memoryManager = getMemoryManager();
       const profile = await memoryManager.getAgentProfile(agentId, '');
       

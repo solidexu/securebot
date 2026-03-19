@@ -157,7 +157,46 @@ export class ErrorPatternStore {
     
     await this.cleanup();
     
+    // ★ 学习偏好
+    await this.learnPreferences(agentId, pattern, context);
+    
     return pattern;
+  }
+  
+  /**
+   * 从错误模式学习偏好
+   */
+  private async learnPreferences(
+    agentId: string,
+    pattern: ErrorPattern,
+    context: { taskDescription: string; approach: string; toolsUsed?: string[] }
+  ): Promise<void> {
+    try {
+      const { getUnifiedPreferenceManager } = await import('./unified-preferences.js');
+      const manager = getUnifiedPreferenceManager();
+      
+      await manager.learnFromError(agentId, {
+        taskType: this.inferTaskType(context.taskDescription),
+        approach: context.approach,
+        toolsUsed: context.toolsUsed,
+      });
+      
+      await manager.save();
+    } catch (error) {
+      // 学习失败不影响主流程
+      console.error('学习偏好失败:', error);
+    }
+  }
+  
+  /**
+   * 推断任务类型
+   */
+  private inferTaskType(description: string): string | undefined {
+    const text = description.toLowerCase();
+    if (text.includes('写代码') || text.includes('实现')) return 'coding';
+    if (text.includes('分析') || text.includes('研究')) return 'analysis';
+    if (text.includes('调试') || text.includes('修复')) return 'debugging';
+    return undefined;
   }
   
   /**

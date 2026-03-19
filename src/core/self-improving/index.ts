@@ -99,5 +99,16 @@ export {
   getFeedbackProcessor, 
   initFeedbackProcessor,
   resetFeedbackProcessor,
-  type FeedbackAnalysis,
 } from './feedback-processor.js';
+
+// 统一偏好管理器
+export { 
+  UnifiedPreferenceManager, 
+  getUnifiedPreferenceManager, 
+  resetUnifiedPreferenceManager,
+  type GlobalPreferences,
+  type AgentPreferences,
+  type PreferenceSource,
+  type PreferenceEntry,
+  type UnifiedPreferencesStore,
+} from './unified-preferences.js';

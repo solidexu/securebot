@@ -67,10 +67,34 @@ export class FeedbackProcessor {
       await this.applyImprovement(agent, analysis);
     }
     
-    // 3. 标记已处理
+    // 3. 学习偏好（所有反馈都学习）
+    await this.learnPreferences(agent, storedFeedback);
+    
+    // 4. 标记已处理
     await collector.markProcessed(storedFeedback.id, analysis ? '已分析并应用改进' : '已记录');
     
     return { feedbackId: storedFeedback.id, analysis };
+  }
+  
+  /**
+   * 从反馈学习偏好
+   */
+  private async learnPreferences(agent: Agent, feedback: UserFeedback): Promise<void> {
+    try {
+      const { getUnifiedPreferenceManager } = await import('./unified-preferences.js');
+      const manager = getUnifiedPreferenceManager();
+      
+      await manager.learnFromFeedback(agent.id, {
+        content: feedback.content,
+        rating: feedback.rating,
+        type: feedback.type,
+      });
+      
+      await manager.save();
+    } catch (error) {
+      // 学习失败不影响主流程
+      console.error('从反馈学习偏好失败:', error);
+    }
   }
   
   /**

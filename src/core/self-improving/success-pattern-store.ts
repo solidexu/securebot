@@ -174,9 +174,37 @@ export class SuccessPatternStore {
       this.index.add(pattern);
       await this.persist(pattern);
       await this.cleanup();
+      
+      // ★ 学习偏好
+      await this.learnPreferences(agentId, pattern);
     }
     
     return pattern;
+  }
+  
+  /**
+   * 从成功模式学习偏好
+   */
+  private async learnPreferences(
+    agentId: string,
+    pattern: SuccessPattern
+  ): Promise<void> {
+    try {
+      const { getUnifiedPreferenceManager } = await import('./unified-preferences.js');
+      const manager = getUnifiedPreferenceManager();
+      
+      await manager.learnFromSuccess(agentId, {
+        taskType: pattern.taskType,
+        approach: pattern.approach,
+        toolsUsed: pattern.toolsUsed,
+        effectiveness: pattern.effectiveness,
+      });
+      
+      await manager.save();
+    } catch (error) {
+      // 学习失败不影响主流程
+      console.error('学习偏好失败:', error);
+    }
   }
   
   /**
