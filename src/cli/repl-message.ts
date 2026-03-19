@@ -641,6 +641,12 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
     
     round++;
     
+    // 复杂任务：有计划之前不传工具
+    let toolsForThisRound = availableTools;
+    if (complexity === 'complex' && !currentPlan) {
+      toolsForThisRound = [];
+    }
+    
     const messages: Message[] = [
       { role: 'system', content: systemPrompt },
       ...session.history,
@@ -661,12 +667,6 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
     const thinkingMessage = round === 1 ? '思考中' : `继续思考 (轮次 ${round})`;
     const progressAnimation = new ProgressAnimation(thinkingMessage, ctx.abortController.signal);
     progressAnimation.start();
-    
-    // 复杂任务：有计划之前不传工具
-    let toolsForThisRound = availableTools;
-    if (complexity === 'complex' && !currentPlan) {
-      toolsForThisRound = [];
-    }
     
     let result;
     try {
