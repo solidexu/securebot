@@ -243,14 +243,18 @@ export class OllamaAdapter implements ModelAdapter {
    * 发送聊天请求（支持流式）
    */
   async chatWithStream(params: StreamChatParams): Promise<ChatResult> {
-    // 先检查连接状态
-    const connection = await this.checkConnection();
-    if (!connection.connected) {
-      throw new OllamaConnectionError(
-        connection.error || '无法连接到 Ollama 服务',
-        this.baseUrl,
-        connection.models || []
-      );
+    // 优化：如果之前已连接且在缓存期内，跳过连接检查
+    // 这避免了每次调用都发送 /api/tags 请求
+    if (this.connectionStatus !== 'connected' || 
+        Date.now() - this.lastCheckTime >= this.CHECK_INTERVAL) {
+      const connection = await this.checkConnection();
+      if (!connection.connected) {
+        throw new OllamaConnectionError(
+          connection.error || '无法连接到 Ollama 服务',
+          this.baseUrl,
+          connection.models || []
+        );
+      }
     }
     
     const model = params.model ?? this.defaultModel;
