@@ -1711,12 +1711,12 @@ async function handleImproveCommand(
       console.log(chalk.cyan('📊 技能质量评估:'));
       const evaluations = await skillGenerator.evaluateSkillQuality(agent.id);
       
-      for (const eval of evaluations.slice(0, 5)) {
-        const scoreColor = eval.score >= 60 ? chalk.green : 
-                          eval.score >= 40 ? chalk.yellow : chalk.red;
-        console.log(scoreColor(`  ${eval.skill.name}: ${eval.score.toFixed(0)} 分`));
-        if (eval.issues.length > 0) {
-          console.log(chalk.gray(`    问题: ${eval.issues.join(', ')}`));
+      for (const evaluation of evaluations.slice(0, 5)) {
+        const scoreColor = evaluation.score >= 60 ? chalk.green : 
+                          evaluation.score >= 40 ? chalk.yellow : chalk.red;
+        console.log(scoreColor(`  ${evaluation.skill.name}: ${evaluation.score.toFixed(0)} 分`));
+        if (evaluation.issues.length > 0) {
+          console.log(chalk.gray(`    问题: ${evaluation.issues.join(', ')}`));
         }
       }
       break;
