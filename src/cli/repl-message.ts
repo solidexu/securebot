@@ -648,13 +648,13 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
     
     // ★ 检查上下文长度并裁剪
     const contextManager = getContextManager();
-    const trimmedMessages = contextManager.trimMessages(messages);
+    const trimmedMessages = contextManager.trimMessages(messages, toolsForThisRound);
     
     // 如果有裁剪，显示提示
     if (trimmedMessages.length < messages.length) {
-      const stats = contextManager.getContextStats(messages);
+      const stats = contextManager.getContextStats(messages, toolsForThisRound);
       console.log(chalk.yellow(`\n⚠️ 上下文过长，已裁剪 ${messages.length - trimmedMessages.length} 条消息`));
-      console.log(chalk.gray(`   当前: ${stats.totalTokens.toLocaleString()} tokens`));
+      console.log(chalk.gray(`   当前: ${stats.totalTokens.toLocaleString()} tokens (${stats.usagePercent.toFixed(1)}%)`));
     }
     
     // 创建进度动画

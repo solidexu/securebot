@@ -17,6 +17,7 @@ import { getTaskManager } from '../core/task-manager.js';
 import { getConfirmationManager } from '../core/confirmation.js';
 import { getMemoryMonitor, performMemoryCleanup } from '../core/memory-monitor.js';
 import { getFeedbackCollector, getImprovementLogManager, getSuccessPatternStore, getErrorPatternStore, getSelfReflectionEngine, getPromptOptimizer, getSkillGenerator } from '../core/self-improving/index.js';
+import { getAvailableTools } from '../tools/index.js';
 import { saveAllSessions } from './repl-session.js';
 import { clearPlanFromSession, popSubPlan, renderHierarchicalPlan } from './repl-plan.js';
 import { eventBus } from '../core/event-bus.js';
@@ -1822,6 +1823,10 @@ async function handleContextCommand(state: ReplState): Promise<void> {
     return;
   }
   
+  // 获取可用工具
+  const agent = state.agents.get(state.currentAgentId);
+  const tools = agent ? getAvailableTools(agent, state.config.tools) : undefined;
+  
   // 构建消息列表
   const messages = [
     { role: 'system' as const, content: '(系统提示)' },
@@ -1829,11 +1834,16 @@ async function handleContextCommand(state: ReplState): Promise<void> {
   ];
   
   // 显示统计
-  console.log(contextManager.formatStats(messages));
+  console.log(contextManager.formatStats(messages, tools));
   
-  // 检查是否需要摘要
-  if (contextManager.needsSummarization(messages)) {
-    console.log(chalk.yellow('\n💡 建议使用 /reset 开始新会话，或使用 /history 查看历史'));
+  // 显示优化建议
+  const suggestions = contextManager.getOptimizationSuggestions(messages, tools);
+  if (suggestions.length > 0) {
+    console.log();
+    console.log(chalk.cyan('💡 优化建议:'));
+    for (const suggestion of suggestions) {
+      console.log(chalk.gray(`  • ${suggestion}`));
+    }
   }
 }
 
