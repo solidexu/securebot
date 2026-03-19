@@ -786,10 +786,28 @@ export function parseTaskPlan(content: string): TaskPlan | null {
       continue;
     }
     
+    // ★★ 停止条件检查 ★★
+    // 遇到结束标记，停止解析
+    if (trimmed.startsWith('---') || 
+        trimmed.includes('现在开始执行') ||
+        trimmed.includes('现在开始创建') ||
+        trimmed.includes('现在开始实现') ||
+        trimmed.includes('已完成')) {
+      break;
+    }
+    
     // 匹配数字列表
     const numberedMatch = trimmed.match(numberedRegex);
     if (numberedMatch && numberedMatch[1]) {
       const desc = numberedMatch[1].trim();
+      
+      // ★★ 跳过文件描述行 ★★
+      // 如果包含文件名模式（如 **xxx.py** 或 xxx.py - 描述），这是输出内容，不是步骤
+      if (desc.includes('**') || desc.includes('.py') || desc.includes('.ts') || 
+          desc.includes('.js') || desc.includes('.go') || desc.includes('.java')) {
+        break;
+      }
+      
       // 检查行尾是否有完成标记
       let status: TaskStep['status'] = 'pending';
       const cleanDesc = desc.replace(/\s*[✓✅✔]\s*$/g, '').trim();
