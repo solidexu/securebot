@@ -827,6 +827,26 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
           }
           
           lastPlanRender = newRender;
+          
+          // ★ 新增：等待用户确认计划
+          console.log();
+          console.log(chalk.yellow('是否按此计划执行？'));
+          const answer = await interruptibleQuestion(chalk.cyan('[y/N]: '));
+          
+          if (state.interrupted) {
+            console.log(chalk.gray('\n[已取消]'));
+            await recordTaskEnd(ctx, 'cancelled', { error: '用户取消规划' });
+            return;
+          }
+          
+          if (answer.toLowerCase() !== 'y') {
+            console.log(chalk.gray('已取消任务'));
+            await recordTaskEnd(ctx, 'cancelled', { error: '用户取消规划' });
+            return;
+          }
+          
+          console.log(chalk.green('✓ 开始执行计划...'));
+          console.log();
         }
       }
     }
