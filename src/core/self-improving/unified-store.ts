@@ -390,6 +390,9 @@ export class UnifiedStore {
   private keywordIndex: InvertedIndex;
   private vectorIndex: VectorIndex;
   private initialized: boolean = false;
+  private embeddingAvailable: boolean = true;  // embedding 服务状态缓存
+  private lastEmbeddingCheck: number = 0;      // 上次检查时间
+  private readonly EMBEDDING_CHECK_INTERVAL = 60000;  // 1 分钟检查一次
   
   constructor(config: Partial<UnifiedStoreConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -442,8 +445,8 @@ export class UnifiedStore {
     entry.createdAt = entry.createdAt || now;
     entry.updatedAt = now;
     
-    // 向量化（如果启用）
-    if (this.config.enableEmbedding && !entry.embedding) {
+    // 向量化（仅当服务可用时）
+    if (this.config.enableEmbedding && !entry.embedding && this.embeddingAvailable) {
       entry.embedding = await this.getEmbedding(entry.content);
     }
     
@@ -452,7 +455,7 @@ export class UnifiedStore {
     
     // 更新索引
     this.keywordIndex.add(entry);
-    if (entry.embedding) {
+    if (entry.embedding && entry.embedding.length > 0) {
       this.vectorIndex.add(entry.id, entry.embedding);
     }
   }
@@ -723,6 +726,12 @@ export class UnifiedStore {
       return [];
     }
     
+    // 检查是否需要跳过（服务不可用且还在缓存期内）
+    const now = Date.now();
+    if (!this.embeddingAvailable && (now - this.lastEmbeddingCheck) < this.EMBEDDING_CHECK_INTERVAL) {
+      return [];  // 服务不可用，跳过
+    }
+    
     try {
       const response = await fetch(`${this.config.embeddingUrl}/api/embeddings`, {
         method: 'POST',
@@ -733,16 +742,29 @@ export class UnifiedStore {
         }),
       });
       
-      // ★ 检查响应状态
+      // 检查响应状态
       if (!response.ok) {
-        console.error(`获取向量失败: HTTP ${response.status}`);
+        // 标记服务不可用
+        this.embeddingAvailable = false;
+        this.lastEmbeddingCheck = now;
+        // 只在首次失败时打印警告
+        if (now - this.lastEmbeddingCheck > this.EMBEDDING_CHECK_INTERVAL) {
+          console.warn(`⚠️ Embedding 服务不可用 (${response.status})，语义搜索功能已禁用`);
+        }
         return [];
       }
+      
+      // 成功，标记服务可用
+      this.embeddingAvailable = true;
+      this.lastEmbeddingCheck = now;
       
       const data = await response.json() as { embedding?: number[] };
       return data.embedding || [];
     } catch (error) {
-      console.error('获取向量失败:', error);
+      // 标记服务不可用
+      this.embeddingAvailable = false;
+      this.lastEmbeddingCheck = now;
+      // 静默失败，不打印错误
       return [];
     }
   }
