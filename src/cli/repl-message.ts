@@ -861,7 +861,22 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
             return;
           }
           
-          console.log(chalk.green('✓ 开始执行计划...'));
+          // ★ 用户确认后，显示带进度条的计划，然后逐条执行
+          console.log();
+          console.log(chalk.green('✓ 计划已确认，开始执行：'));
+          console.log();
+          
+          // 标记第一个步骤为 in_progress
+          if (currentPlan && currentPlan.steps.length > 0) {
+            currentPlan.steps[0].status = 'in_progress';
+            savePlanToSession(session, currentPlan, message);
+          }
+          
+          // 显示带进度条的计划
+          console.log(renderTaskProgress(currentPlan!));
+          if (ctx.executionState) {
+            console.log(showTaskProgress(currentPlan!, ctx.executionState));
+          }
           console.log();
         }
       }
