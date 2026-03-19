@@ -664,6 +664,21 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       toolsForThisRound = [];
     }
     
+    // ★ 多模型支持：根据任务类型选择模型
+    let modelForThisRound = state.config.model.model;
+    if (complexity === 'complex' && !currentPlan) {
+      // 复杂任务规划阶段，使用规划模型
+      if (state.config.model.planner) {
+        modelForThisRound = state.config.model.planner;
+      }
+    } else if (complexity === 'complex' && currentPlan) {
+      // 复杂任务执行阶段，使用编码模型
+      if (state.config.model.coder) {
+        modelForThisRound = state.config.model.coder;
+      }
+    }
+    // 其他情况使用默认模型
+    
     const messages: Message[] = [
       { role: 'system', content: systemPrompt },
       ...session.history,
