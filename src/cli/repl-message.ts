@@ -812,7 +812,10 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       );
       
       // 检查是否有实质性内容输出
-      const hasSubstantialContent = result.content && result.content.trim().length > 100;
+      // 注意：工具调用成功也算有实质内容（即使输出很短）
+      const hasSubstantialContent = 
+        (result.content && result.content.trim().length > 100) ||
+        (result.toolCalls && result.toolCalls.length > 0);
       
       if (complexity === 'complex') {
         if (isTaskCompleted) {
