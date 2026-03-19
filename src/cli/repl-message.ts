@@ -188,6 +188,9 @@ function isAskingUserQuestion(
     /有什么可以帮.*[？?]$/,
     /需要我.*[？?]$/,
     /是否需要.*[？?]$/,
+    /你现在想/,
+    /你想/,
+    /你现在需要/,
   ];
   
   for (const pattern of definiteQuestionPatterns) {
@@ -196,18 +199,22 @@ function isAskingUserQuestion(
     }
   }
   
-  // 3. 检查最后一句是否是问题
-  const sentences = trimmedContent.split(/[。.!！\n]/).filter(s => s.trim());
-  const lastSentence = sentences[sentences.length - 1];
+  // 3. ★ 检查是否包含列表式问题（如 "- 继续开发新功能？"）
+  const listQuestionPattern = /^[\-\*•]\s*.+[？?]$/m;
+  if (listQuestionPattern.test(trimmedContent)) {
+    return true;
+  }
   
-  if (lastSentence) {
-    const trimmedLast = lastSentence.trim();
+  // 4. 检查所有句子，是否有问句
+  const sentences = trimmedContent.split(/[。.!！\n]/).filter(s => s.trim());
+  for (const sentence of sentences) {
+    const trimmedSentence = sentence.trim();
     
-    // 如果最后一句以问号结尾
-    if (/\？|\?$/.test(trimmedLast)) {
-      // 检查是否包含问题词
-      const questionWords = ['吗', '呢', '么', '哪', '什', '怎', '多', '几', '谁', '何'];
-      const hasQuestionWord = questionWords.some(w => trimmedLast.includes(w));
+    // 以问号结尾
+    if (/\？|\?$/.test(trimmedSentence)) {
+      // 包含问题词
+      const questionWords = ['吗', '呢', '么', '哪', '什', '怎', '多', '几', '谁', '何', '想', '需要'];
+      const hasQuestionWord = questionWords.some(w => trimmedSentence.includes(w));
       
       if (hasQuestionWord) {
         return true;
@@ -215,37 +222,32 @@ function isAskingUserQuestion(
     }
   }
   
-  // 4. 排除模式检查（问候语、自我介绍等）
-  // 注意：已经检查过明确的问题模式，所以这里不会误判
+  // 5. 排除模式检查（问候语、自我介绍等）
   for (const pattern of QUESTION_DETECTION_CONFIG.excludePatterns) {
     if (pattern.test(trimmedContent)) {
       return false;
     }
   }
   
-  // 5. 上下文检查
+  // 6. 上下文检查
   if (context) {
-    // 如果有工具调用，说明还在执行任务，不太可能是问用户问题
     if (context.hasToolCalls) {
       return false;
     }
-    
-    // 如果内容太长（超过 2000 字符），通常是输出结果，不是问题
     if (trimmedContent.length > QUESTION_DETECTION_CONFIG.maxContentLengthForQuestion) {
       return false;
     }
   }
   
-  // 6. 检查是否包含问题关键词
+  // 7. 检查是否包含问题关键词
   const lowerContent = trimmedContent.toLowerCase();
   const hasQuestionKeyword = QUESTION_DETECTION_CONFIG.questionKeywords.some(
     kw => lowerContent.includes(kw.toLowerCase())
   );
   
-  // 7. 检查是否匹配明确的问题模式
+  // 8. 检查是否匹配明确的问题模式
   for (const pattern of QUESTION_DETECTION_CONFIG.explicitQuestionPatterns) {
     if (pattern.test(trimmedContent)) {
-      // 如果以问号结尾，且包含问题关键词，确认是问题
       if (hasQuestionKeyword || /[？?]$/.test(trimmedContent)) {
         return true;
       }
