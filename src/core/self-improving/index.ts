@@ -36,6 +36,8 @@ export type {
   PromptPersonalization,
   GeneratedSkill,
   SkillGeneratorConfig,
+  // Phase 5 类型（反馈处理）
+  FeedbackAnalysis,
 } from './types.js';
 
 export { DEFAULT_SELF_IMPROVEMENT_CONFIG } from './types.js';
@@ -90,3 +92,12 @@ export {
   getSkillGenerator, 
   resetSkillGenerator,
 } from './skill-generator.js';
+
+// 反馈处理器
+export { 
+  FeedbackProcessor, 
+  getFeedbackProcessor, 
+  initFeedbackProcessor,
+  resetFeedbackProcessor,
+  type FeedbackAnalysis,
+} from './feedback-processor.js';

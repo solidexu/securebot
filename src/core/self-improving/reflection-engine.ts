@@ -39,9 +39,21 @@ const DEFAULT_CONFIG: ReflectionEngineConfig = {
 export class SelfReflectionEngine {
   private config: ReflectionEngineConfig;
   private initialized: boolean = false;
+  private llm: {
+    chat: (params: { model: string; messages: Array<{ role: string; content: string }> }) => Promise<{ content: string }>;
+  } | null = null;
   
   constructor(config: Partial<ReflectionEngineConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
+  }
+  
+  /**
+   * 设置 LLM 客户端
+   */
+  setLLM(llm: {
+    chat: (params: { model: string; messages: Array<{ role: string; content: string }> }) => Promise<{ content: string }>;
+  }): void {
+    this.llm = llm;
   }
   
   /**
@@ -177,9 +189,140 @@ export class SelfReflectionEngine {
   }
   
   /**
-   * 执行反思分析
+   * 执行反思分析（使用 LLM 深度分析）
    */
   private async performReflection(
+    agentId: string,
+    successPatterns: SuccessPattern[],
+    errorPatterns: ErrorPattern[],
+    feedbacks: UserFeedback[],
+    startTime: number,
+    endTime: number
+  ): Promise<ReflectionResult> {
+    // 尝试使用 LLM 进行深度分析
+    if (this.llm) {
+      try {
+        const llmResult = await this.reflectWithLLM(agentId, successPatterns, errorPatterns, feedbacks);
+        if (llmResult) {
+          const result: ReflectionResult = {
+            id: uuidv4(),
+            agentId,
+            reflectedAt: new Date().toISOString(),
+            timeRange: {
+              start: new Date(startTime).toISOString(),
+              end: new Date(endTime).toISOString(),
+            },
+            tasksAnalyzed: successPatterns.length + errorPatterns.length,
+            whatWentWell: llmResult.whatWentWell,
+            whatCouldBeImproved: llmResult.whatCouldBeImproved,
+            lessonsLearned: llmResult.lessonsLearned,
+            suggestedActions: llmResult.suggestedActions,
+            selfAssessment: {
+              overallPerformance: llmResult.overallPerformance,
+              confidenceLevel: llmResult.confidenceLevel,
+              areasToFocus: llmResult.areasToFocus,
+            },
+          };
+          
+          await this.persistReflection(result);
+          return result;
+        }
+      } catch (error) {
+        console.error('LLM 反思失败，回退到规则分析:', error);
+      }
+    }
+    
+    // 回退到规则分析
+    return this.performRuleBasedReflection(agentId, successPatterns, errorPatterns, feedbacks, startTime, endTime);
+  }
+  
+  /**
+   * 使用 LLM 进行深度反思
+   */
+  private async reflectWithLLM(
+    agentId: string,
+    successPatterns: SuccessPattern[],
+    errorPatterns: ErrorPattern[],
+    feedbacks: UserFeedback[]
+  ): Promise<{
+    whatWentWell: string[];
+    whatCouldBeImproved: string[];
+    lessonsLearned: string[];
+    suggestedActions: SuggestedAction[];
+    overallPerformance: number;
+    confidenceLevel: number;
+    areasToFocus: string[];
+  } | null> {
+    // 构建提示词
+    const prompt = `你是一个 AI Agent 自我反思专家。分析以下 Agent 的工作表现并给出改进建议。
+
+## Agent 信息
+- ID: ${agentId}
+
+## 近期成功案例 (${successPatterns.length} 个)
+${successPatterns.length > 0 
+  ? successPatterns.slice(0, 5).map(s => `- [${s.taskType}] ${s.description.slice(0, 80)}: 采用 ${s.approach.slice(0, 50)}`).join('\n')
+  : '暂无成功案例'}
+
+## 近期失败案例 (${errorPatterns.length} 个)
+${errorPatterns.length > 0 
+  ? errorPatterns.slice(0, 5).map(e => `- [${e.errorType}] ${e.taskContext?.slice(0, 50) || '未知任务'}: ${e.errorMessage?.slice(0, 50) || '未知错误'}`).join('\n')
+  : '暂无失败案例'}
+
+## 用户反馈 (${feedbacks.length} 条)
+${feedbacks.length > 0 
+  ? feedbacks.slice(0, 5).map(f => `- [${f.rating || '未评分'}/5] ${f.content.slice(0, 80)}`).join('\n')
+  : '暂无用户反馈'}
+
+## 分析要求
+请深入分析并输出 JSON 格式：
+{
+  "whatWentWell": ["优势1", "优势2"],
+  "whatCouldBeImproved": ["改进点1", "改进点2"],
+  "lessonsLearned": ["教训1", "教训2"],
+  "suggestedActions": [
+    { "priority": "high|medium|low", "action": "具体行动", "expectedImpact": "预期效果" }
+  ],
+  "overallPerformance": 0-100,
+  "confidenceLevel": 0-100,
+  "areasToFocus": ["需要关注的领域1", "领域2"]
+}`;
+
+    try {
+      const response = await this.llm!.chat({
+        model: this.config.model,
+        messages: [{ role: 'user', content: prompt }],
+      });
+      
+      // 解析 JSON
+      const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        return {
+          whatWentWell: parsed.whatWentWell || [],
+          whatCouldBeImproved: parsed.whatCouldBeImproved || [],
+          lessonsLearned: parsed.lessonsLearned || [],
+          suggestedActions: (parsed.suggestedActions || []).map((a: any) => ({
+            priority: a.priority || 'medium',
+            action: a.action || '',
+            expectedImpact: a.expectedImpact,
+          })),
+          overallPerformance: parsed.overallPerformance || 50,
+          confidenceLevel: parsed.confidenceLevel || 50,
+          areasToFocus: parsed.areasToFocus || [],
+        };
+      }
+    } catch (error) {
+      console.error('解析 LLM 反思结果失败:', error);
+    }
+    
+    return null;
+  }
+  
+  /**
+   * 基于规则的反思分析（回退方案）
+   */
+  private async performRuleBasedReflection(
     agentId: string,
     successPatterns: SuccessPattern[],
     errorPatterns: ErrorPattern[],

@@ -262,6 +262,38 @@ export class PromptOptimizer {
   }
   
   /**
+   * 添加避免规则（从反馈处理器调用）
+   */
+  async addAvoidRule(agentId: string, avoidPattern: string, suggestion: string): Promise<void> {
+    // 清除缓存，强制下次重新生成
+    this.clearCache(agentId);
+    
+    // 将避免规则记录到错误模式存储
+    const errorStore = getErrorPatternStore();
+    await errorStore.recordError(agentId, new Error(avoidPattern), {
+      taskDescription: '用户反馈驱动的避免规则',
+      approach: avoidPattern,
+      toolsUsed: [],
+    });
+    
+    // 如果有解决方案，更新错误模式
+    if (suggestion) {
+      // 更新改进日志
+      const logManager = getImprovementLogManager();
+      await logManager.log({
+        id: `avoid_${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        trigger: 'user_feedback',
+        type: 'behavior_change',
+        before: avoidPattern,
+        after: suggestion,
+        reason: '用户反馈驱动的改进',
+        effectiveness: null,
+      });
+    }
+  }
+  
+  /**
    * 清除缓存
    */
   clearCache(agentId?: string): void {

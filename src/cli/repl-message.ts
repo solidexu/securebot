@@ -314,6 +314,48 @@ export async function processMessage(
   }
 }
 
+// ============ 任务结束记录 ============
+
+/** 任务结束原因 */
+type TaskEndReason = 'completed' | 'cancelled' | 'failed' | 'max_rounds';
+
+/**
+ * 统一记录任务结束
+ * 无论成功、失败、取消都会记录，确保数据完整
+ */
+async function recordTaskEnd(
+  ctx: ToolCallLoopContext,
+  reason: TaskEndReason,
+  options?: {
+    summary?: string;
+    error?: string;
+  }
+): Promise<void> {
+  const { agent, session, message, taskTracker } = ctx;
+  
+  try {
+    await recordTaskExecution(
+      {
+        agent,
+        session,
+        taskDescription: message,
+        approach: reason === 'completed' ? '完成任务' : reason,
+        toolsUsed: Array.from(taskTracker.toolsUsed),
+        steps: taskTracker.steps,
+      },
+      {
+        success: reason === 'completed',
+        summary: options?.summary,
+        error: options?.error,
+        cancelled: reason === 'cancelled',
+      }
+    );
+  } catch (err) {
+    // 记录失败不应阻塞主流程
+    console.error('记录任务结束失败:', err);
+  }
+}
+
 // ============ 工具调用循环 ============
 
 interface ToolCallLoopContext {
@@ -410,10 +452,12 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       const answer = await interruptibleQuestion(chalk.cyan('\n是否继续尝试？ [y/N]: '));
       if (state.interrupted) {
         console.log(chalk.gray('\n[已取消]'));
+        await recordTaskEnd(ctx, 'cancelled', { error: '用户中断（无进展）' });
         return;
       }
       if (answer.toLowerCase() !== 'y') {
         console.log(chalk.gray('已停止'));
+        await recordTaskEnd(ctx, 'cancelled', { error: '用户停止（无进展）' });
         return;
       }
       consecutiveNoProgress = 0;  // 重置
@@ -480,6 +524,7 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       
       if (state.interrupted) {
         progressAnimation.stop();
+        await recordTaskEnd(ctx, 'cancelled', { error: '用户中断' });
         return;
       }
       
@@ -501,6 +546,7 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       
       if (isAbortError) {
         console.log(chalk.gray('\n[已取消]'));
+        await recordTaskEnd(ctx, 'cancelled', { error: '用户取消' });
         return;
       }
       
@@ -508,6 +554,7 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       const errMsg = error instanceof Error ? error.message : String(error);
       console.log(chalk.red(`\n模型调用失败: ${errMsg}`));
       console.log(chalk.gray('请检查 Ollama 服务是否运行，或使用 /model 切换模型'));
+      await recordTaskEnd(ctx, 'failed', { error: errMsg });
       return;
     }
     
@@ -581,20 +628,7 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
           }
           
           // 记录任务成功
-          await recordTaskExecution(
-            {
-              agent,
-              session,
-              taskDescription: message,
-              approach: '完成任务',
-              toolsUsed: Array.from(ctx.taskTracker.toolsUsed),
-              steps: ctx.taskTracker.steps,
-            },
-            {
-              success: true,
-              summary: result.content?.slice(0, 200),
-            }
-          );
+          await recordTaskEnd(ctx, 'completed', { summary: result.content?.slice(0, 200) });
           
           if (sessionStorage) {
             await sessionStorage.saveSession(session);
@@ -747,20 +781,7 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         });
         
         // 记录任务成功
-        await recordTaskExecution(
-          {
-            agent,
-            session,
-            taskDescription: message,
-            approach: '完成任务',
-            toolsUsed: Array.from(ctx.taskTracker.toolsUsed),
-            steps: ctx.taskTracker.steps,
-          },
-          {
-            success: true,
-            summary: result.content?.slice(0, 200),
-          }
-        );
+        await recordTaskEnd(ctx, 'completed', { summary: result.content?.slice(0, 200) });
         
         if (currentPlan) {
           console.log();
@@ -806,6 +827,7 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         
         if (state.interrupted) {
           console.log(chalk.gray('\n[已取消]'));
+          await recordTaskEnd(ctx, 'cancelled', { error: '用户中断' });
           return;
         }
         
@@ -824,6 +846,7 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
           };
         } else {
           console.log(chalk.red('✗ 任务已取消'));
+          await recordTaskEnd(ctx, 'cancelled', { error: '用户取消规划' });
           return;
         }
       }
@@ -886,6 +909,7 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
   }
   
   console.log(chalk.yellow(`\n已达到最大工具调用轮数 (${MAX_TOOL_ROUNDS})`));
+  await recordTaskEnd(ctx, 'max_rounds', { error: '达到最大轮数限制' });
   console.log();
 }
 

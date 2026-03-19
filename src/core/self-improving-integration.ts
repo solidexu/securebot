@@ -31,6 +31,8 @@ export interface TaskExecutionResult {
   error?: string;
   userRating?: number;
   userFeedback?: string;
+  /** 任务是否被用户取消 */
+  cancelled?: boolean;
 }
 
 /**
@@ -43,6 +45,19 @@ export async function recordTaskExecution(
   result: TaskExecutionResult
 ): Promise<void> {
   const { agent, taskDescription, approach, toolsUsed, steps } = context;
+  
+  // 取消的任务单独处理
+  if (result.cancelled) {
+    // 记录到改进日志（不是错误，只是取消）
+    const logManager = getImprovementLogManager();
+    await logManager.logFromFailure(
+      agent.id, 
+      taskDescription, 
+      approach, 
+      result.error || '用户取消任务'
+    );
+    return;
+  }
   
   if (result.success) {
     // 记录成功模式
