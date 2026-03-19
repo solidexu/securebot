@@ -173,6 +173,11 @@ export async function handleCommand(
       await handlePatternsCommand(state, arg);
       break;
 
+    case 'unified':
+    case 'us':
+      await handleUnifiedSearchCommand(state, parts.slice(1).join(' '));
+      break;
+
     default:
       console.log(chalk.yellow(`未知命令: ${cmd}`));
       console.log(chalk.gray('输入 /help 查看帮助'));
@@ -1756,6 +1761,71 @@ async function handlePatternsCommand(
     console.log('  /patterns success  查看成功模式');
     console.log('  /patterns errors   查看错误模式');
     console.log('  /patterns stats    查看统计');
+  }
+}
+
+/**
+ * 处理统一搜索命令
+ */
+async function handleUnifiedSearchCommand(
+  state: ReplState,
+  query: string
+): Promise<void> {
+  const { getUnifiedStore } = await import('../core/self-improving/unified-store.js');
+  const store = getUnifiedStore();
+  
+  if (!query) {
+    // 显示统计
+    const stats = await store.stats();
+    console.log(chalk.cyan.bold('\n📊 统一存储统计\n'));
+    console.log(`总计: ${stats.total} 条`);
+    console.log('\n按类型:');
+    console.log(`  记忆: ${stats.byType.memory}`);
+    console.log(`  成功模式: ${stats.byType.success}`);
+    console.log(`  错误模式: ${stats.byType.error}`);
+    console.log(`  反馈: ${stats.byType.feedback}`);
+    console.log('\n用法:');
+    console.log('  /unified <查询词>  统一搜索');
+    console.log('  /us <查询词>       简写');
+    return;
+  }
+  
+  const agent = state.agents.get(state.currentAgentId);
+  
+  // 搜索
+  const results = await store.search(query, {
+    agentId: agent?.id,
+    limit: 10,
+  });
+  
+  if (results.length === 0) {
+    console.log(chalk.gray('未找到相关内容'));
+    return;
+  }
+  
+  console.log(chalk.cyan.bold(`\n🔍 搜索结果 (${results.length} 条)\n`));
+  
+  for (const result of results) {
+    const typeEmoji = {
+      memory: '📝',
+      success: '✅',
+      error: '❌',
+      feedback: '💬',
+    }[result.entry.type];
+    
+    const typeLabel = {
+      memory: '记忆',
+      success: '成功',
+      error: '错误',
+      feedback: '反馈',
+    }[result.entry.type];
+    
+    console.log(chalk.white(`${typeEmoji} [${typeLabel}] ${(result.score * 100).toFixed(0)}%`));
+    console.log(chalk.gray(result.entry.content.slice(0, 150)) + (result.entry.content.length > 150 ? '...' : ''));
+    if (result.highlights && result.highlights.length > 0) {
+      console.log(chalk.yellow(`  匹配: ${result.highlights[0]}`));
+    }
+    console.log();
   }
 }
 
