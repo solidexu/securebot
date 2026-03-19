@@ -114,14 +114,15 @@ const QUESTION_DETECTION_CONFIG = {
   // 最小内容长度（太短的不检测）
   minContentLength: 5,
   // 最大内容长度（太长的通常是输出结果，不是问题）
-  maxContentLengthForQuestion: 500,
+  // 提高到 2000，因为有些问题确实比较长
+  maxContentLengthForQuestion: 2000,
   // 问题关键词（必须出现这些才可能是问题）
   questionKeywords: [
     // 中文
     '请选择', '请确认', '请决定', '请提供', '请输入',
     '是否', '要不要', '想不想', '需不需要',
     '哪一个', '哪个', '什么', '怎么', '如何',
-    '可以吗', '好吗', '行吗',
+    '可以吗', '好吗', '行吗', '现在可以开始',
     // 英文
     'would you', 'do you', 'can you', 'could you',
     'please choose', 'please confirm', 'please provide',
@@ -131,7 +132,7 @@ const QUESTION_DETECTION_CONFIG = {
     // 问候语
     /^有什么.{0,10}(可以|能|帮你|帮助)/,
     /^.{0,20}(欢迎|您好|你好|hi|hello)/,
-    // 陈述句
+    // 陈述句开头
     /^.{0,20}(我(是|叫|可以|会|将|已)|这是|这里是)/,
     // 自我介绍
     /^.{0,30}(助手|助理|专家|专员)/,
@@ -151,6 +152,8 @@ const QUESTION_DETECTION_CONFIG = {
     // 确认性问题
     /确认.*[吗？]$/,
     /是否.*[？?]?$/,
+    // 开始确认
+    /现在可以开始.*[？?]$/,
     // 英文
     /\?$/,
   ],
@@ -234,6 +237,22 @@ function isAskingUserQuestion(
           return true;
         }
       }
+    }
+  }
+  
+  // 7. 额外检查：内容中是否包含明确的问题句子
+  // 这可以检测到内容中间的问题
+  const questionPatterns = [
+    /现在可以开始.*[？?]/,
+    /是否需要.*[？?]/,
+    /需要我.*[？?]/,
+    /可以帮你.*[？?]/,
+    /有.*需求.*[？?]/,
+  ];
+  
+  for (const pattern of questionPatterns) {
+    if (pattern.test(trimmedContent)) {
+      return true;
     }
   }
   
