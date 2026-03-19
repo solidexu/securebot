@@ -733,6 +733,12 @@ export class UnifiedStore {
         }),
       });
       
+      // ★ 检查响应状态
+      if (!response.ok) {
+        console.error(`获取向量失败: HTTP ${response.status}`);
+        return [];
+      }
+      
       const data = await response.json() as { embedding?: number[] };
       return data.embedding || [];
     } catch (error) {
