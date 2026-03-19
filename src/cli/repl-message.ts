@@ -17,6 +17,7 @@ import { EventTypes } from '../core/events.js';
 import { getRootDir } from '../core/config.js';
 import type { StreamCallback } from '../model/ollama.js';
 import { OllamaConnectionError } from '../model/ollama.js';
+import { getContextManager } from '../core/context-manager.js';
 import {
   assessComplexity,
   parseTaskPlan,
@@ -645,6 +646,17 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       ...session.history,
     ];
     
+    // ★ 检查上下文长度并裁剪
+    const contextManager = getContextManager();
+    const trimmedMessages = contextManager.trimMessages(messages);
+    
+    // 如果有裁剪，显示提示
+    if (trimmedMessages.length < messages.length) {
+      const stats = contextManager.getContextStats(messages);
+      console.log(chalk.yellow(`\n⚠️ 上下文过长，已裁剪 ${messages.length - trimmedMessages.length} 条消息`));
+      console.log(chalk.gray(`   当前: ${stats.totalTokens.toLocaleString()} tokens`));
+    }
+    
     // 创建进度动画
     const thinkingMessage = round === 1 ? '思考中' : `继续思考 (轮次 ${round})`;
     const progressAnimation = new ProgressAnimation(thinkingMessage, ctx.abortController.signal);
@@ -684,7 +696,7 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       if (state.modelAdapter.chatWithStream) {
         result = await state.modelAdapter.chatWithStream({
           model: state.config.model.model,
-          messages,
+          messages: trimmedMessages,
           tools: toolsForThisRound.length > 0 ? toolsForThisRound : undefined,
           onStream,
           signal: ctx.abortController.signal,
@@ -692,7 +704,7 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       } else {
         result = await state.modelAdapter.chat({
           model: state.config.model.model,
-          messages,
+          messages: trimmedMessages,
           tools: toolsForThisRound.length > 0 ? toolsForThisRound : undefined,
         } as ChatParams);
       }

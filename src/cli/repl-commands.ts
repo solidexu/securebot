@@ -178,6 +178,11 @@ export async function handleCommand(
       await handleUnifiedSearchCommand(state, parts.slice(1).join(' '));
       break;
 
+    case 'context':
+    case 'ctx':
+      await handleContextCommand(state);
+      break;
+
     case 'ollama':
       await handleOllamaCommand(state, arg);
       break;
@@ -1801,6 +1806,34 @@ async function handlePatternsCommand(
     console.log('  /patterns success  查看成功模式');
     console.log('  /patterns errors   查看错误模式');
     console.log('  /patterns stats    查看统计');
+  }
+}
+
+/**
+ * 处理 /context 命令
+ */
+async function handleContextCommand(state: ReplState): Promise<void> {
+  const { getContextManager } = await import('../core/context-manager.js');
+  const contextManager = getContextManager();
+  
+  const session = state.sessions.get(state.currentSessionKey);
+  if (!session) {
+    console.log(chalk.yellow('当前没有活动会话'));
+    return;
+  }
+  
+  // 构建消息列表
+  const messages = [
+    { role: 'system' as const, content: '(系统提示)' },
+    ...session.history,
+  ];
+  
+  // 显示统计
+  console.log(contextManager.formatStats(messages));
+  
+  // 检查是否需要摘要
+  if (contextManager.needsSummarization(messages)) {
+    console.log(chalk.yellow('\n💡 建议使用 /reset 开始新会话，或使用 /history 查看历史'));
   }
 }
 
