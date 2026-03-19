@@ -1447,6 +1447,7 @@ async function handleImproveCommand(
     console.log(chalk.gray('  /improve reflect   执行自我反思'));
     console.log(chalk.gray('  /improve optimize  优化 Prompt'));
     console.log(chalk.gray('  /improve skills    管理/生成技能'));
+    console.log(chalk.gray('  /improve skill-optimize  优化技能'));
     console.log(chalk.gray('  /improve clear     清除改进数据'));
     console.log(chalk.gray('\n  /patterns          查看经验模式'));
     return;
@@ -1658,24 +1659,59 @@ async function handleImproveCommand(
         console.log(chalk.cyan.bold(`\n🛠️ 自动生成的技能 (${skills.length} 个)\n`));
         for (const skill of skills) {
           const sourceEmoji = skill.source === 'success_pattern' ? '✅' :
-                             skill.source === 'user_request' ? '👤' : '🤔';
+                             skill.source === 'user_request' ? '👤' : 
+                             skill.source === 'merged' ? '↔' : '🤖';
           console.log(chalk.white(`${sourceEmoji} ${skill.name}`));
           console.log(chalk.gray(`  描述: ${skill.description.slice(0, 50)}...`));
           console.log(chalk.gray(`  使用: ${skill.usageCount} 次 | 成功率: ${(skill.successRate * 100).toFixed(0)}%`));
           console.log();
         }
       }
+      break;
+    }
+    
+    case 'skill-optimize':
+    case 'skillopt': {
+      console.log(chalk.cyan('🔍 检查技能优化机会...'));
       
-      // 尝试自动生成新技能
-      console.log(chalk.cyan('检查是否可以生成新技能...'));
-      const newSkills = await skillGenerator.autoGenerateSkills(agent.id);
-      if (newSkills.length > 0) {
-        console.log(chalk.green(`✓ 生成了 ${newSkills.length} 个新技能`));
-        for (const skill of newSkills) {
+      const skillGenerator = getSkillGenerator();
+      const result = await skillGenerator.checkAndGenerateSkills(agent.id);
+      
+      console.log();
+      if (result.generated.length > 0) {
+        console.log(chalk.green.bold(`✓ 生成 ${result.generated.length} 个新技能:`));
+        for (const skill of result.generated) {
           console.log(chalk.gray(`  - ${skill.name}`));
         }
-      } else {
-        console.log(chalk.gray('暂无新的高价值成功模式可生成技能'));
+      }
+      
+      if (result.merged.length > 0) {
+        console.log(chalk.cyan.bold(`↔ 合并 ${result.merged.length} 组相似技能:`));
+        for (const merge of result.merged) {
+          console.log(chalk.gray(`  - ${merge.from.length} 个 → ${merge.to}`));
+        }
+      }
+      
+      if (result.retired.length > 0) {
+        console.log(chalk.yellow.bold(`✗ 淘汰 ${result.retired.length} 个低效技能`));
+      }
+      
+      if (result.generated.length === 0 && result.merged.length === 0 && result.retired.length === 0) {
+        console.log(chalk.gray('暂无优化建议'));
+      }
+      
+      // 显示技能质量评估
+      console.log();
+      console.log(chalk.cyan('📊 技能质量评估:'));
+      const evaluations = await skillGenerator.evaluateSkillQuality(agent.id);
+      
+      for (const eval of evaluations.slice(0, 5)) {
+        const scoreColor = eval.score >= 60 ? chalk.green : 
+                          eval.score >= 40 ? chalk.yellow : chalk.red;
+        console.log(scoreColor(`  ${eval.skill.name}: ${eval.score.toFixed(0)} 分`));
+        if (eval.issues.length > 0) {
+          console.log(chalk.gray(`    问题: ${eval.issues.join(', ')}`));
+        }
       }
       break;
     }
@@ -1920,7 +1956,8 @@ function printHelp(): void {
   console.log('  /improve feedback 查看用户反馈');
   console.log('  /improve reflect  执行自我反思');
   console.log('  /improve optimize 优化 Prompt');
-  console.log('  /improve skills   管理/生成技能');
+  console.log('  /improve skills   查看自动生成的技能');
+  console.log('  /improve skill-optimize  优化技能');
   console.log();
   console.log(chalk.cyan('经验模式:'));
   console.log('  /patterns success 查看成功模式');

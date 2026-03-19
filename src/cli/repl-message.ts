@@ -493,6 +493,41 @@ async function recordTaskEnd(
   }
 }
 
+// ============ 技能优化检查 ============
+
+/**
+ * 自动检查并优化技能
+ * 
+ * 在任务成功完成后调用
+ */
+async function checkAndOptimizeSkills(agentId: string): Promise<void> {
+  try {
+    const { getSkillGenerator } = await import('../core/self-improving/index.js');
+    const generator = getSkillGenerator();
+    
+    // 检查是否需要生成/合并/淘汰技能
+    const result = await generator.checkAndGenerateSkills(agentId);
+    
+    // 如果有操作，显示结果
+    if (result.generated.length > 0 || result.merged.length > 0 || result.retired.length > 0) {
+      console.log(chalk.gray('\n📝 技能优化:'));
+      
+      if (result.generated.length > 0) {
+        console.log(chalk.green(`  ✓ 生成 ${result.generated.length} 个新技能`));
+      }
+      if (result.merged.length > 0) {
+        console.log(chalk.cyan(`  ↔ 合并 ${result.merged.length} 组相似技能`));
+      }
+      if (result.retired.length > 0) {
+        console.log(chalk.yellow(`  ✗ 淘汰 ${result.retired.length} 个低效技能`));
+      }
+    }
+  } catch (error) {
+    // 技能优化失败不影响主流程
+    // 静默处理
+  }
+}
+
 // ============ 工具调用循环 ============
 
 interface ToolCallLoopContext {
@@ -779,6 +814,9 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
           // 记录任务成功
           await recordTaskEnd(ctx, 'completed', { summary: result.content?.slice(0, 200) });
           
+          // ★ 自动触发技能优化检查
+          await checkAndOptimizeSkills(agent.id);
+          
           if (sessionStorage) {
             await sessionStorage.saveSession(session);
           }
@@ -941,6 +979,9 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         
         // 记录任务成功
         await recordTaskEnd(ctx, 'completed', { summary: result.content?.slice(0, 200) });
+        
+        // ★ 自动触发技能优化检查
+        await checkAndOptimizeSkills(agent.id);
         
         if (currentPlan) {
           console.log();
