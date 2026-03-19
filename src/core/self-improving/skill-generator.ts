@@ -289,10 +289,67 @@ ${pattern.toolsUsed.join(', ')}`,
       const skill = await this.generateFromPattern(agentId, pattern);
       if (skill) {
         generated.push(skill);
+        
+        // ★ 同时注册到 SkillManager
+        await this.registerToSkillManager(skill);
       }
     }
     
     return generated;
+  }
+  
+  /**
+   * 将生成的技能注册到 SkillManager
+   */
+  private async registerToSkillManager(skill: GeneratedSkill): Promise<void> {
+    try {
+      const { getSkillManager } = await import('../skills.js');
+      const skillManager = getSkillManager();
+      await skillManager.initialize();
+      
+      // 转换为 Skill 格式
+      const skillDef = {
+        id: skill.id,
+        name: skill.name,
+        description: skill.description,
+        keywords: this.extractKeywords(skill),
+        systemPrompt: skill.prompt,
+        tools: skill.tools,
+        examples: skill.examples?.map(e => ({
+          user: skill.description,
+          assistant: e,
+        })),
+        isPublic: false,
+        agentId: skill.agentId,
+        createdAt: skill.createdAt,
+        updatedAt: skill.createdAt,
+      };
+      
+      await skillManager.saveSkill(skillDef);
+    } catch (error) {
+      console.error('注册技能到 SkillManager 失败:', error);
+    }
+  }
+  
+  /**
+   * 从技能描述提取关键词
+   */
+  private extractKeywords(skill: GeneratedSkill): string[] {
+    const keywords: string[] = [];
+    
+    // 从描述中提取
+    const descWords = skill.description
+      .replace(/[，。！？、；：""''（）【】]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length >= 2);
+    keywords.push(...descWords.slice(0, 5));
+    
+    // 从工具中提取
+    if (skill.tools) {
+      keywords.push(...skill.tools);
+    }
+    
+    return [...new Set(keywords)];
   }
   
   /**
