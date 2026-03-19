@@ -16,6 +16,7 @@ export class ProgressAnimation {
   private startTime = 0;
   private abortSignal?: AbortSignal;
   private stopped = false;
+  private abortHandler?: () => void;
   
   constructor(message: string = '思考中', abortSignal?: AbortSignal) {
     this.message = message;
@@ -34,11 +35,12 @@ export class ProgressAnimation {
     // 隐藏光标
     process.stdout.write('\x1B[?25l');
     
-    // 监听 abort 信号
+    // 监听 abort 信号（保存 handler 以便清理）
     if (this.abortSignal) {
-      this.abortSignal.addEventListener('abort', () => {
+      this.abortHandler = () => {
         this.stop();
-      });
+      };
+      this.abortSignal.addEventListener('abort', this.abortHandler);
     }
     
     this.interval = setInterval(() => {
@@ -89,6 +91,12 @@ export class ProgressAnimation {
     if (this.interval) {
       clearInterval(this.interval);
       this.interval = null;
+    }
+    
+    // ★ 移除 abort 监听器
+    if (this.abortSignal && this.abortHandler) {
+      this.abortSignal.removeEventListener('abort', this.abortHandler);
+      this.abortHandler = undefined;
     }
     
     // 显示光标

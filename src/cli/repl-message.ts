@@ -43,57 +43,44 @@ import {
 /** 最大工具调用轮数（安全兜底，正常情况下不触发） */
 const MAX_TOOL_ROUNDS = 100;
 
-/** 问题结尾模式 - 检测 agent 是否在问用户问题 */
-const QUESTION_PATTERNS = [
-  // 中文问题结尾（必须以问号结尾）
-  /[吗？|？]$/,
-  /\？$/,
-  // 英文问题结尾
-  /\?$/,
-  // 中文常见问题（更精确的模式）
-  /请问.*[？?]$/,
-  /是否需要.*[？?]$/,
-  /您想.*[？?]$/,
-  /你希望.*[？?]$/,
-  /你需要.*[？?]$/,
-  /是否.*[？?]$/,
-  // 英文常见问题
-  /\bwhat\b.*\?$/i,
-  /\bhow\b.*\?$/i,
-  /\bwould you\b.*\?$/i,
-  /\bdo you\b.*\?$/i,
-  /\bcan you\b.*\?$/i,
-  /\bcould you\b.*\?$/i,
-];
+// ============ 监听器管理器 ============
 
 /**
- * 检测内容是否是在问用户问题
- * 返回 true 表示检测到问题，应该停止循环等待用户回复
+ * 监听器管理器
  * 
- * 关键规则：必须以问号结尾，或者包含明确的问题句式
+ * 统一管理事件监听器，避免内存泄漏
  */
-function isAskingUserQuestion(content: string | null | undefined): boolean {
-  if (!content || content.trim().length === 0) {
-    return false;
+class ListenerManager {
+  private listeners: Array<{
+    target: EventTarget;
+    event: string;
+    handler: EventListener;
+  }> = [];
+  
+  /**
+   * 添加监听器
+   */
+  add(target: EventTarget, event: string, handler: EventListener): void {
+    target.addEventListener(event, handler);
+    this.listeners.push({ target, event, handler });
   }
   
-  const trimmedContent = content.trim();
-  
-  // 检查是否匹配问题模式
-  for (const pattern of QUESTION_PATTERNS) {
-    if (pattern.test(trimmedContent)) {
-      return true;
+  /**
+   * 清除所有监听器
+   */
+  clearAll(): void {
+    for (const { target, event, handler } of this.listeners) {
+      target.removeEventListener(event, handler);
     }
+    this.listeners = [];
   }
   
-  // 额外检查：如果最后一句以问号结尾
-  const sentences = trimmedContent.split(/[。.!！\n]/).filter(s => s.trim());
-  const lastSentence = sentences[sentences.length - 1];
-  if (lastSentence && /\？|\?$/.test(lastSentence.trim())) {
-    return true;
+  /**
+   * 获取监听器数量
+   */
+  count(): number {
+    return this.listeners.length;
   }
-  
-  return false;
 }
 
 /** 任务追踪状态 */
@@ -101,6 +88,155 @@ interface TaskTracker {
   toolsUsed: Set<string>;
   steps: { id: string; description: string; success: boolean }[];
   startTime: number;
+}
+
+// ============ 问题检测（增强版） ============
+
+/**
+ * 问题检测上下文
+ */
+interface QuestionDetectionContext {
+  /** 是否有工具调用 */
+  hasToolCalls: boolean;
+  /** 内容长度 */
+  contentLength: number;
+  /** 是否是第一轮 */
+  isFirstRound: boolean;
+  /** 之前的连续无工具调用轮数 */
+  consecutiveNoToolCalls: number;
+}
+
+/**
+ * 问题检测配置
+ */
+const QUESTION_DETECTION_CONFIG = {
+  // 最小内容长度（太短的不检测）
+  minContentLength: 5,
+  // 最大内容长度（太长的通常是输出结果，不是问题）
+  maxContentLengthForQuestion: 500,
+  // 问题关键词（必须出现这些才可能是问题）
+  questionKeywords: [
+    // 中文
+    '请选择', '请确认', '请决定', '请提供', '请输入',
+    '是否', '要不要', '想不想', '需不需要',
+    '哪一个', '哪个', '什么', '怎么', '如何',
+    '可以吗', '好吗', '行吗',
+    // 英文
+    'would you', 'do you', 'can you', 'could you',
+    'please choose', 'please confirm', 'please provide',
+  ],
+  // 排除模式（这些不是问题）
+  excludePatterns: [
+    // 问候语
+    /^有什么.{0,10}(可以|能|帮你|帮助)/,
+    /^.{0,20}(欢迎|您好|你好|hi|hello)/,
+    // 陈述句
+    /^.{0,20}(我(是|叫|可以|会|将|已)|这是|这里是)/,
+    // 自我介绍
+    /^.{0,30}(助手|助理|专家|专员)/,
+    // 能力描述
+    /^.{0,20}(我可以|我能|我(会|将)帮你|能够)/,
+    // 结束语
+    /^.{0,20}(好的|收到|明白|了解|没问题)/,
+  ],
+  // 明确的问题模式（必须匹配）
+  explicitQuestionPatterns: [
+    // 中文（必须以问号结尾）
+    /[吗？|？]$/,
+    /\？$/,
+    // 选择性问题
+    /请选择.*[？?]?$/,
+    /需要.*[吗？]$/,
+    // 确认性问题
+    /确认.*[吗？]$/,
+    /是否.*[？?]?$/,
+    // 英文
+    /\?$/,
+  ],
+};
+
+/**
+ * 检测内容是否是在问用户问题
+ * 
+ * 增强版：结合上下文判断，避免误判
+ */
+function isAskingUserQuestion(
+  content: string | null | undefined,
+  context?: QuestionDetectionContext
+): boolean {
+  if (!content || content.trim().length === 0) {
+    return false;
+  }
+  
+  const trimmedContent = content.trim();
+  
+  // 1. 内容长度检查
+  if (trimmedContent.length < QUESTION_DETECTION_CONFIG.minContentLength) {
+    return false;
+  }
+  
+  // 2. 排除模式检查（问候语、自我介绍等）
+  for (const pattern of QUESTION_DETECTION_CONFIG.excludePatterns) {
+    if (pattern.test(trimmedContent)) {
+      return false;
+    }
+  }
+  
+  // 3. 上下文检查
+  if (context) {
+    // 如果有工具调用，说明还在执行任务，不太可能是问用户问题
+    if (context.hasToolCalls) {
+      return false;
+    }
+    
+    // 如果内容太长（超过500字符），通常是输出结果，不是问题
+    if (trimmedContent.length > QUESTION_DETECTION_CONFIG.maxContentLengthForQuestion) {
+      return false;
+    }
+  }
+  
+  // 4. 检查是否包含问题关键词
+  const lowerContent = trimmedContent.toLowerCase();
+  const hasQuestionKeyword = QUESTION_DETECTION_CONFIG.questionKeywords.some(
+    kw => lowerContent.includes(kw.toLowerCase())
+  );
+  
+  // 5. 检查是否匹配明确的问题模式
+  for (const pattern of QUESTION_DETECTION_CONFIG.explicitQuestionPatterns) {
+    if (pattern.test(trimmedContent)) {
+      // 如果以问号结尾，且包含问题关键词，确认是问题
+      if (hasQuestionKeyword || /[？?]$/.test(trimmedContent)) {
+        return true;
+      }
+    }
+  }
+  
+  // 6. 额外检查：最后一句以问号结尾，且不是陈述句
+  const sentences = trimmedContent.split(/[。.!！\n]/).filter(s => s.trim());
+  const lastSentence = sentences[sentences.length - 1];
+  
+  if (lastSentence) {
+    const trimmedLast = lastSentence.trim();
+    
+    // 必须以问号结尾
+    if (/\？|\?$/.test(trimmedLast)) {
+      // 不能是陈述句开头
+      const statementStarters = ['我', '这', '那', '它', '他', '她', '这里', '那里'];
+      const isStatement = statementStarters.some(s => trimmedLast.startsWith(s));
+      
+      if (!isStatement) {
+        // 检查是否包含问题词
+        const questionWords = ['吗', '呢', '么', '哪', '什', '怎', '多', '几', '谁', '何'];
+        const hasQuestionWord = questionWords.some(w => trimmedLast.includes(w));
+        
+        if (hasQuestionWord) {
+          return true;
+        }
+      }
+    }
+  }
+  
+  return false;
 }
 
 // ============ 消息处理入口 ============
@@ -383,6 +519,9 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
   const { state, agent, session, message, systemPrompt, availableTools, sessionStorage } = ctx;
   let { currentPlan, lastPlanRender, shouldExecutePlan, complexity } = ctx;
   
+  // ★ 监听器管理器
+  const listenerManager = new ListenerManager();
+  
   // 创建可中断的 question 函数
   const interruptibleQuestion = async (prompt: string): Promise<string> => {
     // 如果已经被打断，直接返回空
@@ -393,12 +532,14 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
     // 创建 AbortController 用于打断 rl.question
     const questionAbort = new AbortController();
     const abortHandler = () => {
-      questionAbort.abort();
+      if (!questionAbort.signal.aborted) {
+        questionAbort.abort();
+      }
     };
     
-    // 监听打断信号
+    // 使用监听器管理器注册
     if (state.abortController) {
-      state.abortController.signal.addEventListener('abort', abortHandler);
+      listenerManager.add(state.abortController.signal, 'abort', abortHandler);
     }
     
     try {
@@ -416,9 +557,7 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       }
       throw error;
     } finally {
-      if (state.abortController) {
-        state.abortController.signal.removeEventListener('abort', abortHandler);
-      }
+      listenerManager.clearAll();
     }
   };
   
@@ -715,7 +854,12 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         
         // ★ 关键修复：检测是否在问用户问题
         // 如果是，停止循环等待用户回复
-        if (isAskingUserQuestion(result.content)) {
+        if (isAskingUserQuestion(result.content, {
+          hasToolCalls: false,
+          contentLength: result.content?.length || 0,
+          isFirstRound: round === 1,
+          consecutiveNoToolCalls: noToolCallRounds,
+        })) {
           console.log();  // 换行
           if (sessionStorage) {
             await sessionStorage.saveSession(session);
@@ -759,7 +903,12 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         
         // ★ 关键修复：检测是否在问用户问题
         // 如果是，停止循环等待用户回复
-        if (isAskingUserQuestion(result.content)) {
+        if (isAskingUserQuestion(result.content, {
+          hasToolCalls: false,
+          contentLength: result.content?.length || 0,
+          isFirstRound: round === 1,
+          consecutiveNoToolCalls: noToolCallRounds,
+        })) {
           addAssistantMessage(session, result.content);
           console.log();  // 换行
           if (sessionStorage) {
