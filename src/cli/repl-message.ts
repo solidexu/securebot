@@ -44,27 +44,32 @@ const MAX_TOOL_ROUNDS = 100;
 
 /** 问题结尾模式 - 检测 agent 是否在问用户问题 */
 const QUESTION_PATTERNS = [
-  // 中文问题结尾
+  // 中文问题结尾（必须以问号结尾）
   /[吗？|？]$/,
   /\？$/,
-  // 中文常见问题
-  /有什么|是否需要|您想|请提供|请告诉我|请问|你希望|你需要|是否/,
   // 英文问题结尾
   /\?$/,
+  // 中文常见问题（更精确的模式）
+  /请问.*[？?]$/,
+  /是否需要.*[？?]$/,
+  /您想.*[？?]$/,
+  /你希望.*[？?]$/,
+  /你需要.*[？?]$/,
+  /是否.*[？?]$/,
   // 英文常见问题
-  /\bwhat\b.*\?/i,
-  /\bhow\b.*\?/i,
-  /\bwould you\b/i,
-  /\bdo you\b/i,
-  /\bcan you\b/i,
-  /\bcould you\b/i,
-  /\bany\s+(specific|particular)/i,
-  /\bplease\s+(provide|tell|share|let me know)/i,
+  /\bwhat\b.*\?$/i,
+  /\bhow\b.*\?$/i,
+  /\bwould you\b.*\?$/i,
+  /\bdo you\b.*\?$/i,
+  /\bcan you\b.*\?$/i,
+  /\bcould you\b.*\?$/i,
 ];
 
 /**
  * 检测内容是否是在问用户问题
  * 返回 true 表示检测到问题，应该停止循环等待用户回复
+ * 
+ * 关键规则：必须以问号结尾，或者包含明确的问题句式
  */
 function isAskingUserQuestion(content: string | null | undefined): boolean {
   if (!content || content.trim().length === 0) {
@@ -348,9 +353,9 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       questionAbort.abort();
     };
     
-    // 监听打断信号 - 使用 once: true 自动清理
+    // 监听打断信号
     if (state.abortController) {
-      state.abortController.signal.addEventListener('abort', abortHandler, { once: true });
+      state.abortController.signal.addEventListener('abort', abortHandler);
     }
     
     try {

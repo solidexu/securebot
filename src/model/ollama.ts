@@ -208,15 +208,23 @@ export class OllamaAdapter implements ModelAdapter {
     // 使用 AbortController 合并外部 signal 和超时
     const abortController = new AbortController();
     
-    // 监听外部 signal - 使用 once: true 自动清理
+    // 监听外部 signal
     const abortHandler = () => {
-      abortController.abort();
+      if (!abortController.signal.aborted) {
+        abortController.abort();
+      }
     };
-    signal?.addEventListener('abort', abortHandler, { once: true });
+    
+    // 添加监听器（不使用 once: true，手动管理）
+    if (signal) {
+      signal.addEventListener('abort', abortHandler);
+    }
     
     // 设置超时
     const timeoutId = setTimeout(() => {
-      abortController.abort();
+      if (!abortController.signal.aborted) {
+        abortController.abort();
+      }
     }, this.timeout);
     
     let response: Response;
