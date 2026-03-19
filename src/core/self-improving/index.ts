@@ -112,3 +112,15 @@ export {
   type PreferenceEntry,
   type UnifiedPreferencesStore,
 } from './unified-preferences.js';
+
+// 统一数据存储
+export { 
+  UnifiedStore, 
+  getUnifiedStore, 
+  resetUnifiedStore,
+  type UnifiedEntry,
+  type UnifiedEntryType,
+  type UnifiedSearchOptions,
+  type UnifiedSearchResult,
+  type UnifiedStoreConfig,
+} from './unified-store.js';

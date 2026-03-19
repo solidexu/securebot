@@ -196,6 +196,9 @@ export class FeedbackCollector {
     
     await this.storage.save(entry);
     
+    // ★ 同步到统一存储
+    await this.syncToUnifiedStore(entry);
+    
     // 发布反馈事件
     eventBus.publishSync({
       type: EventTypes.USER_MESSAGE, // 复用现有事件类型
@@ -209,6 +212,20 @@ export class FeedbackCollector {
     });
     
     return entry;
+  }
+  
+  /**
+   * 同步到统一存储
+   */
+  private async syncToUnifiedStore(feedback: UserFeedback): Promise<void> {
+    try {
+      const { getUnifiedStore } = await import('./unified-store.js');
+      const store = getUnifiedStore();
+      await store.addFromFeedback(feedback);
+    } catch (error) {
+      // 同步失败不影响主流程
+      console.error('同步反馈到统一存储失败:', error);
+    }
   }
   
   /**

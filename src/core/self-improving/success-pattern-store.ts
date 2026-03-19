@@ -177,9 +177,26 @@ export class SuccessPatternStore {
       
       // ★ 学习偏好
       await this.learnPreferences(agentId, pattern);
+      
+      // ★ 同步到统一存储
+      await this.syncToUnifiedStore(pattern);
     }
     
     return pattern;
+  }
+  
+  /**
+   * 同步到统一存储
+   */
+  private async syncToUnifiedStore(pattern: SuccessPattern): Promise<void> {
+    try {
+      const { getUnifiedStore } = await import('./unified-store.js');
+      const store = getUnifiedStore();
+      await store.addFromSuccessPattern(pattern);
+    } catch (error) {
+      // 同步失败不影响主流程
+      console.error('同步到统一存储失败:', error);
+    }
   }
   
   /**
