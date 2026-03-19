@@ -178,6 +178,10 @@ export async function handleCommand(
       await handleUnifiedSearchCommand(state, parts.slice(1).join(' '));
       break;
 
+    case 'ollama':
+      await handleOllamaCommand(state, arg);
+      break;
+
     default:
       console.log(chalk.yellow(`未知命令: ${cmd}`));
       console.log(chalk.gray('输入 /help 查看帮助'));
@@ -1761,6 +1765,58 @@ async function handlePatternsCommand(
     console.log('  /patterns success  查看成功模式');
     console.log('  /patterns errors   查看错误模式');
     console.log('  /patterns stats    查看统计');
+  }
+}
+
+/**
+ * 处理 /ollama 命令
+ */
+async function handleOllamaCommand(state: ReplState, arg?: string): Promise<void> {
+  const { OllamaAdapter } = await import('../model/ollama.js');
+  
+  // 获取当前模型适配器
+  const adapter = state.modelAdapter;
+  if (!(adapter instanceof OllamaAdapter)) {
+    console.log(chalk.yellow('当前模型不是 Ollama'));
+    console.log(chalk.gray('使用 /model 命令切换到 Ollama 模型'));
+    return;
+  }
+  
+  if (arg === 'check') {
+    console.log(chalk.cyan('正在检查 Ollama 服务...'));
+    const result = await adapter.checkConnection();
+    
+    if (result.connected) {
+      console.log(chalk.green('✓ Ollama 服务运行正常'));
+      if (result.models && result.models.length > 0) {
+        console.log(chalk.cyan('\n可用模型:'));
+        for (const model of result.models) {
+          console.log(chalk.gray(`  - ${model}`));
+        }
+      }
+    } else {
+      console.log(chalk.red(`✗ Ollama 服务不可用: ${result.error}`));
+      console.log(chalk.gray('\n解决方案:'));
+      console.log(chalk.gray('  1. 启动 Ollama: ollama serve'));
+      console.log(chalk.gray('  2. 或使用 /model 切换到云端模型'));
+    }
+  } else if (arg === 'status') {
+    const status = adapter.getConnectionStatus();
+    const statusText = {
+      unknown: chalk.gray('未知'),
+      connected: chalk.green('已连接'),
+      disconnected: chalk.red('已断开'),
+    }[status];
+    
+    console.log(chalk.cyan('Ollama 状态:'));
+    console.log(`  连接: ${statusText}`);
+    console.log(`  地址: ${adapter['baseUrl']}`);
+    console.log(`  默认模型: ${adapter['defaultModel']}`);
+    console.log(`  超时: ${adapter['timeout'] / 1000}秒`);
+  } else {
+    console.log(chalk.cyan('Ollama 管理:'));
+    console.log('  /ollama check   检查服务连接');
+    console.log('  /ollama status  查看连接状态');
   }
 }
 

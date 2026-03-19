@@ -16,6 +16,7 @@ import { eventBus } from '../core/event-bus.js';
 import { EventTypes } from '../core/events.js';
 import { getRootDir } from '../core/config.js';
 import type { StreamCallback } from '../model/ollama.js';
+import { OllamaConnectionError } from '../model/ollama.js';
 import {
   assessComplexity,
   parseTaskPlan,
@@ -547,6 +548,15 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       if (isAbortError) {
         console.log(chalk.gray('\n[已取消]'));
         await recordTaskEnd(ctx, 'cancelled', { error: '用户取消' });
+        return;
+      }
+      
+      // 检查是否是 Ollama 连接错误
+      if (error instanceof OllamaConnectionError) {
+        console.log();
+        console.log(chalk.red(error.getUserFriendlyMessage()));
+        console.log();
+        await recordTaskEnd(ctx, 'failed', { error: error.message });
         return;
       }
       

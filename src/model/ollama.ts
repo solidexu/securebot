@@ -7,6 +7,43 @@
 
 import type { ModelAdapter, ChatParams, ChatResult, Message, Tool } from '../core/types.js';
 
+// ============ 自定义错误类 ============
+
+/**
+ * Ollama 连接错误
+ */
+export class OllamaConnectionError extends Error {
+  public readonly baseUrl: string;
+  public readonly availableModels: string[];
+  
+  constructor(message: string, baseUrl: string, availableModels: string[] = []) {
+    super(message);
+    this.name = 'OllamaConnectionError';
+    this.baseUrl = baseUrl;
+    this.availableModels = availableModels;
+  }
+  
+  /**
+   * 获取用户友好的错误提示
+   */
+  getUserFriendlyMessage(): string {
+    const lines: string[] = [];
+    
+    lines.push(`❌ Ollama 连接失败: ${this.message}`);
+    lines.push('');
+    lines.push('📋 解决方案:');
+    lines.push('  1. 启动 Ollama 服务:');
+    lines.push('     ollama serve');
+    lines.push('');
+    lines.push('  2. 检查服务地址:');
+    lines.push(`     当前配置: ${this.baseUrl}`);
+    lines.push('');
+    lines.push('  3. 使用 /model 命令切换到云端模型');
+    
+    return lines.join('\n');
+  }
+}
+
 // ============ Ollama API Types ============
 
 interface OllamaChatRequest {
@@ -109,6 +146,9 @@ export class OllamaAdapter implements ModelAdapter {
   private baseUrl: string;
   private defaultModel: string;
   private timeout: number;
+  private connectionStatus: 'unknown' | 'connected' | 'disconnected' = 'unknown';
+  private lastCheckTime: number = 0;
+  private readonly CHECK_INTERVAL = 60000; // 1 分钟检查一次
 
   constructor(options: {
     baseUrl?: string;
@@ -118,6 +158,78 @@ export class OllamaAdapter implements ModelAdapter {
     this.baseUrl = options.baseUrl ?? 'http://localhost:11434';
     this.defaultModel = options.defaultModel ?? 'qwen3.5-35b-a3b';
     this.timeout = options.timeout ?? 300000; // 5 分钟默认超时
+  }
+
+  /**
+   * 检查 Ollama 服务是否可用
+   */
+  async checkConnection(): Promise<{
+    connected: boolean;
+    error?: string;
+    models?: string[];
+  }> {
+    const now = Date.now();
+    
+    // 如果最近检查过且状态正常，返回缓存结果
+    if (this.connectionStatus === 'connected' && now - this.lastCheckTime < this.CHECK_INTERVAL) {
+      return { connected: true };
+    }
+    
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 秒超时
+      
+      const response = await fetch(`${this.baseUrl}/api/tags`, {
+        method: 'GET',
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        this.connectionStatus = 'disconnected';
+        return {
+          connected: false,
+          error: `服务响应错误: HTTP ${response.status}`,
+        };
+      }
+      
+      const data = await response.json() as OllamaModelsResponse;
+      const models = data.models?.map(m => m.name) ?? [];
+      
+      this.connectionStatus = 'connected';
+      this.lastCheckTime = now;
+      
+      return { connected: true, models };
+    } catch (error) {
+      this.connectionStatus = 'disconnected';
+      
+      let errorMessage = '无法连接到 Ollama 服务';
+      
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          errorMessage = '连接超时 (5秒)';
+        } else if (error.message.includes('ECONNREFUSED')) {
+          errorMessage = 'Ollama 服务未运行';
+        } else if (error.message.includes('ENOTFOUND')) {
+          errorMessage = `无法解析地址: ${this.baseUrl}`;
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
+      return {
+        connected: false,
+        error: errorMessage,
+      };
+    }
+  }
+
+  /**
+   * 获取连接状态
+   */
+  getConnectionStatus(): 'unknown' | 'connected' | 'disconnected' {
+    return this.connectionStatus;
   }
 
   /**
@@ -131,6 +243,16 @@ export class OllamaAdapter implements ModelAdapter {
    * 发送聊天请求（支持流式）
    */
   async chatWithStream(params: StreamChatParams): Promise<ChatResult> {
+    // 先检查连接状态
+    const connection = await this.checkConnection();
+    if (!connection.connected) {
+      throw new OllamaConnectionError(
+        connection.error || '无法连接到 Ollama 服务',
+        this.baseUrl,
+        connection.models || []
+      );
+    }
+    
     const model = params.model ?? this.defaultModel;
     const useStream = !!params.onStream;
     
