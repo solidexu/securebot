@@ -179,80 +179,76 @@ function isAskingUserQuestion(
     return false;
   }
   
-  // 2. 排除模式检查（问候语、自我介绍等）
-  for (const pattern of QUESTION_DETECTION_CONFIG.excludePatterns) {
+  // 2. ★ 优先检查：是否包含明确的问题句式
+  // 这些是绝对的问题标志，应该优先检测
+  const definiteQuestionPatterns = [
+    /^请问/,
+    /请问.*[？?]$/,
+    /我可以帮你.*[？?]$/,
+    /有什么可以帮.*[？?]$/,
+    /需要我.*[？?]$/,
+    /是否需要.*[？?]$/,
+  ];
+  
+  for (const pattern of definiteQuestionPatterns) {
     if (pattern.test(trimmedContent)) {
-      return false;
+      return true;
     }
   }
   
-  // 3. 上下文检查
-  if (context) {
-    // 如果有工具调用，说明还在执行任务，不太可能是问用户问题
-    if (context.hasToolCalls) {
-      return false;
-    }
-    
-    // 如果内容太长（超过500字符），通常是输出结果，不是问题
-    if (trimmedContent.length > QUESTION_DETECTION_CONFIG.maxContentLengthForQuestion) {
-      return false;
-    }
-  }
-  
-  // 4. 检查是否包含问题关键词
-  const lowerContent = trimmedContent.toLowerCase();
-  const hasQuestionKeyword = QUESTION_DETECTION_CONFIG.questionKeywords.some(
-    kw => lowerContent.includes(kw.toLowerCase())
-  );
-  
-  // 5. 检查是否匹配明确的问题模式
-  for (const pattern of QUESTION_DETECTION_CONFIG.explicitQuestionPatterns) {
-    if (pattern.test(trimmedContent)) {
-      // 如果以问号结尾，且包含问题关键词，确认是问题
-      if (hasQuestionKeyword || /[？?]$/.test(trimmedContent)) {
-        return true;
-      }
-    }
-  }
-  
-  // 6. 额外检查：最后一句以问号结尾，且不是陈述句
+  // 3. 检查最后一句是否是问题
   const sentences = trimmedContent.split(/[。.!！\n]/).filter(s => s.trim());
   const lastSentence = sentences[sentences.length - 1];
   
   if (lastSentence) {
     const trimmedLast = lastSentence.trim();
     
-    // 必须以问号结尾
+    // 如果最后一句以问号结尾
     if (/\？|\?$/.test(trimmedLast)) {
-      // 不能是陈述句开头
-      const statementStarters = ['我', '这', '那', '它', '他', '她', '这里', '那里'];
-      const isStatement = statementStarters.some(s => trimmedLast.startsWith(s));
+      // 检查是否包含问题词
+      const questionWords = ['吗', '呢', '么', '哪', '什', '怎', '多', '几', '谁', '何'];
+      const hasQuestionWord = questionWords.some(w => trimmedLast.includes(w));
       
-      if (!isStatement) {
-        // 检查是否包含问题词
-        const questionWords = ['吗', '呢', '么', '哪', '什', '怎', '多', '几', '谁', '何'];
-        const hasQuestionWord = questionWords.some(w => trimmedLast.includes(w));
-        
-        if (hasQuestionWord) {
-          return true;
-        }
+      if (hasQuestionWord) {
+        return true;
       }
     }
   }
   
-  // 7. 额外检查：内容中是否包含明确的问题句子
-  // 这可以检测到内容中间的问题
-  const questionPatterns = [
-    /现在可以开始.*[？?]/,
-    /是否需要.*[？?]/,
-    /需要我.*[？?]/,
-    /可以帮你.*[？?]/,
-    /有.*需求.*[？?]/,
-  ];
-  
-  for (const pattern of questionPatterns) {
+  // 4. 排除模式检查（问候语、自我介绍等）
+  // 注意：已经检查过明确的问题模式，所以这里不会误判
+  for (const pattern of QUESTION_DETECTION_CONFIG.excludePatterns) {
     if (pattern.test(trimmedContent)) {
-      return true;
+      return false;
+    }
+  }
+  
+  // 5. 上下文检查
+  if (context) {
+    // 如果有工具调用，说明还在执行任务，不太可能是问用户问题
+    if (context.hasToolCalls) {
+      return false;
+    }
+    
+    // 如果内容太长（超过 2000 字符），通常是输出结果，不是问题
+    if (trimmedContent.length > QUESTION_DETECTION_CONFIG.maxContentLengthForQuestion) {
+      return false;
+    }
+  }
+  
+  // 6. 检查是否包含问题关键词
+  const lowerContent = trimmedContent.toLowerCase();
+  const hasQuestionKeyword = QUESTION_DETECTION_CONFIG.questionKeywords.some(
+    kw => lowerContent.includes(kw.toLowerCase())
+  );
+  
+  // 7. 检查是否匹配明确的问题模式
+  for (const pattern of QUESTION_DETECTION_CONFIG.explicitQuestionPatterns) {
+    if (pattern.test(trimmedContent)) {
+      // 如果以问号结尾，且包含问题关键词，确认是问题
+      if (hasQuestionKeyword || /[？?]$/.test(trimmedContent)) {
+        return true;
+      }
     }
   }
   
