@@ -42,6 +42,54 @@ import {
 /** 最大工具调用轮数（安全兜底，正常情况下不触发） */
 const MAX_TOOL_ROUNDS = 100;
 
+/** 问题结尾模式 - 检测 agent 是否在问用户问题 */
+const QUESTION_PATTERNS = [
+  // 中文问题结尾
+  /[吗？|？]$/,
+  /\？$/,
+  // 中文常见问题
+  /有什么|是否需要|您想|请提供|请告诉我|请问|你希望|你需要|是否/,
+  // 英文问题结尾
+  /\?$/,
+  // 英文常见问题
+  /\bwhat\b.*\?/i,
+  /\bhow\b.*\?/i,
+  /\bwould you\b/i,
+  /\bdo you\b/i,
+  /\bcan you\b/i,
+  /\bcould you\b/i,
+  /\bany\s+(specific|particular)/i,
+  /\bplease\s+(provide|tell|share|let me know)/i,
+];
+
+/**
+ * 检测内容是否是在问用户问题
+ * 返回 true 表示检测到问题，应该停止循环等待用户回复
+ */
+function isAskingUserQuestion(content: string | null | undefined): boolean {
+  if (!content || content.trim().length === 0) {
+    return false;
+  }
+  
+  const trimmedContent = content.trim();
+  
+  // 检查是否匹配问题模式
+  for (const pattern of QUESTION_PATTERNS) {
+    if (pattern.test(trimmedContent)) {
+      return true;
+    }
+  }
+  
+  // 额外检查：如果最后一句以问号结尾
+  const sentences = trimmedContent.split(/[。.!！\n]/).filter(s => s.trim());
+  const lastSentence = sentences[sentences.length - 1];
+  if (lastSentence && /\？|\?$/.test(lastSentence.trim())) {
+    return true;
+  }
+  
+  return false;
+}
+
 /** 任务追踪状态 */
 interface TaskTracker {
   toolsUsed: Set<string>;
@@ -300,9 +348,9 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       questionAbort.abort();
     };
     
-    // 监听打断信号
+    // 监听打断信号 - 使用 once: true 自动清理
     if (state.abortController) {
-      state.abortController.signal.addEventListener('abort', abortHandler);
+      state.abortController.signal.addEventListener('abort', abortHandler, { once: true });
     }
     
     try {
@@ -614,6 +662,17 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         // 可能是模型在"思考"，需要引导
         addAssistantMessage(session, result.content);
         
+        // ★ 关键修复：检测是否在问用户问题
+        // 如果是，停止循环等待用户回复
+        if (isAskingUserQuestion(result.content)) {
+          console.log();  // 换行
+          if (sessionStorage) {
+            await sessionStorage.saveSession(session);
+          }
+          // 停止循环，等待用户回复
+          return;
+        }
+        
         // 如果有当前计划，引导模型执行下一步
         if (currentPlan) {
           const nextStep = getNextPendingStep(currentPlan);
@@ -646,6 +705,18 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         // 有实质性内容输出，重置计数器
         noToolCallRounds = 0;
         consecutiveNoProgress = 0;  // 有实质内容，重置
+        
+        // ★ 关键修复：检测是否在问用户问题
+        // 如果是，停止循环等待用户回复
+        if (isAskingUserQuestion(result.content)) {
+          addAssistantMessage(session, result.content);
+          console.log();  // 换行
+          if (sessionStorage) {
+            await sessionStorage.saveSession(session);
+          }
+          // 停止循环，等待用户回复
+          return;
+        }
       } else {
         // 无实质性内容，计数
         noToolCallRounds++;

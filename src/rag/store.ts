@@ -98,7 +98,7 @@ export const DEFAULT_RAG_CONFIG: RAGConfig = {
   chunkSize: 1000,
   chunkOverlap: 200,
   topK: 5,
-  minScore: 0.5,
+  minScore: 0.3,  // 降低阈值，让更多相关结果能被找到
 };
 
 // ============ 工具函数 ============
@@ -1147,6 +1147,14 @@ export class AdvancedRAGStore extends RAGStore {
     }
 
     let results = Array.from(allResults.values());
+
+    // ★ 如果向量搜索无结果，使用关键词搜索作为后备
+    if (results.length === 0) {
+      const keywordResults = this.searchByKeywords(query, topK ?? this.advancedConfig.topK);
+      if (keywordResults.length > 0) {
+        results = keywordResults;
+      }
+    }
 
     // 阶段 3: 重排序
     if (this.advancedConfig.enableRerank && this.reranker && results.length > 0) {

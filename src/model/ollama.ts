@@ -208,11 +208,11 @@ export class OllamaAdapter implements ModelAdapter {
     // 使用 AbortController 合并外部 signal 和超时
     const abortController = new AbortController();
     
-    // 监听外部 signal
+    // 监听外部 signal - 使用 once: true 自动清理
     const abortHandler = () => {
       abortController.abort();
     };
-    signal?.addEventListener('abort', abortHandler);
+    signal?.addEventListener('abort', abortHandler, { once: true });
     
     // 设置超时
     const timeoutId = setTimeout(() => {
@@ -366,6 +366,10 @@ export class OllamaAdapter implements ModelAdapter {
       signal?.removeEventListener('abort', streamAbortHandler);
       abortController.signal.removeEventListener('abort', streamAbortHandler);
     } catch (error) {
+      // ★ 修复：确保在异常时也移除监听器
+      signal?.removeEventListener('abort', streamAbortHandler);
+      abortController.signal.removeEventListener('abort', streamAbortHandler);
+      
       // 如果是被取消的，返回已收集的内容
       if (signal?.aborted || abortController.signal.aborted) {
         return {
@@ -382,6 +386,9 @@ export class OllamaAdapter implements ModelAdapter {
     } finally {
       clearTimeout(timeoutId);
       signal?.removeEventListener('abort', abortHandler);
+      // ★ 修复：双重保险，确保所有监听器都被清理
+      signal?.removeEventListener('abort', streamAbortHandler);
+      abortController.signal.removeEventListener('abort', streamAbortHandler);
     }
 
     return {
