@@ -494,18 +494,20 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
     } catch (error) {
       progressAnimation.stop();
       // 检查是否是用户主动打断
+      // 注意：只有明确的 AbortError 才是用户取消，其他错误应该显示具体信息
       const isAbortError = 
         state.interrupted ||
-        (error instanceof Error && error.name === 'AbortError') ||
-        (error instanceof Error && error.message.toLowerCase().includes('abort')) ||
-        (typeof error === 'string' && error.toLowerCase().includes('abort'));
+        (error instanceof Error && error.name === 'AbortError' && state.interrupted);
       
       if (isAbortError) {
         console.log(chalk.gray('\n[已取消]'));
         return;
       }
+      
+      // 其他错误显示具体信息
       const errMsg = error instanceof Error ? error.message : String(error);
       console.log(chalk.red(`\n模型调用失败: ${errMsg}`));
+      console.log(chalk.gray('请检查 Ollama 服务是否运行，或使用 /model 切换模型'));
       return;
     }
     
