@@ -667,15 +667,45 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       ...session.history,
     ];
     
-    // ★ 检查上下文长度并裁剪
+    // ★ 上下文管理：先尝试压缩，再裁剪
     const contextManager = getContextManager();
-    const trimmedMessages = contextManager.trimMessages(messages, toolsForThisRound);
+    const stats = contextManager.getContextStats(messages, toolsForThisRound);
     
-    // 如果有裁剪，显示提示
-    if (trimmedMessages.length < messages.length) {
-      const stats = contextManager.getContextStats(messages, toolsForThisRound);
-      console.log(chalk.yellow(`\n⚠️ 上下文过长，已裁剪 ${messages.length - trimmedMessages.length} 条消息`));
-      console.log(chalk.gray(`   当前: ${stats.totalTokens.toLocaleString()} tokens (${stats.usagePercent.toFixed(1)}%)`));
+    let finalMessages = messages;
+    
+    // 如果接近限制，尝试压缩
+    if (stats.usagePercent > 60) {
+      const { getContextCompressor } = await import('../core/context-compressor.js');
+      const compressor = getContextCompressor();
+      
+      // 设置 LLM（如果有）
+      if (state.modelAdapter.chat) {
+        compressor.setLLM(
+          { chat: state.modelAdapter.chat.bind(state.modelAdapter) },
+          state.config.model.model
+        );
+      }
+      
+      // 检查是否需要压缩
+      if (compressor.needsCompression(messages, contextManager.getMaxTokens(), stats.totalTokens)) {
+        console.log(chalk.cyan('\n📦 上下文过长，正在压缩历史消息...'));
+        
+        const compressedMessages = await compressor.compress(messages);
+        const compressedStats = contextManager.getContextStats(compressedMessages, toolsForThisRound);
+        
+        console.log(chalk.green(`✓ 压缩完成: ${stats.totalTokens.toLocaleString()} → ${compressedStats.totalTokens.toLocaleString()} tokens`));
+        
+        finalMessages = compressedMessages;
+      }
+    }
+    
+    // 如果仍然超限，裁剪
+    if (contextManager.isContextOverflow(finalMessages, toolsForThisRound)) {
+      finalMessages = contextManager.trimMessages(finalMessages, toolsForThisRound);
+      
+      const finalStats = contextManager.getContextStats(finalMessages, toolsForThisRound);
+      console.log(chalk.yellow(`\n⚠️ 已裁剪 ${messages.length - finalMessages.length} 条消息`));
+      console.log(chalk.gray(`   当前: ${finalStats.totalTokens.toLocaleString()} tokens (${finalStats.usagePercent.toFixed(1)}%)`));
     }
     
     // 创建进度动画
@@ -711,7 +741,7 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       if (state.modelAdapter.chatWithStream) {
         result = await state.modelAdapter.chatWithStream({
           model: state.config.model.model,
-          messages: trimmedMessages,
+          messages: finalMessages,
           tools: toolsForThisRound.length > 0 ? toolsForThisRound : undefined,
           onStream,
           signal: ctx.abortController.signal,
@@ -719,7 +749,7 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       } else {
         result = await state.modelAdapter.chat({
           model: state.config.model.model,
-          messages: trimmedMessages,
+          messages: finalMessages,
           tools: toolsForThisRound.length > 0 ? toolsForThisRound : undefined,
         } as ChatParams);
       }
