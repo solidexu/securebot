@@ -208,16 +208,22 @@ export class OllamaAdapter implements ModelAdapter {
     // 使用 AbortController 合并外部 signal 和超时
     const abortController = new AbortController();
     
-    // 监听外部 signal
+    // 监听外部 signal（兼容性处理）
     const abortHandler = () => {
       if (!abortController.signal.aborted) {
         abortController.abort();
       }
     };
     
-    // 添加监听器（不使用 once: true，手动管理）
-    if (signal) {
+    // 检查 signal 是否支持 addEventListener（Node.js 15+）
+    // 旧版本可能不支持，使用兼容方式
+    if (signal && typeof signal.addEventListener === 'function') {
       signal.addEventListener('abort', abortHandler);
+    } else if (signal) {
+      // 兼容旧版本：直接检查 aborted 状态
+      if (signal.aborted) {
+        abortController.abort();
+      }
     }
     
     // 设置超时
@@ -278,11 +284,14 @@ export class OllamaAdapter implements ModelAdapter {
         abortPromiseResolve = resolve;
       });
       
-      // 监听 abort，触发 Promise resolve
+      // 监听 abort，触发 Promise resolve（兼容性处理）
       const streamAbortHandler = () => {
         abortPromiseResolve?.();
       };
-      signal?.addEventListener('abort', streamAbortHandler);
+      // 兼容性处理：检查是否支持 addEventListener
+      if (signal && typeof signal.addEventListener === 'function') {
+        signal.addEventListener('abort', streamAbortHandler);
+      }
       abortController.signal.addEventListener('abort', streamAbortHandler);
 
       // 定义读取结果类型
@@ -393,9 +402,14 @@ export class OllamaAdapter implements ModelAdapter {
       throw error;
     } finally {
       clearTimeout(timeoutId);
-      signal?.removeEventListener('abort', abortHandler);
+      // 兼容性处理：检查是否支持 removeEventListener
+      if (signal && typeof signal.removeEventListener === 'function') {
+        signal.removeEventListener('abort', abortHandler);
+      }
       // ★ 修复：双重保险，确保所有监听器都被清理
-      signal?.removeEventListener('abort', streamAbortHandler);
+      if (signal && typeof signal.removeEventListener === 'function') {
+        signal.removeEventListener('abort', streamAbortHandler);
+      }
       abortController.signal.removeEventListener('abort', streamAbortHandler);
     }
 
