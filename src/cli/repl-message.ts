@@ -1057,65 +1057,73 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
     
     // 解析任务计划
     if (complexity === 'complex' && result.content) {
-      const parsedPlan = parseTaskPlan(result.content);
-      if (parsedPlan && parsedPlan.steps.length > 0) {
-        currentPlan = parsedPlan;
-        savePlanToSession(session, currentPlan, message);
-        
-        // 初始化执行状态
-        if (!ctx.executionState) {
-          ctx.executionState = createExecutionState(currentPlan, 'guided');
-          // 注意：不自动标记第一个步骤为 in_progress
-          // 等用户确认后才标记
-        }
-        
-        const newRender = renderTaskProgress(currentPlan);
-        if (newRender !== lastPlanRender) {
-          console.log();
-          console.log(chalk.cyan('📋 任务计划已生成:'));
-          console.log(newRender);
+      // ★ 关键修复：检查是否已有未完成的计划
+      const hasExistingPlan = currentPlan && currentPlan.steps.some(s => 
+        s.status === 'pending' || s.status === 'in_progress'
+      );
+      
+      // 只有在没有未完成的计划时才解析新计划
+      if (!hasExistingPlan) {
+        const parsedPlan = parseTaskPlan(result.content);
+        if (parsedPlan && parsedPlan.steps.length > 0) {
+          currentPlan = parsedPlan;
+          savePlanToSession(session, currentPlan, message);
           
-          // 显示进度条
-          if (ctx.executionState) {
-            console.log(showTaskProgress(currentPlan, ctx.executionState));
+          // 初始化执行状态
+          if (!ctx.executionState) {
+            ctx.executionState = createExecutionState(currentPlan, 'guided');
+            // 注意：不自动标记第一个步骤为 in_progress
+            // 等用户确认后才标记
           }
           
-          lastPlanRender = newRender;
-          
-          // ★ 新增：等待用户确认计划
-          console.log();
-          console.log(chalk.yellow('是否按此计划执行？'));
-          const answer = await interruptibleQuestion(chalk.cyan('[y/N]: '));
-          
-          if (state.interrupted) {
-            console.log(chalk.gray('\n[已取消]'));
-            await recordTaskEnd(ctx, 'cancelled', { error: '用户取消规划' });
-            return;
+          const newRender = renderTaskProgress(currentPlan);
+          if (newRender !== lastPlanRender) {
+            console.log();
+            console.log(chalk.cyan('📋 任务计划已生成:'));
+            console.log(newRender);
+            
+            // 显示进度条
+            if (ctx.executionState) {
+              console.log(showTaskProgress(currentPlan, ctx.executionState));
+            }
+            
+            lastPlanRender = newRender;
+            
+            // ★ 新增：等待用户确认计划
+            console.log();
+            console.log(chalk.yellow('是否按此计划执行？'));
+            const answer = await interruptibleQuestion(chalk.cyan('[y/N]: '));
+            
+            if (state.interrupted) {
+              console.log(chalk.gray('\n[已取消]'));
+              await recordTaskEnd(ctx, 'cancelled', { error: '用户取消规划' });
+              return;
+            }
+            
+            if (answer.toLowerCase() !== 'y') {
+              console.log(chalk.gray('已取消任务'));
+              await recordTaskEnd(ctx, 'cancelled', { error: '用户取消规划' });
+              return;
+            }
+            
+            // ★ 用户确认后，显示带进度条的计划，然后逐条执行
+            console.log();
+            console.log(chalk.green('✓ 计划已确认，开始执行：'));
+            console.log();
+            
+            // 标记第一个步骤为 in_progress
+            if (currentPlan && currentPlan.steps.length > 0) {
+              currentPlan.steps[0].status = 'in_progress';
+              savePlanToSession(session, currentPlan, message);
+            }
+            
+            // 显示带进度条的计划
+            console.log(renderTaskProgress(currentPlan!));
+            if (ctx.executionState) {
+              console.log(showTaskProgress(currentPlan!, ctx.executionState));
+            }
+            console.log();
           }
-          
-          if (answer.toLowerCase() !== 'y') {
-            console.log(chalk.gray('已取消任务'));
-            await recordTaskEnd(ctx, 'cancelled', { error: '用户取消规划' });
-            return;
-          }
-          
-          // ★ 用户确认后，显示带进度条的计划，然后逐条执行
-          console.log();
-          console.log(chalk.green('✓ 计划已确认，开始执行：'));
-          console.log();
-          
-          // 标记第一个步骤为 in_progress
-          if (currentPlan && currentPlan.steps.length > 0) {
-            currentPlan.steps[0].status = 'in_progress';
-            savePlanToSession(session, currentPlan, message);
-          }
-          
-          // 显示带进度条的计划
-          console.log(renderTaskProgress(currentPlan!));
-          if (ctx.executionState) {
-            console.log(showTaskProgress(currentPlan!, ctx.executionState));
-          }
-          console.log();
         }
       }
     }
