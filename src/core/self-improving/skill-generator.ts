@@ -326,8 +326,50 @@ ${pattern.toolsUsed.join(', ')}`,
       };
       
       await skillManager.saveSkill(skillDef);
+      
+      // 修复：将技能 ID 添加到 agent 配置中
+      await this.addSkillToAgentConfig(skill.agentId, skill.id);
     } catch (error) {
       console.error('注册技能到 SkillManager 失败:', error);
+    }
+  }
+  
+  /**
+   * 将技能 ID 添加到 agent 配置
+   */
+  private async addSkillToAgentConfig(agentId: string, skillId: string): Promise<void> {
+    try {
+      const { getConfig, saveConfig } = await import('../config.js');
+      const config = getConfig();
+      
+      // 查找对应的 agent
+      const agentIndex = config.agents?.findIndex(a => a.id === agentId);
+      if (agentIndex === undefined || agentIndex < 0) {
+        // agent 不在配置中，跳过
+        return;
+      }
+      
+      const agent = config.agents![agentIndex]!;
+      
+      // 初始化 skills 数组（如果不存在）
+      if (!agent.skills) {
+        agent.skills = [];
+      }
+      
+      // 检查是否已存在
+      if (agent.skills.includes(skillId)) {
+        return;
+      }
+      
+      // 添加技能 ID
+      agent.skills.push(skillId);
+      
+      // 保存配置
+      saveConfig(config);
+      
+      console.log(`[SkillGenerator] 已将技能 ${skillId} 添加到 agent ${agentId} 的配置中`);
+    } catch (error) {
+      console.error('添加技能到 agent 配置失败:', error);
     }
   }
   
