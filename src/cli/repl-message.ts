@@ -123,6 +123,58 @@ function hasSubstantialProgress(result: ModelResult): boolean {
 }
 
 /**
+ * 检测是否是正常对话结束（不需要继续循环）
+ * 
+ * 用于区分：
+ * - 简单问候/介绍 → 正常结束，不需要继续
+ * - 任务进行中 → 需要继续
+ * - 模型卡住 → 触发无进展警告
+ */
+function isNormalConversationEnd(result: ModelResult, complexity: 'simple' | 'moderate' | 'complex'): boolean {
+  const content = result.content?.trim() ?? '';
+  
+  // 如果有工具调用，不是对话结束
+  if (result.toolCalls && result.toolCalls.length > 0) {
+    return false;
+  }
+  
+  // 简单/中等复杂度任务：检测对话结束信号
+  if (complexity !== 'complex') {
+    // 1. 问候/自我介绍模式
+    const greetingPatterns = [
+      /^你好[！!。．]/,
+      /^嗨[！!。．]/,
+      /^您好[！!。．]/,
+      /我是.*助手/,
+      /我是.*AI/,
+      /我可以帮助你/,
+      /请问有什么/,
+      /有什么我可以/,
+      // 英文
+      /^Hello[!.]/i,
+      /^Hi[!.]/i,
+      /I'm.*assistant/i,
+      /I can help/i,
+    ];
+    if (greetingPatterns.some(p => p.test(content))) {
+      return true;
+    }
+    
+    // 2. 等待用户回复（问题结尾）
+    if (/\?|？$/.test(content) || /请问|需要确认|是否/.test(content)) {
+      return true;
+    }
+    
+    // 3. 有实质内容的回复（长度足够）
+    if (content.length > 100) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
  * 分析无进展原因
  * 
  * 返回无进展的具体原因，用于提示用户
@@ -1070,6 +1122,17 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       const isTaskCompleted = completionSignals.some(signal => 
         result.content?.toLowerCase().includes(signal.toLowerCase())
       );
+      
+      // ★ 新增：检测是否是正常对话结束（简单问候/介绍等）
+      // 如果是，直接结束，不触发无进展警告
+      if (isNormalConversationEnd(result, complexity)) {
+        addAssistantMessage(session, result.content);
+        console.log();  // 换行
+        if (sessionStorage) {
+          await sessionStorage.saveSession(session);
+        }
+        return;  // 正常结束对话
+      }
       
       // P1优化：使用统一的实质进展检测函数
       const hasSubstantialContent = hasSubstantialProgress(result);
