@@ -466,6 +466,15 @@ export async function processMessage(
     // 添加用户消息
     addUserMessage(session, message);
     
+    // ★ 新增：显示当前上下文 token 数量
+    const contextManager = getContextManager();
+    const toolsForStats = getAvailableTools(agent, state.config.tools);
+    const preliminaryStats = contextManager.getContextStats(
+      session.history,
+      toolsForStats
+    );
+    console.log(chalk.gray(`📊 上下文: ${preliminaryStats.totalTokens.toLocaleString()} tokens (${preliminaryStats.usagePercent.toFixed(1)}%)`));
+    
     // 判断任务复杂度
     const complexity = assessComplexity(message);
     
