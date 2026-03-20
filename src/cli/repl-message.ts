@@ -782,6 +782,9 @@ async function checkAndOptimizeSkills(agentId: string): Promise<void> {
 
 // ============ 工具调用循环 ============
 
+/** 自动重试的最大次数 */
+const MAX_AUTO_RETRY = 3;
+
 interface ToolCallLoopContext {
   state: ReplState;
   agent: Agent;
@@ -804,11 +807,18 @@ interface ToolCallLoopContext {
   stepManager?: StepManager;
   /** ★ P1优化：激活的技能列表 */
   activeSkills?: string[];
+  /** ★ 新增：步骤失败次数追踪 */
+  stepFailures?: Map<string, number>;
 }
 
 async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
   const { state, agent, session, message, systemPrompt, availableTools, sessionStorage } = ctx;
   let { currentPlan, lastPlanRender, shouldExecutePlan, complexity } = ctx;
+  
+  // 初始化步骤失败追踪
+  if (!ctx.stepFailures) {
+    ctx.stepFailures = new Map<string, number>();
+  }
   
   // 修复：恢复会话时初始化 executionState
   if (currentPlan && !ctx.executionState) {
@@ -1497,8 +1507,13 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       });
       
       // ★ P0优化：处理步骤失败，提供用户选择
+      // ★ P0优化：步骤失败时自动重试，不立即问用户
       if (toolResult?.failedStep) {
         const failedStep = toolResult.failedStep;
+        
+        // 追踪失败次数
+        const failureCount = (ctx.stepFailures?.get(failedStep.id) || 0) + 1;
+        ctx.stepFailures?.set(failedStep.id, failureCount);
         
         // 使用 stepManager 标记失败
         if (ctx.stepManager) {
@@ -1509,9 +1524,55 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         }
         
         console.log();
-        console.log(chalk.red('❌ 步骤执行失败'));
+        console.log(chalk.red(`❌ 步骤执行失败 (第 ${failureCount} 次)`));
         console.log(chalk.cyan(`步骤: ${failedStep.description}`));
-        console.log(chalk.yellow(`原因: ${failedStep.error}`));
+        
+        // 截取错误信息，避免太长
+        const errorMsg = failedStep.error.length > 500 
+          ? failedStep.error.slice(0, 500) + '...'
+          : failedStep.error;
+        console.log(chalk.yellow(`原因: ${errorMsg}`));
+        
+        // ★ 判断是否应该自动重试
+        if (failureCount < MAX_AUTO_RETRY) {
+          console.log(chalk.cyan('\n🔄 尝试自动修复...'));
+          
+          // 重置步骤状态为 pending，让模型可以重试
+          if (ctx.stepManager) {
+            ctx.stepManager.retryStep(failedStep.id);
+          } else if (currentPlan) {
+            updateStepStatus(currentPlan, failedStep.id, 'pending');
+            savePlanToSession(session, currentPlan);
+          }
+          
+          // ★ 添加引导消息，让模型自己分析错误并尝试修复
+          const autoRetryPrompt = `## ⚠️ 步骤执行失败，请自动分析并修复
+
+**失败的步骤**: ${failedStep.description}
+
+**错误信息**:
+\`\`\`
+${errorMsg}
+\`\`\`
+
+**你需要做的**:
+1. 分析错误原因（仔细阅读错误信息）
+2. 找出问题所在（是代码错误？配置问题？还是其他？）
+3. 尝试修复问题（修改代码、调整配置等）
+4. 重新执行该步骤
+
+**注意**: 这是第 ${failureCount} 次失败，你还有 ${MAX_AUTO_RETRY - failureCount} 次自动重试机会。
+
+请立即分析错误并尝试修复，不要问用户。`;
+          
+          addUserMessage(session, autoRetryPrompt);
+          
+          // 继续循环让模型自动修复
+          continue;
+        }
+        
+        // ★ 连续失败次数过多，停下来问用户
+        console.log(chalk.red(`\n⚠️ 该步骤已连续失败 ${failureCount} 次`));
         console.log();
         if (ctx.stepManager) {
           console.log(ctx.stepManager.renderStepList());
@@ -1521,7 +1582,7 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         console.log();
         
         // 提供用户选择
-        console.log(chalk.cyan('请选择:'));
+        console.log(chalk.cyan('自动修复失败，请选择:'));
         console.log(chalk.gray('  1. 重试当前步骤 (输入 r)'));
         console.log(chalk.gray('  2. 跳过并继续下一步 (输入 s)'));
         console.log(chalk.gray('  3. 停止任务并保存进度 (输入 q)'));
@@ -1537,25 +1598,29 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         const choice = answer.toLowerCase().trim();
         
         if (choice === 'r') {
-          // 重试：使用 stepManager 重置步骤状态
+          // 重试：重置失败计数，让模型重新尝试
           console.log(chalk.green('\n✓ 将重试当前步骤...'));
+          ctx.stepFailures?.delete(failedStep.id);  // 重置失败计数
+          
           if (ctx.stepManager) {
             ctx.stepManager.retryStep(failedStep.id);
           } else if (currentPlan) {
             updateStepStatus(currentPlan, failedStep.id, 'pending');
             savePlanToSession(session, currentPlan);
           }
+          
           // 添加引导消息让模型重试
           addUserMessage(session,
-            `上一步执行失败，错误: ${failedStep.error}\n\n` +
-            `请重新尝试执行步骤: ${failedStep.description}\n\n` +
-            `如果需要，可以调整方法。`
+            `用户选择重试。请重新尝试执行步骤: ${failedStep.description}\n\n` +
+            `之前的错误: ${errorMsg}\n\n` +
+            `请仔细分析错误原因并尝试不同的方法。`
           );
           // 继续循环让模型重试
           continue;
         } else if (choice === 's') {
           // 跳过：使用 stepManager 跳过并推进
           console.log(chalk.yellow('\n⏭️ 跳过当前步骤...'));
+          ctx.stepFailures?.delete(failedStep.id);  // 清除失败计数
           
           if (ctx.stepManager) {
             const skipResult = ctx.stepManager.skipStep(failedStep.id, failedStep.error);
