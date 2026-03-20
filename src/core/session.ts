@@ -6,6 +6,121 @@
 
 import type { Session, Message, AgentConfig, Config } from './types.js';
 import { getAgentsDir, getMemoryDir, getSkillsDir, getSessionsDir } from './config.js';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+
+// ============ 记忆上下文加载 ============
+
+/**
+ * 加载用户档案
+ */
+function loadUserProfile(memoryDir: string): string | null {
+  const profilePath = join(memoryDir, 'profiles', 'user.json');
+  if (!existsSync(profilePath)) {
+    // 尝试 yaml 格式
+    const yamlPath = join(memoryDir, 'profiles', 'owner.yaml');
+    if (existsSync(yamlPath)) {
+      const content = readFileSync(yamlPath, 'utf-8');
+      return `## 用户档案\n\`\`\`yaml\n${content}\n\`\`\``;
+    }
+    return null;
+  }
+  
+  try {
+    const profile = JSON.parse(readFileSync(profilePath, 'utf-8'));
+    const lines = ['## 用户档案'];
+    if (profile.name) lines.push(`- 姓名: ${profile.name}`);
+    if (profile.nickname) lines.push(`- 昵称: ${profile.nickname}`);
+    if (profile.timezone) lines.push(`- 时区: ${profile.timezone}`);
+    if (profile.preferences?.length) lines.push(`- 偏好: ${profile.preferences.join(', ')}`);
+    if (profile.projects?.length) lines.push(`- 项目: ${profile.projects.join(', ')}`);
+    if (profile.notes) lines.push(`- 备注: ${profile.notes}`);
+    return lines.join('\n');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 加载 Agent 档案
+ */
+function loadAgentProfile(memoryDir: string, agentId: string): string | null {
+  const profilePath = join(memoryDir, 'profiles', `agent_${agentId}.json`);
+  if (!existsSync(profilePath)) return null;
+  
+  try {
+    const profile = JSON.parse(readFileSync(profilePath, 'utf-8'));
+    const lines = ['## 你的档案'];
+    if (profile.role) lines.push(`- 角色: ${profile.role}`);
+    if (profile.skills?.length) lines.push(`- 技能: ${profile.skills.join(', ')}`);
+    if (profile.experience) lines.push(`- 经验: ${profile.experience}`);
+    if (profile.learnedPreferences?.length) {
+      lines.push(`- 学习到的偏好: ${profile.learnedPreferences.join(', ')}`);
+    }
+    return lines.join('\n');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 加载最近每日笔记
+ */
+function loadRecentDailyNotes(memoryDir: string, days: number = 3): string | null {
+  const dailyDir = join(memoryDir, 'daily');
+  if (!existsSync(dailyDir)) return null;
+  
+  const files = readdirSync(dailyDir)
+    .filter(f => f.endsWith('.md') || f.endsWith('.json'))
+    .map(f => ({
+      name: f,
+      path: join(dailyDir, f),
+      mtime: statSync(join(dailyDir, f)).mtime.getTime(),
+    }))
+    .sort((a, b) => b.mtime - a.mtime)
+    .slice(0, days);
+  
+  if (files.length === 0) return null;
+  
+  const contents: string[] = ['## 最近工作记录'];
+  
+  for (const file of files) {
+    try {
+      const content = readFileSync(file.path, 'utf-8');
+      const date = file.name.replace(/\.(md|json)$/, '');
+      // 限制每个文件最多 2000 字符
+      const truncated = content.length > 2000 ? content.slice(0, 2000) + '\n...(已截断)' : content;
+      contents.push(`\n### ${date}\n${truncated}`);
+    } catch {
+      // 忽略读取错误
+    }
+  }
+  
+  return contents.join('\n');
+}
+
+/**
+ * 加载记忆上下文
+ * 
+ * P0优化：实际读取用户档案、Agent档案、每日笔记
+ */
+function loadMemoryContext(memoryDir: string, agentId: string): string {
+  const sections: string[] = [];
+  
+  // 1. 用户档案
+  const userProfile = loadUserProfile(memoryDir);
+  if (userProfile) sections.push(userProfile);
+  
+  // 2. Agent 档案
+  const agentProfile = loadAgentProfile(memoryDir, agentId);
+  if (agentProfile) sections.push(agentProfile);
+  
+  // 3. 每日笔记
+  const dailyNotes = loadRecentDailyNotes(memoryDir, 3);
+  if (dailyNotes) sections.push(dailyNotes);
+  
+  return sections.length > 0 ? '\n\n' + sections.join('\n\n') : '';
+}
 
 // ============ Session 创建 ============
 
@@ -286,33 +401,24 @@ ${agent.systemPrompt ? `- **角色**: ${agent.systemPrompt}` : ''}
 你的工作空间位于：\`${workspaceDir}\`
 - 所有文件读写操作都在此目录或其子目录下进行
 - 不要尝试访问此目录之外的文件
-
+${loadMemoryContext(memoryDir, agent.id)}
 ## 记忆系统
 你拥有三层记忆架构，用于持久化存储重要信息：
 
 ### Layer 1: 工作记忆 (每日笔记)
 - **路径**: \`${memoryDir}/daily/\`
-- **格式**: \`YYYY-MM-DD_${agent.id}.json\`
 - **用途**: 记录每日对话、任务、重要信息
-- **加载**: 自动加载最近 3 天的工作记忆
 
 ### Layer 2: 结构化记忆
 - **你的档案**: \`${memoryDir}/profiles/agent_${agent.id}.json\`
-  - 存储你的角色描述、技能、使用统计
-  - 存储你学习到的用户偏好
 - **用户档案**: \`${memoryDir}/profiles/user.json\`
-  - 存储用户告诉你的重要信息（姓名、偏好、项目等）
-  - 当用户说"记住 xxx"时，信息会存入此档案
 - **事件记录**: \`${memoryDir}/events/events.log\`
-  - 记录重要的系统事件和里程碑
 
 ### Layer 3: 向量记忆 (RAG)
 - 通过 RAG 系统检索历史知识
-- 支持语义搜索和相似度匹配
 
 ### 记忆使用
 - 用户说"记住 xxx"时，记录到用户档案
-- 重要的决策、学习到的知识记录到你的档案
 - 可以搜索历史记忆获取上下文
 
 ## 技能系统
