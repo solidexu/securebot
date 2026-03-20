@@ -3,7 +3,7 @@
  * 
  * 支持公共技能和个人技能
  * - 公共技能: 所有 Agent 可用，存储在 ~/.securebot/skills/public/
- * - 个人技能: 仅特定 Agent 可用，存储在 ~/.securebot/skills/private/
+ * - 个人技能: 仅特定 Agent 可用，存储在 ~/.securebot/agents/{agentId}/skills/
  * 
  * 智能唤醒：
  * - 关键词匹配：快速匹配
@@ -12,7 +12,8 @@
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { getSkillsDir } from './config.js';
+import { getSkillsDir, getRootDir } from './config.js';
+import { homedir } from 'node:os';
 
 // ============ 类型定义 ============
 
@@ -65,8 +66,8 @@ export interface SkillMatchResult {
 export interface SkillConfig {
   /** 公共技能目录 */
   publicDir: string;
-  /** 个人技能目录 */
-  privateDir: string;
+  /** 个人技能根目录（agents 目录） */
+  agentsDir: string;
 }
 
 // ============ 默认公共技能 ============
@@ -231,29 +232,44 @@ export const BUILTIN_SKILLS: Skill[] = [
 
 /**
  * 技能管理器
+ * 
+ * 存储结构：
+ * ~/.securebot/
+ * ├── skills/
+ * │   └── public/              # 公共技能
+ * │       └── skill_xxx.json
+ * └── agents/
+ *     └── {agentId}/           # 每个 agent 有自己的文件夹
+ *         └── skills/          # 该 agent 的技能
+ *             ├── skill_xxx.json
+ *             └── skill_yyy.json
  */
 export class SkillManager {
   private config: SkillConfig;
 
   constructor(config?: Partial<SkillConfig>) {
-    const baseDir = getSkillsDir();
+    const rootDir = getRootDir();
     this.config = {
-      publicDir: join(baseDir, 'public'),
-      privateDir: join(baseDir, 'private'),
+      publicDir: join(rootDir, 'skills', 'public'),
+      agentsDir: join(rootDir, 'agents'),
       ...config,
     };
+  }
+
+  /**
+   * 获取 agent 的技能目录
+   */
+  private getAgentSkillsDir(agentId: string): string {
+    return join(this.config.agentsDir, agentId, 'skills');
   }
 
   /**
    * 初始化技能目录
    */
   async initialize(): Promise<void> {
-    // 创建目录
+    // 创建公共技能目录
     if (!existsSync(this.config.publicDir)) {
       mkdirSync(this.config.publicDir, { recursive: true });
-    }
-    if (!existsSync(this.config.privateDir)) {
-      mkdirSync(this.config.privateDir, { recursive: true });
     }
 
     // 初始化内置公共技能
@@ -268,24 +284,43 @@ export class SkillManager {
   /**
    * 获取技能文件路径
    */
-  private getSkillPath(skillId: string, isPublic: boolean): string {
-    const dir = isPublic ? this.config.publicDir : this.config.privateDir;
-    return join(dir, `${skillId}.json`);
+  private getSkillPath(skillId: string, isPublic: boolean, agentId?: string): string {
+    if (isPublic) {
+      return join(this.config.publicDir, `${skillId}.json`);
+    } else if (agentId) {
+      return join(this.getAgentSkillsDir(agentId), `${skillId}.json`);
+    } else {
+      // 兼容旧逻辑：尝试在所有 agent 目录中查找
+      return join(this.config.agentsDir, '_unknown', 'skills', `${skillId}.json`);
+    }
   }
 
   /**
    * 保存技能
    */
   async saveSkill(skill: Skill): Promise<void> {
-    const filePath = this.getSkillPath(skill.id, skill.isPublic);
-    writeFileSync(filePath, JSON.stringify(skill, null, 2), 'utf-8');
+    if (skill.isPublic) {
+      // 公共技能
+      const filePath = this.getSkillPath(skill.id, true);
+      writeFileSync(filePath, JSON.stringify(skill, null, 2), 'utf-8');
+    } else if (skill.agentId) {
+      // 个人技能：保存到 agent 的 skills 目录
+      const agentSkillsDir = this.getAgentSkillsDir(skill.agentId);
+      if (!existsSync(agentSkillsDir)) {
+        mkdirSync(agentSkillsDir, { recursive: true });
+      }
+      const filePath = join(agentSkillsDir, `${skill.id}.json`);
+      writeFileSync(filePath, JSON.stringify(skill, null, 2), 'utf-8');
+    } else {
+      throw new Error('个人技能必须指定 agentId');
+    }
   }
 
   /**
    * 加载技能
    */
-  async loadSkill(skillId: string, isPublic: boolean): Promise<Skill | null> {
-    const filePath = this.getSkillPath(skillId, isPublic);
+  async loadSkill(skillId: string, isPublic: boolean, agentId?: string): Promise<Skill | null> {
+    const filePath = this.getSkillPath(skillId, isPublic, agentId);
     if (!existsSync(filePath)) {
       return null;
     }
@@ -301,8 +336,8 @@ export class SkillManager {
   /**
    * 删除技能
    */
-  async deleteSkill(skillId: string, isPublic: boolean): Promise<boolean> {
-    const filePath = this.getSkillPath(skillId, isPublic);
+  async deleteSkill(skillId: string, isPublic: boolean, agentId?: string): Promise<boolean> {
+    const filePath = this.getSkillPath(skillId, isPublic, agentId);
     if (existsSync(filePath)) {
       unlinkSync(filePath);
       return true;
@@ -321,11 +356,29 @@ export class SkillManager {
    * 列出个人技能
    */
   async listPrivateSkills(agentId?: string): Promise<Skill[]> {
-    const skills = this.listSkillsInDir(this.config.privateDir);
     if (agentId) {
-      return skills.filter(s => s.agentId === agentId);
+      // 列出指定 agent 的技能
+      const agentSkillsDir = this.getAgentSkillsDir(agentId);
+      return this.listSkillsInDir(agentSkillsDir);
     }
-    return skills;
+    
+    // 列出所有 agent 的技能
+    const allSkills: Skill[] = [];
+    if (!existsSync(this.config.agentsDir)) {
+      return allSkills;
+    }
+    
+    const agentDirs = readdirSync(this.config.agentsDir, { withFileTypes: true })
+      .filter(d => d.isDirectory())
+      .map(d => d.name);
+    
+    for (const agentDir of agentDirs) {
+      const skillsDir = join(this.config.agentsDir, agentDir, 'skills');
+      const skills = this.listSkillsInDir(skillsDir);
+      allSkills.push(...skills);
+    }
+    
+    return allSkills;
   }
 
   /**

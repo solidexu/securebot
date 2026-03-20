@@ -2,6 +2,14 @@
  * 技能生成器
  * 
  * 从成功模式自动生成技能
+ * 
+ * 存储结构（通过 SkillManager）：
+ * ~/.securebot/
+ * └── agents/
+ *     └── {agentId}/
+ *         └── skills/
+ *             ├── skill_xxx.json
+ *             └── skill_yyy.json
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from 'node:fs';
@@ -21,7 +29,8 @@ import { writeJsonAtomic } from './atomic-write.js';
 const DEFAULT_CONFIG: SkillGeneratorConfig = {
   enabled: true,
   minPatternsToGenerate: 3,
-  storageDir: join(homedir(), '.securebot', 'self-improving', 'generated-skills'),
+  // storageDir 已废弃，技能通过 SkillManager 存储
+  storageDir: '',  
 };
 
 // ============ 技能模板 ============
@@ -133,38 +142,56 @@ export class SkillGenerator {
    */
   async initialize(): Promise<void> {
     if (this.initialized) return;
-    
-    if (!existsSync(this.config.storageDir)) {
-      mkdirSync(this.config.storageDir, { recursive: true });
-    }
-    
-    await this.loadSkills();
+    // 技能现在通过 SkillManager 存储，不需要初始化本地目录
     this.initialized = true;
   }
   
   /**
-   * 加载已有技能
+   * 从 SkillManager 加载技能到内存缓存
    */
-  private async loadSkills(): Promise<void> {
-    const files = readdirSync(this.config.storageDir).filter(f => f.endsWith('.json'));
-    
-    for (const file of files) {
-      try {
-        const content = readFileSync(join(this.config.storageDir, file), 'utf-8');
-        const skill = JSON.parse(content) as GeneratedSkill;
-        this.skills.set(skill.id, skill);
-      } catch {
-        // 忽略
+  private async loadSkillsFromManager(agentId?: string): Promise<void> {
+    try {
+      const { getSkillManager } = await import('../skills.js');
+      const skillManager = getSkillManager();
+      await skillManager.initialize();
+      
+      // 清空当前缓存
+      this.skills.clear();
+      
+      // 从 SkillManager 加载
+      const skills = agentId 
+        ? await skillManager.listPrivateSkills(agentId)
+        : await skillManager.listPrivateSkills();
+      
+      for (const skill of skills) {
+        // 转换为 GeneratedSkill 格式
+        const genSkill: GeneratedSkill = {
+          id: skill.id,
+          agentId: skill.agentId || '',
+          name: skill.name,
+          description: skill.description,
+          source: 'success_pattern',  // 默认来源
+          sourceId: '',
+          prompt: skill.systemPrompt,
+          tools: skill.tools || [],
+          examples: skill.examples?.map(e => e.assistant) || [],
+          usageCount: 0,
+          successRate: 0.8,
+          createdAt: skill.createdAt,
+        };
+        this.skills.set(skill.id, genSkill);
       }
+    } catch (error) {
+      // 忽略错误，使用空缓存
     }
   }
   
   /**
-   * 持久化技能
+   * 持久化技能（通过 SkillManager）
    */
   private async persist(skill: GeneratedSkill): Promise<void> {
-    const filePath = join(this.config.storageDir, `${skill.id}.json`);
-    writeJsonAtomic(filePath, skill);
+    // 技能通过 registerToSkillManager 保存，这里不再需要
+    // 保留方法以兼容旧代码
   }
   
   /**
@@ -264,6 +291,9 @@ ${pattern.toolsUsed.join(', ')}`,
     if (!this.config.enabled) return [];
     
     await this.initialize();
+    
+    // 从 SkillManager 加载已有技能
+    await this.loadSkillsFromManager(agentId);
     
     const store = getSuccessPatternStore();
     const patterns = await store.getBestPractices(agentId);
@@ -440,6 +470,7 @@ ${approach}
    */
   async getSkillsByAgent(agentId: string): Promise<GeneratedSkill[]> {
     await this.initialize();
+    await this.loadSkillsFromManager(agentId);
     
     return Array.from(this.skills.values())
       .filter(s => s.agentId === agentId)
@@ -460,7 +491,8 @@ ${approach}
     const alpha = 0.1;
     skill.successRate = skill.successRate * (1 - alpha) + (success ? 1 : 0) * alpha;
     
-    await this.persist(skill);
+    // 通过 SkillManager 更新
+    await this.updateSkillInManager(skill);
   }
   
   /**
@@ -472,16 +504,41 @@ ${approach}
     
     this.skills.delete(skillId);
     
-    // 删除文件
-    const filePath = join(this.config.storageDir, `${skillId}.json`);
-    if (existsSync(filePath)) {
-      unlinkSync(filePath);
-    }
-    
-    // ★ 同时从 SkillManager 删除
+    // 从 SkillManager 删除
     await this.removeFromSkillManager(skill);
     
     return true;
+  }
+  
+  /**
+   * 更新 SkillManager 中的技能
+   */
+  private async updateSkillInManager(skill: GeneratedSkill): Promise<void> {
+    try {
+      const { getSkillManager } = await import('../skills.js');
+      const skillManager = getSkillManager();
+      
+      const skillDef = {
+        id: skill.id,
+        name: skill.name,
+        description: skill.description,
+        keywords: this.extractKeywords(skill),
+        systemPrompt: skill.prompt,
+        tools: skill.tools,
+        examples: skill.examples?.map(e => ({
+          user: skill.description,
+          assistant: e,
+        })),
+        isPublic: false,
+        agentId: skill.agentId,
+        createdAt: skill.createdAt,
+        updatedAt: new Date().toISOString(),
+      };
+      
+      await skillManager.saveSkill(skillDef);
+    } catch (error) {
+      // 忽略错误
+    }
   }
   
   // ============ 新增：技能优化功能 ============
