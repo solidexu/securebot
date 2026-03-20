@@ -43,6 +43,8 @@ function loadUserProfile(memoryDir: string): string | null {
 
 /**
  * 加载 Agent 档案
+ * 
+ * 包括：角色、技能列表、经验、学习到的偏好
  */
 function loadAgentProfile(memoryDir: string, agentId: string): string | null {
   const profilePath = join(memoryDir, 'profiles', `agent_${agentId}.json`);
@@ -52,10 +54,15 @@ function loadAgentProfile(memoryDir: string, agentId: string): string | null {
     const profile = JSON.parse(readFileSync(profilePath, 'utf-8'));
     const lines = ['## 你的档案'];
     if (profile.role) lines.push(`- 角色: ${profile.role}`);
-    if (profile.skills?.length) lines.push(`- 技能: ${profile.skills.join(', ')}`);
+    if (profile.skills?.length) {
+      lines.push(`- 已掌握技能: ${profile.skills.join(', ')}`);
+    }
     if (profile.experience) lines.push(`- 经验: ${profile.experience}`);
     if (profile.learnedPreferences?.length) {
       lines.push(`- 学习到的偏好: ${profile.learnedPreferences.join(', ')}`);
+    }
+    if (profile.usageStats) {
+      lines.push(`- 任务统计: 完成 ${profile.usageStats.tasksCompleted || 0} 个任务，成功率 ${Math.round((profile.usageStats.successRate || 0) * 100)}%`);
     }
     return lines.join('\n');
   } catch {
@@ -403,31 +410,15 @@ ${agent.systemPrompt ? `- **角色**: ${agent.systemPrompt}` : ''}
 - 不要尝试访问此目录之外的文件
 ${loadMemoryContext(memoryDir, agent.id)}
 ## 记忆系统
-你拥有三层记忆架构，用于持久化存储重要信息：
+你拥有三层记忆架构：
+- **Layer 1**: 每日笔记（已自动加载最近3天）
+- **Layer 2**: 结构化档案（用户档案、你的档案、事件记录）
+- **Layer 3**: RAG 知识库（按需检索）
 
-### Layer 1: 工作记忆 (每日笔记)
-- **路径**: \`${memoryDir}/daily/\`
-- **用途**: 记录每日对话、任务、重要信息
-
-### Layer 2: 结构化记忆
-- **你的档案**: \`${memoryDir}/profiles/agent_${agent.id}.json\`
-- **用户档案**: \`${memoryDir}/profiles/user.json\`
-- **事件记录**: \`${memoryDir}/events/events.log\`
-
-### Layer 3: 向量记忆 (RAG)
-- 通过 RAG 系统检索历史知识
-
-### 记忆使用
-- 用户说"记住 xxx"时，记录到用户档案
-- 可以搜索历史记忆获取上下文
-
-## 技能系统
-- **技能目录**: \`${skillsDir}/\`
-- 技能是可复用的提示词模板和工具组合
+用户说"记住 xxx"时，信息会存入档案。
 
 ## 会话持久化
-- **会话目录**: \`${sessionsDir}/\`
-- 会话历史自动保存，支持恢复
+会话历史自动保存，支持恢复。
 
 ## 可用工具
 ${availableTools.length > 0 ? availableTools.map(t => `- ${t}`).join('\n') : '(无)'}
@@ -441,7 +432,7 @@ ${availableTools.length > 0 ? availableTools.map(t => `- ${t}`).join('\n') : '(�
 
   // 添加技能提示
   if (skillsPrompt) {
-    prompt += '\n## 技能提示\n' + skillsPrompt;
+    prompt += '\n' + skillsPrompt;
   }
 
   return prompt;
