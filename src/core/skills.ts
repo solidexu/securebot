@@ -548,10 +548,16 @@ export function resetSkillManager(): void {
 export class SkillDetector {
   private skillManager: SkillManager;
   private semanticThreshold: number;
+  /** 技能使用统计缓存 */
+  private usageStats: Map<string, { usageCount: number; successRate: number; lastUsedAt?: string }>;
+  /** 嵌入缓存 */
+  private embeddingCache: Map<string, number[]>;
 
   constructor(skillManager: SkillManager, options?: { semanticThreshold?: number }) {
     this.skillManager = skillManager;
     this.semanticThreshold = options?.semanticThreshold ?? 0.6;
+    this.usageStats = new Map();
+    this.embeddingCache = new Map();
   }
 
   /**
@@ -569,20 +575,24 @@ export class SkillDetector {
       // 1. 先尝试关键词匹配
       const keywordScore = this.matchByKeywords(message, skill);
       if (keywordScore > 0) {
+        // ★ P1优化：结合使用频率调整分数
+        const adjustedScore = this.adjustScoreByUsage(skill.id, keywordScore);
         results.push({
           skill,
-          score: keywordScore,
+          score: adjustedScore,
           method: 'keyword',
         });
         continue;
       }
 
       // 2. 再尝试语义匹配
-      const semanticScore = await this.matchBySemantic(message, skill);
+      const semanticScore = await this.matchBySemantic(message, skill, agentId);
       if (semanticScore >= this.semanticThreshold) {
+        // ★ P1优化：结合使用频率调整分数
+        const adjustedScore = this.adjustScoreByUsage(skill.id, semanticScore);
         results.push({
           skill,
-          score: semanticScore,
+          score: adjustedScore,
           method: 'semantic',
         });
       }
@@ -629,11 +639,18 @@ export class SkillDetector {
   }
 
   /**
-   * 语义匹配（简化版：基于词重叠）
+   * 语义匹配（P1优化：支持向量嵌入）
    * 
-   * 生产环境建议使用向量嵌入
+   * 优先使用 RAG embedding，降级到词重叠
    */
-  private async matchBySemantic(message: string, skill: Skill): Promise<number> {
+  private async matchBySemantic(message: string, skill: Skill, agentId?: string): Promise<number> {
+    // ★ P1优化：尝试使用 RAG embedding
+    const embeddingScore = await this.matchByEmbedding(message, skill, agentId);
+    if (embeddingScore !== null) {
+      return embeddingScore;
+    }
+    
+    // 降级：词重叠（Jaccard 相似度）
     const messageWords = this.tokenize(message.toLowerCase());
     const descWords = this.tokenize(skill.description.toLowerCase());
 
@@ -647,6 +664,119 @@ export class SkillDetector {
     // Jaccard 相似度
     const union = new Set([...messageWords, ...descWords]);
     return intersection.length / union.size;
+  }
+  
+  /**
+   * ★ P1优化：使用向量嵌入进行语义匹配
+   */
+  private async matchByEmbedding(message: string, skill: Skill, agentId?: string): Promise<number | null> {
+    try {
+      // 尝试获取 RAG embedder
+      const { ragManager } = await import('../rag/tools.js');
+      
+      if (!agentId) {
+        return null;
+      }
+      
+      const store = await ragManager.getStore({ id: agentId });
+      if (!store || !store.getEmbedder) {
+        return null;
+      }
+      
+      const embedder = store.getEmbedder();
+      if (!embedder) {
+        return null;
+      }
+      
+      // 获取消息嵌入
+      let messageEmbedding = this.embeddingCache.get(`msg:${message}`);
+      if (!messageEmbedding) {
+        messageEmbedding = await embedder.embed(message);
+        // 缓存消息嵌入（限制缓存大小）
+        if (this.embeddingCache.size < 100) {
+          this.embeddingCache.set(`msg:${message}`, messageEmbedding);
+        }
+      }
+      
+      // 获取技能描述嵌入
+      const skillText = `${skill.name} ${skill.description} ${(skill.keywords || []).join(' ')}`;
+      let skillEmbedding = this.embeddingCache.get(`skill:${skill.id}`);
+      if (!skillEmbedding) {
+        skillEmbedding = await embedder.embed(skillText);
+        if (this.embeddingCache.size < 100) {
+          this.embeddingCache.set(`skill:${skill.id}`, skillEmbedding);
+        }
+      }
+      
+      // 计算余弦相似度
+      const similarity = this.cosineSimilarity(messageEmbedding, skillEmbedding);
+      return similarity;
+    } catch {
+      // RAG 不可用，返回 null 表示降级
+      return null;
+    }
+  }
+  
+  /**
+   * 计算余弦相似度
+   */
+  private cosineSimilarity(a: number[], b: number[]): number {
+    if (a.length !== b.length) return 0;
+    
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+    
+    for (let i = 0; i < a.length; i++) {
+      dotProduct += a[i]! * b[i]!;
+      normA += a[i]! * a[i]!;
+      normB += b[i]! * b[i]!;
+    }
+    
+    if (normA === 0 || normB === 0) return 0;
+    
+    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  }
+
+  /**
+   * ★ P1优化：根据使用频率调整分数
+   */
+  private adjustScoreByUsage(skillId: string, baseScore: number): number {
+    const stats = this.usageStats.get(skillId);
+    if (!stats) {
+      return baseScore;
+    }
+    
+    // 使用频率加权（最高 +0.2）
+    const usageBonus = Math.min(0.2, stats.usageCount * 0.02);
+    
+    // 成功率加权（最高 +0.1）
+    const successBonus = stats.successRate * 0.1;
+    
+    return Math.min(1, baseScore + usageBonus + successBonus);
+  }
+  
+  /**
+   * ★ P1优化：记录技能使用
+   */
+  recordUsage(skillId: string, success: boolean): void {
+    const stats = this.usageStats.get(skillId) || { usageCount: 0, successRate: 0.8 };
+    
+    stats.usageCount++;
+    stats.lastUsedAt = new Date().toISOString();
+    
+    // 更新成功率（移动平均）
+    const alpha = 0.1;
+    stats.successRate = stats.successRate * (1 - alpha) + (success ? 1 : 0) * alpha;
+    
+    this.usageStats.set(skillId, stats);
+  }
+  
+  /**
+   * 获取技能使用统计
+   */
+  getUsageStats(skillId: string): { usageCount: number; successRate: number; lastUsedAt?: string } | undefined {
+    return this.usageStats.get(skillId);
   }
 
   /**

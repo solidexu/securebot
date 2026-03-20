@@ -685,6 +685,7 @@ export async function processMessage(
       rl,
       abortController,
       taskTracker,
+      activeSkills,  // ★ P1优化：传递激活的技能列表
     });
     
   } finally {
@@ -711,7 +712,7 @@ async function recordTaskEnd(
     error?: string;
   }
 ): Promise<void> {
-  const { agent, session, message, taskTracker } = ctx;
+  const { agent, session, message, taskTracker, activeSkills } = ctx;
   
   try {
     await recordTaskExecution(
@@ -730,6 +731,14 @@ async function recordTaskEnd(
         cancelled: reason === 'cancelled',
       }
     );
+    
+    // ★ P1优化：记录技能使用统计
+    if (activeSkills && activeSkills.length > 0) {
+      const skillDetector = getSkillDetector();
+      for (const skillId of activeSkills) {
+        skillDetector.recordUsage(skillId, reason === 'completed');
+      }
+    }
   } catch (err) {
     // 记录失败不应阻塞主流程
     console.error('记录任务结束失败:', err);
@@ -793,6 +802,8 @@ interface ToolCallLoopContext {
   executionState?: ExecutionState;
   /** 步骤管理器（修复：统一步骤管理） */
   stepManager?: StepManager;
+  /** ★ P1优化：激活的技能列表 */
+  activeSkills?: string[];
 }
 
 async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
