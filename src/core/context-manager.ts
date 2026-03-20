@@ -297,9 +297,27 @@ export class ContextManager {
    */
   trimMessages(
     messages: Message[],
-    tools?: Tool[]
+    tools?: Tool[],
+    options?: {
+      /** 是否保留系统消息 */
+      keepSystem?: boolean;
+      /** 保留最近的 N 轮对话 */
+      keepRecent?: number;
+    }
   ): Message[] {
     const maxInputTokens = this.actualMaxTokens - this.config.reservedOutputTokens;
+    
+    // P2优化：支持快速压缩选项
+    if (options?.keepRecent && !options?.keepSystem) {
+      // 快速压缩模式：只保留最近 N 轮
+      const historyMessages = messages.filter(m => m.role !== 'system');
+      const recentMessages = historyMessages.slice(-(options.keepRecent * 2));  // *2 因为每轮有 user+assistant
+      
+      return [
+        { role: 'system', content: `[快速压缩模式：仅保留最近 ${options.keepRecent} 轮对话]` },
+        ...recentMessages,
+      ];
+    }
     
     // 分离系统消息和对话历史
     const systemMessages = messages.filter(m => m.role === 'system');

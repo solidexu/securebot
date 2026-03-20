@@ -27,6 +27,7 @@ import {
   getPlanSummary,
   type TaskPlan,
 } from '../core/smart-task.js';
+import { createStepManager, type StepManager } from '../core/step-manager.js';
 import { savePlanToSession, clearPlanFromSession, renderHierarchicalPlan } from './repl-plan.js';
 import { recordTaskExecution, buildEnhancedSystemPrompt } from '../core/self-improving-integration.js';
 import { ProgressAnimation } from './progress-animation.js';
@@ -43,6 +44,110 @@ import {
 
 /** 最大工具调用轮数（安全兜底，正常情况下不触发） */
 const MAX_TOOL_ROUNDS = 100;
+
+// ============ 实质进展检测（P1优化） ============
+
+/**
+ * 模型响应结果（简化版）
+ */
+interface ModelResult {
+  content?: string | null;
+  toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
+}
+
+/**
+ * 检测模型响应是否有实质进展
+ * 
+ * P1优化：明确定义"实质进展"的判断标准
+ */
+function hasSubstantialProgress(result: ModelResult): boolean {
+  // 1. 有工具调用 = 实质进展
+  if (result.toolCalls && result.toolCalls.length > 0) {
+    return true;
+  }
+  
+  const content = result.content?.trim() ?? '';
+  
+  // 2. 输出代码块 = 实质进展
+  if (/```[\s\S]+```/.test(content)) {
+    return true;
+  }
+  
+  // 3. 输出文件内容标记 = 实质进展
+  // 例如: "main.py:" 或 "**main.py**:"
+  if (/^[a-zA-Z0-9_\-]+\.(ts|js|py|go|java|md|json|yaml|yml|sh)[：:\n]/m.test(content)) {
+    return true;
+  }
+  if (/\*\*[a-zA-Z0-9_\-]+\.(ts|js|py|go|java|md|json)\*\*[：:\n]/m.test(content)) {
+    return true;
+  }
+  
+  // 4. 输出任务完成信号 = 实质进展
+  const completionSignals = [
+    '任务完成', '开发完成', '实现完成', '已完成',
+    '开发完毕', '实现完毕', '全部完成', '完整实现',
+    'done', 'complete', 'finished',
+  ];
+  if (completionSignals.some(signal => content.toLowerCase().includes(signal.toLowerCase()))) {
+    return true;
+  }
+  
+  // 5. 输出步骤完成标记 = 实质进展
+  // 例如: "✓ 已完成" 或 "步骤1完成"
+  if (/(✓|✅|✔|完成|成功)/.test(content)) {
+    return true;
+  }
+  
+  // 6. 内容长度显著增加 = 实质进展
+  // 超过 500 字符的输出通常包含有用信息
+  if (content.length > 500) {
+    return true;
+  }
+  
+  // 7. 输出创建/修改的内容 = 实质进展
+  const actionPatterns = [
+    /已(创建|生成|编写|实现|添加|修改|更新)/,
+    /正在(创建|生成|编写|实现|添加|修改|更新)/,
+    /成功(创建|生成|编写|实现|添加|修改|更新)/,
+  ];
+  if (actionPatterns.some(p => p.test(content))) {
+    return true;
+  }
+  
+  // 8. 输出执行计划 = 实质进展
+  if (/^(#|##)\s*(执行计划|任务计划|开发计划|实施步骤)/m.test(content)) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * 分析无进展原因
+ * 
+ * 返回无进展的具体原因，用于提示用户
+ */
+function analyzeNoProgressReason(result: ModelResult): string {
+  const content = result.content?.trim() ?? '';
+  
+  // 检查是否在等待用户输入
+  if (/\?|？$/.test(content) || /请问|需要确认|是否/.test(content)) {
+    return '模型在等待您的回复或确认';
+  }
+  
+  // 检查是否在解释而非执行
+  if (/^(我|这|以下|下面|首先|让我|我来)/.test(content)) {
+    return '模型可能在解释而非执行操作';
+  }
+  
+  // 检查是否输出过短
+  if (content.length < 100) {
+    return '模型输出过短，可能没有实质性操作';
+  }
+  
+  // 检查是否在重复
+  return '模型可能在循环中，建议打断或重新描述任务';
+}
 
 // ============ 监听器管理器 ============
 
@@ -140,6 +245,32 @@ const QUESTION_DETECTION_CONFIG = {
     /^.{0,20}(我可以|我能|我(会|将)帮你|能够)/,
     // 结束语
     /^.{0,20}(好的|收到|明白|了解|没问题)/,
+    // ★ 新增排除模式（P0优化）
+    // 输出引导语
+    /^以下是/,
+    /^下面是/,
+    /^这是/,
+    // 功能特性描述
+    /^功能特性/,
+    /^主要特点/,
+    /^核心功能/,
+    // Markdown 标题格式（通常是输出结构）
+    /^\*\*.+\*\*[：:]/,
+    /^\*\*.+\*\*\s*[-—]/,
+    // 代码或文件内容标记
+    /^```/,
+    /^[a-zA-Z0-9_\-]+\.(ts|js|py|go|java|md|json)[：:]/,
+    // 进度/状态报告
+    /^(✅|✓|✔|⬜|🔄|❌)\s/,
+    /^步骤\s*\d/,
+    /^第\s*\d+\s*步/,
+    // 总结性陈述
+    /^(总结|概述|摘要|说明)[：:]/,
+    /^已经(完成|实现|创建|编写)/,
+    // 技术指标
+    /时间复杂度/,
+    /空间复杂度/,
+    /^复杂度[：:]/,
   ],
   // 明确的问题模式（必须匹配）
   explicitQuestionPatterns: [
@@ -404,37 +535,48 @@ export async function processMessage(
     // 使用增强的 Prompt（自动注入学习到的经验）
     let systemPrompt = await buildEnhancedSystemPrompt(agent, baseSystemPrompt);
     
-    // 复杂任务规划指令
+    // P2优化：增强规划阶段系统提示词
     if (complexity === 'complex') {
       const planInstruction = `
-## ⚠️ 重要：仅输出计划，禁止执行任何操作！
+## 🚫 绝对禁止：这是规划阶段，你没有任何工具可用！
 
-当前是**规划阶段**，你的任务只有：输出执行计划。
+你现在处于**规划模式**，系统已禁用所有工具。你的唯一任务是输出一个文本格式的执行计划。
 
-**禁止事项**：
-❌ 不要写代码
-❌ 不要创建文件
-❌ 不要执行任何工具
-❌ 不要输出功能特性、设计描述
-❌ 不要输出问题（如"你想实现哪种？"）
+### 🚫 绝对禁止的行为（违反将导致错误）：
+- ❌ 不要调用任何工具（read、write、exec 等）
+- ❌ 不要写代码
+- ❌ 不要创建文件
+- ❌ 不要输出代码块（\`\`\`）
+- ❌ 不要输出功能特性或设计描述
+- ❌ 不要问用户问题（"你想实现哪种？"）
+- ❌ 不要输出 "好的，我来帮你..."
 
-**必须输出**：
-✅ 一个清晰的执行计划（# 执行计划）
-✅ 5-10 个具体步骤（动词开头：创建、实现、编写、测试）
-✅ 以 "---" 结束计划
+### ✅ 你唯一应该做的事：
+输出一个简单的 Markdown 格式的执行计划，然后立即停止。
 
-**正确示例**：
+### 📝 输出格式（严格遵守）：
+
+# 执行计划
+
+1. 步骤一（动词开头）
+2. 步骤二
+3. 步骤三
+...
+
+---
+
+### ✅ 正确示例：
+
 # 执行计划
 
 1. 创建项目目录结构
 2. 实现核心算法类
 3. 编写单元测试
 4. 创建配置文件
-5. 编写使用文档
 
 ---
 
-**输出完计划后立即停止！等待用户确认！**
+现在请输出计划，然后等待用户确认后才能执行。
 `;
       systemPrompt = planInstruction + systemPrompt;
     }
@@ -567,11 +709,25 @@ interface ToolCallLoopContext {
   taskTracker: TaskTracker;
   /** 执行状态 */
   executionState?: ExecutionState;
+  /** 步骤管理器（修复：统一步骤管理） */
+  stepManager?: StepManager;
 }
 
 async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
   const { state, agent, session, message, systemPrompt, availableTools, sessionStorage } = ctx;
   let { currentPlan, lastPlanRender, shouldExecutePlan, complexity } = ctx;
+  
+  // 修复：恢复会话时初始化 executionState
+  if (currentPlan && !ctx.executionState) {
+    ctx.executionState = createExecutionState(currentPlan, 'guided');
+    // 恢复已完成的步骤计数
+    ctx.executionState.completedSteps = currentPlan.steps.filter(s => s.status === 'completed').length;
+  }
+  
+  // 修复：初始化步骤管理器，统一管理步骤状态
+  if (currentPlan && !ctx.stepManager) {
+    ctx.stepManager = createStepManager(currentPlan, session);
+  }
   
   // ★ 监听器管理器
   const listenerManager = new ListenerManager();
@@ -637,10 +793,17 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
     // 检查是否长时间无进展
     if (consecutiveNoProgress >= MAX_NO_PROGRESS) {
       console.log(chalk.yellow('\n⚠️ 检测到连续多轮无实质进展'));
-      console.log(chalk.gray('模型可能在循环中，建议：'));
+      
+      // P1优化：分析无进展原因
+      // 使用上一轮的结果（如果有的话）来分析
+      const lastResult = round > 0 ? { content: session.history[session.history.length - 1]?.content } : null;
+      const reason = lastResult ? analyzeNoProgressReason(lastResult) : '模型可能在循环中';
+      
+      console.log(chalk.gray(`原因分析: ${reason}`));
+      console.log(chalk.gray('建议操作:'));
       console.log(chalk.gray('  1. 按 Ctrl+C 打断当前操作'));
       console.log(chalk.gray('  2. 使用 /reset 清除会话历史'));
-      console.log(chalk.gray('  3. 重新描述任务'));
+      console.log(chalk.gray('  3. 更详细地描述任务要求'));
       
       // 询问用户是否继续
       const answer = await interruptibleQuestion(chalk.cyan('\n是否继续尝试？ [y/N]: '));
@@ -685,14 +848,14 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       ...session.history,
     ];
     
-    // ★ 上下文管理：先尝试压缩，再裁剪
+    // P2优化：上下文管理，提高阈值减少频繁压缩
     const contextManager = getContextManager();
     const stats = contextManager.getContextStats(messages, toolsForThisRound);
     
     let finalMessages = messages;
     
-    // 如果接近限制，尝试压缩
-    if (stats.usagePercent > 60) {
+    // 提高阈值：只在 80% 以上才尝试压缩（原 60%）
+    if (stats.usagePercent > 80) {
       const { getContextCompressor } = await import('../core/context-compressor.js');
       const compressor = getContextCompressor();
       
@@ -706,12 +869,26 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       
       // 检查是否需要压缩
       if (compressor.needsCompression(messages, contextManager.getMaxTokens(), stats.totalTokens)) {
-        console.log(chalk.cyan('\n📦 上下文过长，正在压缩历史消息...'));
+        console.log(chalk.cyan('\n📦 优化上下文...'));
         
-        const compressedMessages = await compressor.compress(messages);
+        // P2优化：区分压缩策略
+        let compressedMessages: Message[];
+        
+        if (stats.usagePercent > 90) {
+          // 紧急情况：快速压缩，只保留最近消息
+          console.log(chalk.yellow('  使用快速压缩模式'));
+          compressedMessages = contextManager.trimMessages(messages, toolsForThisRound, {
+            keepSystem: true,
+            keepRecent: 3,  // 只保留最近 3 轮
+          });
+        } else {
+          // 正常压缩
+          compressedMessages = await compressor.compress(messages);
+        }
+        
         const compressedStats = contextManager.getContextStats(compressedMessages, toolsForThisRound);
         
-        console.log(chalk.green(`✓ 压缩完成: ${stats.totalTokens.toLocaleString()} → ${compressedStats.totalTokens.toLocaleString()} tokens`));
+        console.log(chalk.green(`✓ 完成: ${stats.totalTokens.toLocaleString()} → ${compressedStats.totalTokens.toLocaleString()} tokens`));
         
         finalMessages = compressedMessages;
       }
@@ -894,11 +1071,8 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         result.content?.toLowerCase().includes(signal.toLowerCase())
       );
       
-      // 检查是否有实质性内容输出
-      // 注意：工具调用成功也算有实质内容（即使输出很短）
-      const hasSubstantialContent = 
-        (result.content && result.content.trim().length > 100) ||
-        (result.toolCalls && result.toolCalls.length > 0);
+      // P1优化：使用统一的实质进展检测函数
+      const hasSubstantialContent = hasSubstantialProgress(result);
       
       if (complexity === 'complex') {
         if (isTaskCompleted) {
@@ -1165,14 +1339,24 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       }
       
       addAssistantMessage(session, result.content);
+      // 修复：增强规划引导，给出明确的正确示例
       addUserMessage(session, 
-        '【系统提示】请只输出计划，不要调用工具！\n\n' +
-        '输出格式：\n' +
-        '# 执行计划\n' +
-        '1. 步骤一\n' +
-        '2. 步骤二\n' +
-        '...\n\n' +
-        '输出计划后等待系统指示。'
+        '【错误】你刚才尝试执行了工具，但规划阶段禁止执行任何操作！\n\n' +
+        '你的任务是：只输出一个文本格式的执行计划，不要做任何其他事情。\n\n' +
+        '✅ 正确做法：\n' +
+        '```markdown\n' +
+        '# 执行计划\n\n' +
+        '1. 创建项目目录结构\n' +
+        '2. 实现核心功能模块\n' +
+        '3. 编写测试用例\n' +
+        '4. 创建配置文件\n\n' +
+        '---\n' +
+        '```\n\n' +
+        '❌ 错误做法：\n' +
+        '- 调用 read/write/exec 等工具\n' +
+        '- 输出代码块\n' +
+        '- 问用户问题\n\n' +
+        '现在请重新输出计划，等待用户确认后才能执行。'
       );
       continue;
     }
@@ -1200,15 +1384,140 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         success: toolResult?.success ?? false,
       });
       
+      // ★ P0优化：处理步骤失败，提供用户选择
+      if (toolResult?.failedStep) {
+        const failedStep = toolResult.failedStep;
+        
+        // 使用 stepManager 标记失败
+        if (ctx.stepManager) {
+          ctx.stepManager.failStep(failedStep.id, failedStep.error);
+        } else if (currentPlan) {
+          updateStepStatus(currentPlan, failedStep.id, 'failed', failedStep.error);
+          savePlanToSession(session, currentPlan);
+        }
+        
+        console.log();
+        console.log(chalk.red('❌ 步骤执行失败'));
+        console.log(chalk.cyan(`步骤: ${failedStep.description}`));
+        console.log(chalk.yellow(`原因: ${failedStep.error}`));
+        console.log();
+        if (ctx.stepManager) {
+          console.log(ctx.stepManager.renderStepList());
+        } else {
+          console.log(renderTaskProgress(currentPlan!));
+        }
+        console.log();
+        
+        // 提供用户选择
+        console.log(chalk.cyan('请选择:'));
+        console.log(chalk.gray('  1. 重试当前步骤 (输入 r)'));
+        console.log(chalk.gray('  2. 跳过并继续下一步 (输入 s)'));
+        console.log(chalk.gray('  3. 停止任务并保存进度 (输入 q)'));
+        
+        const answer = await interruptibleQuestion(chalk.cyan('\n请选择 [r/s/q]: '));
+        
+        if (state.interrupted) {
+          console.log(chalk.gray('\n[已取消]'));
+          await recordTaskEnd(ctx, 'cancelled', { error: '用户中断' });
+          return;
+        }
+        
+        const choice = answer.toLowerCase().trim();
+        
+        if (choice === 'r') {
+          // 重试：使用 stepManager 重置步骤状态
+          console.log(chalk.green('\n✓ 将重试当前步骤...'));
+          if (ctx.stepManager) {
+            ctx.stepManager.retryStep(failedStep.id);
+          } else if (currentPlan) {
+            updateStepStatus(currentPlan, failedStep.id, 'pending');
+            savePlanToSession(session, currentPlan);
+          }
+          // 添加引导消息让模型重试
+          addUserMessage(session,
+            `上一步执行失败，错误: ${failedStep.error}\n\n` +
+            `请重新尝试执行步骤: ${failedStep.description}\n\n` +
+            `如果需要，可以调整方法。`
+          );
+          // 继续循环让模型重试
+          continue;
+        } else if (choice === 's') {
+          // 跳过：使用 stepManager 跳过并推进
+          console.log(chalk.yellow('\n⏭️ 跳过当前步骤...'));
+          
+          if (ctx.stepManager) {
+            const skipResult = ctx.stepManager.skipStep(failedStep.id, failedStep.error);
+            if (skipResult.nextStep) {
+              console.log(chalk.cyan(`📍 下一步: ${skipResult.nextStep.description}`));
+              // 添加引导消息
+              addUserMessage(session,
+                `上一步已跳过。继续执行下一步: ${skipResult.nextStep.description}`
+              );
+            } else {
+              // 没有更多步骤
+              console.log(chalk.green('\n✓ 所有步骤已处理完成'));
+              await recordTaskEnd(ctx, 'completed', { summary: '任务完成（有步骤被跳过）' });
+              return;
+            }
+          } else if (currentPlan) {
+            // 兼容旧逻辑
+            updateStepStatus(currentPlan, failedStep.id, 'skipped', failedStep.error);
+            savePlanToSession(session, currentPlan);
+            
+            const nextStep = getNextPendingStep(currentPlan);
+            if (nextStep) {
+              console.log(chalk.cyan(`📍 下一步: ${nextStep.description}`));
+              updateStepStatus(currentPlan, nextStep.id, 'in_progress');
+              savePlanToSession(session, currentPlan);
+              addUserMessage(session,
+                `上一步已跳过。继续执行下一步: ${nextStep.description}`
+              );
+            } else {
+              console.log(chalk.green('\n✓ 所有步骤已处理完成'));
+              await recordTaskEnd(ctx, 'completed', { summary: '任务完成（有步骤被跳过）' });
+              return;
+            }
+          }
+        } else {
+          // 停止任务
+          console.log(chalk.gray('\n正在保存进度并停止任务...'));
+          if (sessionStorage && currentPlan) {
+            await sessionStorage.saveSession(session);
+          }
+          await recordTaskEnd(ctx, 'cancelled', { error: '用户选择停止' });
+          console.log(chalk.green('✓ 进度已保存，可使用 /resume 恢复'));
+          return;
+        }
+      }
+      
       // 如果有计划，在工具执行成功后推进步骤
-      if (currentPlan && toolResult?.success && ctx.executionState) {
-        const advanceResult = advanceToNextStep(currentPlan, session);
+      if (currentPlan && toolResult?.success) {
+        let advanceResult: { advanced: boolean; nextStep?: { id: string; description: string } };
+        
+        // 使用 stepManager 推进步骤
+        if (ctx.stepManager) {
+          const result = ctx.stepManager.advanceStep();
+          advanceResult = {
+            advanced: result.success && !result.allCompleted,
+            nextStep: result.nextStep,
+          };
+        } else {
+          const result = advanceToNextStep(currentPlan, session);
+          advanceResult = {
+            advanced: result.advanced,
+            nextStep: result.nextStep,
+          };
+        }
         
         if (advanceResult.advanced && advanceResult.nextStep) {
           // 显示进度
           console.log();
-          console.log(showTaskProgress(currentPlan, ctx.executionState));
-          updateExecutionState(ctx.executionState, 'step_complete');
+          if (ctx.executionState) {
+            console.log(showTaskProgress(currentPlan, ctx.executionState));
+            updateExecutionState(ctx.executionState, 'step_complete');
+          } else if (ctx.stepManager) {
+            console.log(ctx.stepManager.renderStepList());
+          }
           
           // 显示下一步（不提示用户，让模型自动继续）
           console.log(chalk.cyan('\n📍 下一步: ') + advanceResult.nextStep.description);
@@ -1237,7 +1546,20 @@ interface ToolCallExecuteContext {
   sessionStorage?: ReturnType<typeof import('../core/session-storage.js').getSessionStorage>;
 }
 
-async function executeToolCall(ctx: ToolCallExecuteContext): Promise<{ success: boolean; content?: string; error?: string }> {
+/** 工具执行结果（扩展版） */
+interface ToolCallResult {
+  success: boolean;
+  content?: string;
+  error?: string;
+  /** 失败的步骤（如果有计划且步骤失败） */
+  failedStep?: {
+    id: string;
+    description: string;
+    error: string;
+  };
+}
+
+async function executeToolCall(ctx: ToolCallExecuteContext): Promise<ToolCallResult> {
   const { toolCall, agent, session, state, currentPlan } = ctx;
   
   console.log(chalk.blue(`\n调用工具: ${toolCall.name}`));
@@ -1259,11 +1581,6 @@ async function executeToolCall(ctx: ToolCallExecuteContext): Promise<{ success: 
       );
       
       if (!confirmResult.confirmed) {
-        toolResult = {
-          success: false,
-          error: '用户取消了操作',
-        };
-        
         eventBus.publishSync({
           type: EventTypes.TOOL_CONFIRMATION_RESULT,
           timestamp: new Date(),
@@ -1283,6 +1600,23 @@ async function executeToolCall(ctx: ToolCallExecuteContext): Promise<{ success: 
           `已取消: 用户拒绝执行`
         );
         console.log(chalk.gray('✗ 用户取消'));
+        
+        // 修复：用户取消时也返回 failedStep，让复杂任务可以重试/跳过
+        if (currentPlan) {
+          const currentStep = currentPlan.steps.find(s => s.status === 'in_progress');
+          if (currentStep) {
+            return {
+              success: false,
+              error: '用户取消了操作',
+              failedStep: {
+                id: currentStep.id,
+                description: currentStep.description,
+                error: '用户取消了工具执行',
+              },
+            };
+          }
+        }
+        
         return { success: false, error: '用户取消' };
       }
       
@@ -1337,14 +1671,21 @@ async function executeToolCall(ctx: ToolCallExecuteContext): Promise<{ success: 
       console.log(chalk.red(`✗ 失败${durationInfo}`));
       console.log(chalk.yellow(`  原因: ${errorMsg}`));
       
-      // 标记当前步骤为失败
+      // ★ P0优化：返回失败步骤信息，由调用者处理
+      // 不再在这里标记步骤状态，而是返回失败信息
       if (currentPlan) {
         const currentStep = currentPlan.steps.find(s => s.status === 'in_progress');
         if (currentStep) {
-          updateStepStatus(currentPlan, currentStep.id, 'failed', errorMsg);
-          savePlanToSession(session, currentPlan);
-          console.log();
-          console.log(renderTaskProgress(currentPlan));
+          // 返回失败步骤信息，让调用者决定如何处理
+          return {
+            success: false,
+            error: errorMsg,
+            failedStep: {
+              id: currentStep.id,
+              description: currentStep.description,
+              error: errorMsg,
+            },
+          };
         }
       }
     }

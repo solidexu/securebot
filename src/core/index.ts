@@ -18,6 +18,7 @@ export * from './memory.js';
 // 任务管理
 export * from './task-manager.js';
 export * from './smart-task.js';
+export * from './step-manager.js';
 
 // 确认系统
 export * from './confirmation.js';
