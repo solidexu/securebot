@@ -311,8 +311,39 @@ export class SkillManager {
       }
       const filePath = join(agentSkillsDir, `${skill.id}.json`);
       writeFileSync(filePath, JSON.stringify(skill, null, 2), 'utf-8');
+      
+      // ★ 同步更新 Agent 档案中的技能列表
+      await this.syncSkillToAgentProfile(skill.agentId, skill.name, 'add');
     } else {
       throw new Error('个人技能必须指定 agentId');
+    }
+  }
+  
+  /**
+   * 同步技能到 Agent 档案
+   */
+  private async syncSkillToAgentProfile(
+    agentId: string, 
+    skillName: string, 
+    action: 'add' | 'remove'
+  ): Promise<void> {
+    try {
+      const { getMemoryManager } = await import('./memory.js');
+      const memoryManager = getMemoryManager();
+      
+      const profile = await memoryManager.getAgentProfile(agentId);
+      
+      if (action === 'add') {
+        if (!profile.skills.includes(skillName)) {
+          profile.skills.push(skillName);
+        }
+      } else {
+        profile.skills = profile.skills.filter(s => s !== skillName);
+      }
+      
+      await memoryManager.saveAgentProfile(profile);
+    } catch {
+      // 同步失败不影响主流程
     }
   }
 
@@ -339,7 +370,23 @@ export class SkillManager {
   async deleteSkill(skillId: string, isPublic: boolean, agentId?: string): Promise<boolean> {
     const filePath = this.getSkillPath(skillId, isPublic, agentId);
     if (existsSync(filePath)) {
+      // ★ 删除前先读取技能信息，用于同步档案
+      let skillName: string | null = null;
+      try {
+        const content = readFileSync(filePath, 'utf-8');
+        const skill = JSON.parse(content) as Skill;
+        skillName = skill.name;
+      } catch {
+        // 忽略读取错误
+      }
+      
       unlinkSync(filePath);
+      
+      // ★ 同步更新 Agent 档案
+      if (!isPublic && agentId && skillName) {
+        await this.syncSkillToAgentProfile(agentId, skillName, 'remove');
+      }
+      
       return true;
     }
     return false;
