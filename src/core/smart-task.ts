@@ -676,6 +676,108 @@ export function getExecutionOrder(steps: TaskStep[]): TaskStep[][] {
   return order;
 }
 
+// ============ 步骤规范化与验证 ============
+
+/**
+ * 可执行动词列表
+ * 步骤描述必须以这些动词开头
+ */
+const ACTION_VERBS = [
+  // 中文动词
+  '创建', '实现', '编写', '开发', '设计', '配置', '测试', '部署', '安装', '更新',
+  '修改', '删除', '添加', '构建', '运行', '执行', '完成', '整理', '优化', '重构',
+  '调试', '分析', '扩展', '增强', '集成', '封装', '提取', '定义', '初始化', '加载',
+  '保存', '导出', '导入', '生成', '处理', '计算', '验证', '检查', '修复', '调整',
+  '设置', '建立', '连接', '注册', '绑定', '解绑', '启动', '停止', '重启', '监控',
+  // 英文动词
+  'create', 'implement', 'write', 'develop', 'design', 'configure', 'test', 'deploy',
+  'install', 'update', 'modify', 'delete', 'add', 'build', 'run', 'execute', 'complete',
+  'organize', 'optimize', 'refactor', 'debug', 'analyze', 'extend', 'enhance', 'integrate',
+];
+
+/**
+ * 非步骤内容模式
+ * 匹配这些模式的行不应该被解析为步骤
+ */
+const NON_STEP_PATTERNS = [
+  // 功能描述
+  /^(支持|具有|包含|提供|拥有|适用于|可用于)/,
+  // 属性说明
+  /^(属性|参数|配置|选项|设置)[：:]/,
+  // Markdown 格式
+  /^\*\*.+\*\*[：:]/,           // **标题**：描述
+  /^\*\*.+\*\*\s*[-—]/,         // **标题** - 描述
+  /^[-—·*]\s*`[^`]+`/,          // - `code` 格式
+  // 技术指标
+  /时间复杂度|空间复杂度|复杂度[：:]/,
+  // 问题
+  /\?|？$/,
+  // 提示语
+  /^(提示|注意|警告|说明|参考|来源)/,
+  // 问句开头
+  /^你想|需要|有特别|或者|具体的/,
+  // 纯描述
+  /^(这是一个|这是|下面是|以下是)/,
+  // 已完成标记
+  /^已完成|^完成|^✓/,
+];
+
+/**
+ * 验证步骤描述是否是可执行语句
+ */
+function isValidStepDescription(description: string): boolean {
+  const trimmed = description.trim();
+  
+  // 1. 长度检查
+  if (trimmed.length < 3 || trimmed.length > 150) {
+    return false;
+  }
+  
+  // 2. 检查是否匹配非步骤模式
+  for (const pattern of NON_STEP_PATTERNS) {
+    if (pattern.test(trimmed)) {
+      return false;
+    }
+  }
+  
+  // 3. 检查是否以可执行动词开头
+  const lowerDesc = trimmed.toLowerCase();
+  const startsWithVerb = ACTION_VERBS.some(verb => 
+    lowerDesc.startsWith(verb) || 
+    lowerDesc.startsWith(verb.toLowerCase())
+  );
+  
+  // 4. 如果不以动词开头，检查是否有动词在描述中
+  const hasVerb = ACTION_VERBS.some(verb => 
+    trimmed.includes(verb) || lowerDesc.includes(verb.toLowerCase())
+  );
+  
+  return startsWithVerb || hasVerb;
+}
+
+/**
+ * 规范化步骤描述
+ * - 确保以动词开头
+ * - 移除多余的前缀
+ */
+function normalizeStepDescription(description: string): string {
+  let trimmed = description.trim();
+  
+  // 移除常见的前缀
+  trimmed = trimmed.replace(/^(步骤\d*[：:·\s]*)/i, '');
+  trimmed = trimmed.replace(/^(Step\s*\d*[：:·\s]*)/i, '');
+  trimmed = trimmed.replace(/^(首先|其次|然后|最后)[,，：:\s]*/, '');
+  
+  // 移除 Markdown 格式
+  trimmed = trimmed.replace(/\*\*/g, '');
+  trimmed = trimmed.replace(/`/g, '');
+  
+  // 移除尾部状态符号
+  trimmed = trimmed.replace(/\s*[✓✅✔✕✗❌]$/g, '');
+  
+  return trimmed.trim();
+}
+
 /**
  * 从模型输出解析任务计划
  */
@@ -683,6 +785,28 @@ export function parseTaskPlan(content: string): TaskPlan | null {
   const lines = content.split('\n');
   const steps: TaskStep[] = [];
   let title = '执行计划';
+  
+  // ★ 辅助函数：添加步骤（带验证）
+  const addStep = (description: string, status: TaskStep['status'] = 'pending'): boolean => {
+    const normalized = normalizeStepDescription(description);
+    
+    // 验证是否是可执行语句
+    if (!isValidStepDescription(normalized)) {
+      return false;
+    }
+    
+    // 检查是否重复
+    if (steps.some(s => s.description === normalized)) {
+      return false;
+    }
+    
+    steps.push({
+      id: `step-${steps.length + 1}`,
+      description: normalized,
+      status,
+    });
+    return true;
+  };
   
   // 匹配 TODO 格式
   const todoRegex = /^[-*]\s*\[([ x→!])\]\s*(.+)/i;
@@ -739,11 +863,7 @@ export function parseTaskPlan(content: string): TaskPlan | null {
       else if (statusChar === '→') status = 'in_progress';
       else if (statusChar === '!') status = 'failed';
       
-      steps.push({
-        id: `step-${steps.length + 1}`,
-        description: todoMatch[2].trim(),
-        status,
-      });
+      addStep(todoMatch[2].trim(), status);
       continue;
     }
     
@@ -767,22 +887,14 @@ export function parseTaskPlan(content: string): TaskPlan | null {
       // 移除描述中的尾部状态符号
       const cleanDesc = desc.replace(/[✓✅✔✕✗❌]$/g, '').trim();
       
-      steps.push({
-        id: `step-${steps.length + 1}`,
-        description: cleanDesc || desc,
-        status,
-      });
+      addStep(cleanDesc || desc, status);
       continue;
     }
     
     // 匹配行尾带完成标记的格式（如 "- 任务名 ✓" 或 "1. 任务名 ✅"）
     const trailingCompleteMatch = trimmed.match(/^[-*]\s*(.+?)\s*([✓✅✔])$/);
     if (trailingCompleteMatch && trailingCompleteMatch[1]) {
-      steps.push({
-        id: `step-${steps.length + 1}`,
-        description: trailingCompleteMatch[1].trim(),
-        status: 'completed',
-      });
+      addStep(trailingCompleteMatch[1].trim(), 'completed');
       continue;
     }
     
@@ -814,11 +926,7 @@ export function parseTaskPlan(content: string): TaskPlan | null {
       if (cleanDesc !== desc) {
         status = 'completed';
       }
-      steps.push({
-        id: `step-${steps.length + 1}`,
-        description: cleanDesc || desc,
-        status,
-      });
+      addStep(cleanDesc || desc, status);
       continue;
     }
     
@@ -832,11 +940,7 @@ export function parseTaskPlan(content: string): TaskPlan | null {
       if (cleanDesc !== desc) {
         status = 'completed';
       }
-      steps.push({
-        id: `step-${steps.length + 1}`,
-        description: cleanDesc || desc,
-        status,
-      });
+      addStep(cleanDesc || desc, status);
       continue;
     }
     
@@ -849,11 +953,7 @@ export function parseTaskPlan(content: string): TaskPlan | null {
       if (cleanDesc !== desc) {
         status = 'completed';
       }
-      steps.push({
-        id: `step-${steps.length + 1}`,
-        description: cleanDesc || desc,
-        status,
-      });
+      addStep(cleanDesc || desc, status);
       continue;
     }
     
@@ -866,11 +966,7 @@ export function parseTaskPlan(content: string): TaskPlan | null {
       if (cleanDesc !== desc) {
         status = 'completed';
       }
-      steps.push({
-        id: `step-${steps.length + 1}`,
-        description: cleanDesc || desc,
-        status,
-      });
+      addStep(cleanDesc || desc, status);
       continue;
     }
     
@@ -917,11 +1013,7 @@ export function parseTaskPlan(content: string): TaskPlan | null {
         
         // 只添加动词开头的内容，或者明确不是功能描述的内容
         if (isAction || (!isNotStep && !cleanDesc.includes('**'))) {
-          steps.push({
-            id: `step-${steps.length + 1}`,
-            description: cleanDesc,
-            status,
-          });
+          addStep(cleanDesc, status);
         }
       }
     }
