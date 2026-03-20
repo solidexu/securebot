@@ -45,6 +45,80 @@ import {
 /** 最大工具调用轮数（安全兜底，正常情况下不触发） */
 const MAX_TOOL_ROUNDS = 100;
 
+// ============ RAG 上下文注入（P1优化） ============
+
+/**
+ * 构建来自 RAG 的上下文
+ * 
+ * 根据用户消息检索相关知识点，注入到系统提示词中
+ */
+async function buildRAGContext(message: string, agentId: string): Promise<string> {
+  try {
+    // 动态导入 RAG 模块
+    const { ragManager } = await import('../rag/tools.js');
+    const { getMemoryManager } = await import('../core/memory.js');
+    
+    // 1. 尝试从 RAG 管理器获取 store
+    let ragStore = null;
+    try {
+      ragStore = await ragManager.getStore({ id: agentId });
+    } catch {
+      // RAG 管理器没有配置此 agent，尝试从 memory 获取
+    }
+    
+    // 2. 尝试从 memory manager 获取
+    if (!ragStore) {
+      const memoryManager = getMemoryManager();
+      ragStore = memoryManager.getRAGStore();
+    }
+    
+    if (!ragStore) {
+      return '';
+    }
+    
+    // 3. 检索相关内容
+    const results = await ragStore.search(message, 5);  // 检索 5 条最相关内容
+    
+    if (results.length === 0) {
+      return '';
+    }
+    
+    // 4. 格式化为上下文
+    const contextParts: string[] = ['## 相关知识库内容'];
+    let totalTokens = 0;
+    const maxTokens = 5000;  // RAG 内容最多 5000 tokens
+    
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i]!;
+      // 估算 tokens（粗略：每 4 字符 ≈ 1 token）
+      const estimatedTokens = Math.ceil(result.content.length / 4);
+      
+      if (totalTokens + estimatedTokens > maxTokens) {
+        break;  // 超出限制，停止添加
+      }
+      
+      // 截取内容（最多 1000 字符）
+      const content = result.content.length > 1000 
+        ? result.content.slice(0, 1000) + '...'
+        : result.content;
+      
+      contextParts.push(`\n[${i + 1}] ${content}`);
+      totalTokens += estimatedTokens;
+    }
+    
+    if (contextParts.length === 1) {
+      return '';  // 没有添加任何内容
+    }
+    
+    console.log(chalk.gray(`📚 RAG: 注入 ${contextParts.length - 1} 条相关知识 (~${totalTokens} tokens)`));
+    
+    return contextParts.join('\n');
+  } catch (error) {
+    // RAG 检索失败不影响主流程
+    return '';
+  }
+}
+
 // ============ 实质进展检测（P1优化） ============
 
 /**
@@ -613,6 +687,12 @@ export async function processMessage(
       getAvailableToolNames(agent, state.config.tools),
       skillsPrompt
     );
+    
+    // ★ P1优化：RAG 检索相关内容注入上下文
+    const ragContext = await buildRAGContext(message, agent.id);
+    if (ragContext) {
+      baseSystemPrompt += '\n\n' + ragContext;
+    }
     
     // 使用增强的 Prompt（自动注入学习到的经验）
     let systemPrompt = await buildEnhancedSystemPrompt(agent, baseSystemPrompt);
