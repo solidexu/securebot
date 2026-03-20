@@ -357,12 +357,29 @@ function isAskingUserQuestion(
   
   const trimmedContent = content.trim();
   
+  // ★★ 优先检查：是否是任务流程中的确认（不应停止）
+  const taskFlowPatterns = [
+    /是否继续执行步骤/,
+    /是否继续执行下一步/,
+    /是否继续执行计划/,
+    /是否继续.*步骤/,
+    /继续执行.*吗[？?]?$/,
+    /开始执行.*吗[？?]?$/,
+    /执行下一步/,
+    /进行下一步/,
+  ];
+  for (const pattern of taskFlowPatterns) {
+    if (pattern.test(trimmedContent)) {
+      return false;  // 这是任务流程中的确认，不应停止
+    }
+  }
+  
   // 1. 内容长度检查
   if (trimmedContent.length < QUESTION_DETECTION_CONFIG.minContentLength) {
     return false;
   }
   
-  // 2. ★ 优先检查：是否包含明确的问题句式
+  // 2. ★ 检查是否包含明确的问题句式
   // 这些是绝对的问题标志，应该优先检测
   const definiteQuestionPatterns = [
     /^请问/,
@@ -400,6 +417,10 @@ function isAskingUserQuestion(
       const hasQuestionWord = questionWords.some(w => trimmedSentence.includes(w));
       
       if (hasQuestionWord) {
+        // ★ 再次检查是否是任务流程确认
+        if (/是否继续|继续执行|执行步骤/.test(trimmedSentence)) {
+          return false;
+        }
         return true;
       }
     }
