@@ -58,6 +58,11 @@ ollama serve
 ollama pull qwen3.5:35b-a3b
 ```
 
+> 💡 **GPU 用户推荐**：如果你有 RTX 3090 或更高配置显卡，推荐使用 `mdq100/qwen3.5-flash:35b-code` 模型，响应速度更快，体验更佳：
+> ```bash
+> ollama pull mdq100/qwen3.5-flash:35b-code
+> ```
+
 ### 3. 启动对话
 
 ```bash
