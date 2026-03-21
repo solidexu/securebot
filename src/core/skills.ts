@@ -80,7 +80,7 @@ export const BUILTIN_SKILLS: Skill[] = [
     id: 'code-review',
     name: '代码审查',
     description: '专业的代码审查技能，帮助发现代码问题和改进建议',
-    keywords: ['审查', 'review', '检查代码', '代码质量', '优化代码', '代码问题'],
+    keywords: ['审查', 'review', '检查代码', '代码质量', '优化代码', '代码问题', 'review一下', '帮我review', '看看代码', '检查一下'],
     systemPrompt: `你是一位专业的代码审查专家。在审查代码时，请关注：
 
 1. **代码质量**
@@ -681,8 +681,12 @@ export class SkillDetector {
       return 0;
     }
 
-    // 分数 = 匹配关键词数 / 总关键词数
-    return Math.min(1, matchCount / skill.keywords.length * 2);
+    // 分数计算：只要匹配到关键词就给较高分数
+    // 匹配 1 个 = 0.6，匹配 2+ 个 = 0.8-1.0
+    if (matchCount === 1) {
+      return 0.6;
+    }
+    return Math.min(1, 0.6 + matchCount * 0.15);
   }
 
   /**

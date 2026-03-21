@@ -671,11 +671,21 @@ export async function processMessage(
     const skillManager = getSkillManager();
     
     let activeSkills = agent.skills || [];
+    let skillActivated = false;
+    let activatedSkillName = '';
+    
     if (skillMatch && skillMatch.score >= 0.5) {
       if (!activeSkills.includes(skillMatch.skill.id)) {
         activeSkills = [...activeSkills, skillMatch.skill.id];
+        skillActivated = true;
+        activatedSkillName = skillMatch.skill.name;
         console.log(chalk.cyan(`🎯 激活技能: ${skillMatch.skill.name} (${skillMatch.method})`));
       }
+    }
+    
+    // 如果激活了技能，在回复开始时显示
+    if (skillActivated) {
+      process.stdout.write(chalk.cyan(`🎯 [技能: ${activatedSkillName}]\n\n`));
     }
     
     const skillsPrompt = await skillManager.buildSkillsPrompt(agent.id, activeSkills);
