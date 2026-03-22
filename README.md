@@ -1,5 +1,7 @@
 # SecureBot
 
+**[English](README_EN.md)** | 中文
+
 安全可控的多 Agent AI 助手，使用 CLI 交互。
 
 ## 核心特性
