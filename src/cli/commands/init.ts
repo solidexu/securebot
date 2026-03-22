@@ -10,13 +10,35 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { loadConfig, saveConfig, DEFAULT_CONFIG, getConfigPath, getRootDir } from '../../core/config.js';
-import type { Config, AgentConfig } from '../../core/types.js';
+import type { Config, AgentConfig, LocaleCode } from '../../core/types.js';
+import { t, setLocale, getSupportedLocales, saveLocaleToConfig } from '../../i18n/index.js';
 
 /**
  * 运行配置向导
  */
 export async function runConfigWizard(): Promise<void> {
-  console.log(chalk.cyan.bold('\n🚀 SecureBot 配置向导\n'));
+  // 步骤 0: 选择语言
+  console.log(chalk.cyan.bold('\n🚀 SecureBot Configuration Wizard / 配置向导\n'));
+  
+  const localeOptions = getSupportedLocales().map(l => ({
+    value: l.code,
+    label: l.name,
+  }));
+  
+  const selectedLocale = await p.select({
+    message: 'Select Language / 选择语言',
+    options: localeOptions,
+    initialValue: 'zh-CN' as LocaleCode,
+  });
+  
+  if (p.isCancel(selectedLocale)) {
+    console.log(chalk.gray('Cancelled / 已取消'));
+    return;
+  }
+  
+  setLocale(selectedLocale as LocaleCode);
+  
+  console.log(chalk.cyan.bold(`\n${t('init.title')}\n`));
   
   // 检查现有配置
   const configPath = getConfigPath();
@@ -24,53 +46,53 @@ export async function runConfigWizard(): Promise<void> {
   
   if (hasExistingConfig) {
     const overwrite = await p.confirm({
-      message: '发现现有配置，是否覆盖？',
+      message: t('init.existingConfig'),
       initialValue: false,
     });
     
     if (!overwrite) {
-      console.log(chalk.gray('已取消'));
+      console.log(chalk.gray(t('init.cancelled')));
       return;
     }
   }
   
   // 步骤 1: 配置 Ollama
-  console.log(chalk.cyan('\n步骤 1: 配置 Ollama\n'));
+  console.log(chalk.cyan(`\n${t('init.step2')}\n`));
   
   const ollamaUrl = await p.text({
-    message: 'Ollama 地址',
+    message: t('init.ollamaAddress'),
     placeholder: 'http://localhost:11434',
     initialValue: 'http://localhost:11434',
   });
   
   if (p.isCancel(ollamaUrl)) {
-    console.log(chalk.gray('已取消'));
+    console.log(chalk.gray(t('init.cancelled')));
     return;
   }
   
   // 测试连接
   const spinner = p.spinner();
-  spinner.start('正在连接 Ollama...');
+  spinner.start(t('init.connecting'));
   
   try {
     const response = await fetch(`${ollamaUrl}/api/tags`);
     if (!response.ok) {
-      spinner.stop('连接失败');
-      console.log(chalk.yellow('⚠️ 无法连接到 Ollama，请确保 Ollama 正在运行'));
+      spinner.stop(t('init.connectionFailed'));
+      console.log(chalk.yellow(t('init.cannotConnect')));
     } else {
       const data = await response.json() as { models?: Array<{ name: string }> };
       const models = data.models ?? [];
-      spinner.stop(`连接成功，发现 ${models.length} 个模型`);
+      spinner.stop(t('init.connectionSuccess', { count: models.length }));
       
       if (models.length > 0) {
         const modelOptions = models.map(m => ({ value: m.name, label: m.name }));
         const selectedModel = await p.select({
-          message: '选择默认模型',
+          message: t('init.selectModel'),
           options: modelOptions,
         });
         
         if (p.isCancel(selectedModel)) {
-          console.log(chalk.gray('已取消'));
+          console.log(chalk.gray(t('init.cancelled')));
           return;
         }
         
@@ -78,12 +100,13 @@ export async function runConfigWizard(): Promise<void> {
         const config: Config = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
         config.model.model = selectedModel as string;
         config.model.baseUrl = ollamaUrl as string;
+        config.language = selectedLocale as LocaleCode;
         
         // 步骤 2: 配置 Agent
-        console.log(chalk.cyan('\n步骤 2: 配置 Agent\n'));
+        console.log(chalk.cyan(`\n${t('init.step3')}\n`));
         
         const addAgents = await p.confirm({
-          message: '是否添加自定义 Agent？',
+          message: t('init.addCustomAgent'),
           initialValue: false,
         });
         
@@ -92,24 +115,24 @@ export async function runConfigWizard(): Promise<void> {
         }
         
         // 步骤 3: 配置 SecureBot 根目录
-        console.log(chalk.cyan('\n步骤 3: 配置 SecureBot 根目录\n'));
+        console.log(chalk.cyan(`\n${t('init.step4')}\n`));
         
-        console.log(chalk.gray('根目录用于存储所有 SecureBot 数据：'));
-        console.log(chalk.gray('  - agents/     Agent 工作空间'));
-        console.log(chalk.gray('  - memory/     记忆数据'));
-        console.log(chalk.gray('  - skills/     技能定义'));
-        console.log(chalk.gray('  - sessions/   会话持久化'));
-        console.log(chalk.gray('  - audit/      审计日志'));
+        console.log(chalk.gray(`${t('init.directoryStructure')}`));
+        console.log(chalk.gray(`  - agents/     ${t('init.agentsDir').split('/')[1]?.trim() ?? 'Agent workspaces'}`));
+        console.log(chalk.gray(`  - memory/     ${t('init.memoryDir').split('/')[1]?.trim() ?? 'Memory data'}`));
+        console.log(chalk.gray(`  - skills/     ${t('init.skillsDir').split('/')[1]?.trim() ?? 'Skills'}`));
+        console.log(chalk.gray(`  - sessions/   ${t('init.sessionsDir').split('/')[1]?.trim() ?? 'Sessions'}`));
+        console.log(chalk.gray(`  - audit/      ${t('init.auditDir').split('/')[1]?.trim() ?? 'Audit logs'}`));
         console.log();
         
         const customRootDir = await p.confirm({
-          message: '是否自定义根目录？',
+          message: t('init.customRootDir'),
           initialValue: false,
         });
         
         if (customRootDir) {
           const rootDir = await p.text({
-            message: 'SecureBot 根目录路径',
+            message: t('init.rootDirPath'),
             placeholder: '~/.securebot',
             initialValue: '~/.securebot',
           });
@@ -123,6 +146,9 @@ export async function runConfigWizard(): Promise<void> {
         
         // 保存配置
         saveConfig(config);
+        
+        // 保存语言设置
+        saveLocaleToConfig(selectedLocale as LocaleCode);
         
         // 确保根目录及子目录存在
         const rootDir = getRootDir(config);
@@ -142,11 +168,11 @@ export async function runConfigWizard(): Promise<void> {
           }
         }
         
-        console.log(chalk.green.bold('\n✓ 配置完成！\n'));
-        console.log(chalk.gray(`配置文件: ${getConfigPath(config)}`));
-        console.log(chalk.gray(`根目录: ${config.rootDir ?? '~/.securebot'}`));
+        console.log(chalk.green.bold(`\n${t('init.configComplete')}\n`));
+        console.log(chalk.gray(t('init.configFile', { path: getConfigPath(config) })));
+        console.log(chalk.gray(t('init.rootDir', { path: config.rootDir ?? '~/.securebot' })));
         console.log();
-        console.log(chalk.cyan('目录结构:'));
+        console.log(chalk.cyan(`${t('init.directoryStructure')}`));
         console.log(chalk.gray(`  ${rootDir}`));
         console.log(chalk.gray('  ├── agents/'));
         for (const agent of config.agents) {
@@ -157,18 +183,18 @@ export async function runConfigWizard(): Promise<void> {
         console.log(chalk.gray('  ├── sessions/'));
         console.log(chalk.gray('  └── audit/'));
         console.log();
-        console.log(chalk.cyan('快速开始:'));
+        console.log(chalk.cyan(`${t('init.quickStart')}`));
         console.log(chalk.white('  npm run dev'));
         console.log();
       }
     }
   } catch {
-    spinner.stop('连接失败');
-    console.log(chalk.yellow('⚠️ 无法连接到 Ollama'));
+    spinner.stop(t('init.connectionFailed'));
+    console.log(chalk.yellow(t('init.cannotConnect')));
     console.log(chalk.gray('请确保 Ollama 正在运行: ollama serve'));
     
     const continueAnyway = await p.confirm({
-      message: '是否继续配置？',
+      message: t('init.continueAnyway'),
       initialValue: true,
     });
     
@@ -176,9 +202,11 @@ export async function runConfigWizard(): Promise<void> {
       // 使用默认配置继续
       const config: Config = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
       config.model.baseUrl = ollamaUrl as string;
+      config.language = selectedLocale as LocaleCode;
       saveConfig(config);
-      console.log(chalk.green('\n✓ 已保存配置'));
-      console.log(chalk.gray('启动 Ollama 后运行: npm run dev'));
+      saveLocaleToConfig(selectedLocale as LocaleCode);
+      console.log(chalk.green(`\n${t('init.savedConfig')}`));
+      console.log(chalk.gray(t('init.startOllama')));
     }
   }
 }
@@ -191,12 +219,12 @@ async function addCustomAgents(config: Config): Promise<void> {
   
   while (addMore) {
     const agentId = await p.text({
-      message: 'Agent ID（仅字母、数字、下划线）',
-      placeholder: 'my-agent',
+      message: t('agent.agentId'),
+      placeholder: t('agent.agentIdPlaceholder'),
       validate: (value) => {
-        if (!value) return '请输入 Agent ID';
-        if (!/^[a-z0-9_]+$/i.test(value)) return '只能包含字母、数字、下划线';
-        if (config.agents.some((a: AgentConfig) => a.id === value)) return 'Agent ID 已存在';
+        if (!value) return t('agent.agentIdError');
+        if (!/^[a-z0-9_]+$/i.test(value)) return t('agent.agentIdFormatError');
+        if (config.agents.some((a: AgentConfig) => a.id === value)) return t('agent.agentIdExists');
         return undefined;
       },
     });
@@ -204,19 +232,19 @@ async function addCustomAgents(config: Config): Promise<void> {
     if (p.isCancel(agentId)) break;
     
     const agentName = await p.text({
-      message: 'Agent 名称',
-      placeholder: '我的助手',
+      message: t('agent.agentName'),
+      placeholder: t('agent.agentNamePlaceholder'),
     });
     
     if (p.isCancel(agentName)) break;
     
     const profile = await p.select({
-      message: '权限预设',
+      message: t('agent.permissionPreset'),
       options: [
-        { value: 'minimal', label: '最小权限', hint: '仅对话' },
-        { value: 'coding', label: '开发权限', hint: '文件读写、命令执行' },
-        { value: 'messaging', label: '消息权限', hint: '仅对话' },
-        { value: 'full', label: '完全权限', hint: '无限制' },
+        { value: 'minimal', label: t('agent.permissionMinimal'), hint: t('agent.permissionMinimalHint') },
+        { value: 'coding', label: t('agent.permissionCoding'), hint: t('agent.permissionCodingHint') },
+        { value: 'messaging', label: t('agent.permissionMessaging'), hint: t('agent.permissionMessagingHint') },
+        { value: 'full', label: t('agent.permissionFull'), hint: t('agent.permissionFullHint') },
       ],
     });
     
@@ -233,10 +261,10 @@ async function addCustomAgents(config: Config): Promise<void> {
     };
     
     config.agents.push(newAgent);
-    console.log(chalk.green(`✓ 已添加 Agent: ${newAgent.name}`));
+    console.log(chalk.green(t('agent.agentAdded', { name: newAgent.name })));
     
     const continueAdd = await p.confirm({
-      message: '继续添加 Agent？',
+      message: t('agent.continueAdding'),
       initialValue: false,
     });
     
@@ -248,35 +276,40 @@ async function addCustomAgents(config: Config): Promise<void> {
  * 显示当前配置
  */
 export async function showCurrentConfig(): Promise<void> {
-  console.log(chalk.cyan.bold('\n📋 当前配置\n'));
+  console.log(chalk.cyan.bold(`\n${t('config.currentConfig')}\n`));
   
   try {
     const config = loadConfig();
     
-    console.log(chalk.white('模型配置:'));
-    console.log(`  模型: ${config.model.model}`);
-    console.log(`  地址: ${config.model.baseUrl ?? 'http://localhost:11434'}`);
+    // 加载语言设置
+    if (config.language) {
+      setLocale(config.language);
+    }
+    
+    console.log(chalk.white(`${t('config.modelConfig')}`));
+    console.log(`  ${t('config.model', { model: config.model.model })}`);
+    console.log(`  ${t('config.address', { address: config.model.baseUrl ?? 'http://localhost:11434' })}`);
     console.log();
     
-    console.log(chalk.white('SecureBot 根目录:'));
+    console.log(chalk.white(`${t('config.rootDirTitle')}`));
     const rootDir = getRootDir(config);
     console.log(`  ${rootDir}`);
-    console.log(chalk.gray('  ├── agents/     Agent 工作空间'));
-    console.log(chalk.gray('  ├── memory/     记忆数据'));
-    console.log(chalk.gray('  ├── skills/     技能定义'));
-    console.log(chalk.gray('  ├── sessions/   会话持久化'));
-    console.log(chalk.gray('  └── audit/      审计日志'));
+    console.log(chalk.gray(`  ├── agents/     ${t('init.agentsDir').split('/')[1]?.trim() ?? 'Agent workspaces'}`));
+    console.log(chalk.gray(`  ├── memory/     ${t('init.memoryDir').split('/')[1]?.trim() ?? 'Memory data'}`));
+    console.log(chalk.gray(`  ├── skills/     ${t('init.skillsDir').split('/')[1]?.trim() ?? 'Skills'}`));
+    console.log(chalk.gray(`  ├── sessions/   ${t('init.sessionsDir').split('/')[1]?.trim() ?? 'Sessions'}`));
+    console.log(chalk.gray(`  └── audit/      ${t('init.auditDir').split('/')[1]?.trim() ?? 'Audit logs'}`));
     console.log();
     
-    console.log(chalk.white('Agent 列表:'));
+    console.log(chalk.white(`${t('config.agentList')}`));
     for (const agent of config.agents) {
-      const defaultTag = agent.default ? chalk.green(' (默认)') : '';
+      const defaultTag = agent.default ? chalk.green(` ${t('config.defaultTag')}`) : '';
       console.log(`  ${agent.id} - ${agent.name}${defaultTag}`);
     }
     console.log();
     
-    console.log(chalk.gray(`配置文件: ${getConfigPath()}`));
+    console.log(chalk.gray(t('config.configFile', { path: getConfigPath() })));
   } catch {
-    console.log(chalk.yellow('未找到配置文件，请运行: securebot init'));
+    console.log(chalk.yellow(t('config.configNotFound')));
   }
 }

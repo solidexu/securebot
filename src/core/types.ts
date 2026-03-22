@@ -297,6 +297,11 @@ export interface ModelAdapter {
 // ============ Config Types ============
 
 /**
+ * 语言代码
+ */
+export type LocaleCode = 'zh-CN' | 'en-US';
+
+/**
  * 全局配置
  */
 export interface Config {
@@ -310,6 +315,8 @@ export interface Config {
   agents: AgentConfig[];
   /** 全局 RAG 配置 */
   rag?: RAGConfig;
+  /** 语言设置 */
+  language?: LocaleCode;
   /** 
    * SecureBot 根目录（统一管理所有数据）
    * 默认: ~/.securebot

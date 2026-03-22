@@ -137,6 +137,7 @@ export const DEFAULT_CONFIG: Config = {
   defaultAgent: 'dev',
   tools: DEFAULT_TOOL_POLICY,
   agents: DEFAULT_AGENTS,
+  language: 'zh-CN',
 };
 
 // ============ 路径工具 ============
