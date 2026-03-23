@@ -264,12 +264,44 @@ export class RalphExecutor {
     console.log();
     console.log(chalk.cyan.bold('🔄 Ralph Loop 模式'));
     console.log(chalk.gray(`最大迭代次数: ${maxIterations}`));
+    console.log(chalk.gray('提示: 按 Ctrl+C 可中断执行'));
     console.log();
     
-    // 1. 创建 PRD
-    console.log(chalk.cyan('📋 正在创建任务列表...'));
-    const model = this.state.config.model.model || 'qwen3.5:35b-a3b';
-    let prd = await createPRDFromDescription(taskDescription, this.state.modelAdapter, model);
+    // 0. 设置中断检测
+    let interrupted = false;
+    let interruptCount = 0;
+    
+    const sigintHandler = () => {
+      interruptCount++;
+      
+      if (interruptCount === 1) {
+        console.log();
+        console.log(chalk.yellow('⚠️ 正在中断... 再次按 Ctrl+C 强制退出'));
+        interrupted = true;
+        // 触发 AbortController
+        if (this.state.abortController) {
+          this.state.abortController.abort();
+        }
+      } else {
+        console.log(chalk.red('\n🛑 强制退出'));
+        process.exit(1);
+      }
+    };
+    
+    process.on('SIGINT', sigintHandler);
+    
+    try {
+      // 1. 创建 PRD
+      console.log(chalk.cyan('📋 正在创建任务列表...'));
+      const model = this.state.config.model.model || 'qwen3.5:35b-a3b';
+      
+      // 检查中断
+      if (interrupted) {
+        console.log(chalk.gray('已取消'));
+        return this.buildInterruptedResult(0, { branchName: '', userStories: [] });
+      }
+      
+      let prd = await createPRDFromDescription(taskDescription, this.state.modelAdapter, model);
     
     // 2. 验证 PRD 质量
     const validation = this.validatePRD(prd);
@@ -309,6 +341,12 @@ export class RalphExecutor {
     const startTime = Date.now();
     
     while (iterations < maxIterations) {
+      // 检查中断
+      if (interrupted) {
+        console.log(chalk.yellow('\n⚠️ 用户中断'));
+        return this.buildInterruptedResult(iterations, prd);
+      }
+      
       iterations++;
       prd = loadPRD(this.prdPath) ?? prd;
       
@@ -325,8 +363,14 @@ export class RalphExecutor {
       console.log(chalk.gray(`验收标准: ${task.acceptanceCriteria.join(', ')}`));
       console.log();
       
-      const result = await this.runIteration(task, iterations);
+      const result = await this.runIteration(task, iterations, () => interrupted);
       this.iterations.push(result);
+      
+      // 迭代后检查中断
+      if (interrupted) {
+        console.log(chalk.yellow('\n⚠️ 用户中断'));
+        return this.buildInterruptedResult(iterations, prd);
+      }
       
       if (result.passed) {
         // 运行反馈循环
@@ -421,12 +465,33 @@ export class RalphExecutor {
     console.log(chalk.gray(`完成: ${finalStats.completed}/${finalStats.total} 任务`));
     
     return this.buildResult(false, iterations, prd, 'max_iterations_reached');
+    } finally {
+      // 移除 SIGINT 监听器
+      process.off('SIGINT', sigintHandler);
+    }
+  }
+  
+  /**
+   * 构建中断结果
+   */
+  private buildInterruptedResult(iterations: number, prd: RalphPRD): RalphResult {
+    return {
+      success: false,
+      iterations,
+      completedStories: prd.userStories.filter(s => s.passes).length,
+      totalStories: prd.userStories.length,
+      reason: 'user_interrupted',
+    };
   }
   
   /**
    * 执行单次迭代
    */
-  private async runIteration(task: RalphStory, iteration: number): Promise<RalphIteration> {
+  private async runIteration(
+    task: RalphStory, 
+    iteration: number,
+    checkInterrupted: () => boolean
+  ): Promise<RalphIteration> {
     const startTime = Date.now();
     const result: RalphIteration = {
       iteration,
@@ -434,6 +499,14 @@ export class RalphExecutor {
     };
     
     try {
+      // 检查中断
+      if (checkInterrupted()) {
+        result.error = '用户中断';
+        result.passed = false;
+        result.duration = Date.now() - startTime;
+        return result;
+      }
+      
       const agent = this.state.agents.get(this.state.currentAgentId) ?? getDefaultAgent(this.state.agents);
       if (!agent) {
         throw new Error('找不到 Agent');
@@ -476,6 +549,15 @@ export class RalphExecutor {
       const maxToolRounds = 20; // 防止无限循环
       
       while (toolCallRounds < maxToolRounds) {
+        // 检查中断
+        if (checkInterrupted()) {
+          console.log(chalk.yellow('  中断...'));
+          result.error = '用户中断';
+          result.passed = false;
+          result.duration = Date.now() - startTime;
+          return result;
+        }
+        
         const response = await this.state.modelAdapter.chat({
           model,
           messages: currentMessages,
