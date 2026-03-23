@@ -14,7 +14,7 @@ import chalk from 'chalk';
 import { join } from 'node:path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
-import type { ReplState, ModelAdapter, ChatParams } from '../core/types.js';
+import type { ReplState, ModelAdapter, ChatParams, Message } from '../core/types.js';
 import type { RalphPRD, RalphStory, RalphProgress, RalphConfig, RalphResult, RalphIteration, RalphModeOptions } from './types.js';
 import { getDefaultAgent } from '../core/agent.js';
 import { createSession, addUserMessage, buildSystemPrompt } from '../core/session.js';
@@ -388,34 +388,104 @@ export class RalphExecutor {
       // 5. 获取工具
       const tools = getAvailableTools(agent, this.state.config.tools);
       
-      // 6. 调用模型
+      // 6. 工具调用循环
       const model = this.state.config.model.model || 'qwen3.5:35b-a3b';
-      const params: ChatParams = {
-        model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          ...session.history,
-        ],
-        tools,
-      };
+      let currentMessages: Message[] = [
+        { role: 'system', content: systemPrompt },
+        ...session.history,
+      ];
       
-      const response = await this.state.modelAdapter.chat(params);
+      let output = '';
+      let toolCallRounds = 0;
+      const maxToolRounds = 20; // 防止无限循环
       
-      // 6. 检查结果
-      const output = response.content || '';
+      while (toolCallRounds < maxToolRounds) {
+        const response = await this.state.modelAdapter.chat({
+          model,
+          messages: currentMessages,
+          tools,
+        });
+        
+        output = response.content || '';
+        
+        // 检查是否有工具调用
+        if (!response.toolCalls || response.toolCalls.length === 0) {
+          // 没有工具调用，结束循环
+          break;
+        }
+        
+        toolCallRounds++;
+        
+        // 执行工具调用
+        currentMessages.push({
+          role: 'assistant',
+          content: output,
+          toolCalls: response.toolCalls,
+        });
+        
+        for (const toolCall of response.toolCalls) {
+          console.log(chalk.blue(`  调用工具: ${toolCall.name}`));
+          
+          // 查找并执行工具
+          const tool = tools.find(t => t.name === toolCall.name);
+          if (!tool) {
+            console.log(chalk.yellow(`  工具不存在: ${toolCall.name}`));
+            currentMessages.push({
+              role: 'tool',
+              toolCallId: toolCall.id,
+              name: toolCall.name,
+              content: `错误: 工具 ${toolCall.name} 不存在`,
+            });
+            continue;
+          }
+          
+          try {
+            const toolResult = await tool.execute(toolCall.arguments, {
+              agent,
+              session,
+              workspace: agent.workspace,
+              logger: console,
+            });
+            
+            const resultContent = toolResult.success 
+              ? (toolResult.content || '成功')
+              : `错误: ${toolResult.error || '未知错误'}`;
+            
+            currentMessages.push({
+              role: 'tool',
+              toolCallId: toolCall.id,
+              name: toolCall.name,
+              content: resultContent,
+            });
+            
+            console.log(chalk.gray(`  结果: ${resultContent.slice(0, 100)}...`));
+          } catch (err) {
+            const errorMsg = err instanceof Error ? err.message : String(err);
+            currentMessages.push({
+              role: 'tool',
+              toolCallId: toolCall.id,
+              name: toolCall.name,
+              content: `错误: ${errorMsg}`,
+            });
+            console.log(chalk.red(`  错误: ${errorMsg}`));
+          }
+        }
+      }
       
-      // 7. 检查完成信号
+      // 检查完成信号
       const hasCompleteSignal = output.includes(this.config.completionPromise);
       
-      // 8. 检查是否有关键词表明任务完成
-      const completionKeywords = ['完成', '已实现', 'done', 'complete', 'finished'];
+      // 检查是否有关键词表明任务完成
+      const completionKeywords = ['完成', '已实现', 'done', 'complete', 'finished', '成功'];
       const hasCompletionKeyword = completionKeywords.some(kw => 
         output.toLowerCase().includes(kw.toLowerCase())
       );
       
       result.output = output;
-      result.passed = hasCompleteSignal || hasCompletionKeyword;
+      result.passed = hasCompleteSignal || hasCompletionKeyword || toolCallRounds > 0;
       result.duration = Date.now() - startTime;
+      
+      console.log(chalk.gray(`\n迭代耗时: ${result.duration}ms, 工具调用: ${toolCallRounds} 轮`));
       
     } catch (error) {
       result.error = error instanceof Error ? error.message : String(error);
