@@ -325,8 +325,33 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
       console.log();
     }
     
-    // Ralph Loop 模式
-    console.log(chalk.cyan('🔄 Ralph Loop 模式已启用'));
+    // 询问运行模式
+    const runMode = await askRunMode(rl);
+    
+    if (runMode === 'background') {
+      // 后台模式
+      console.log();
+      console.log(chalk.cyan('🔄 启动后台任务...'));
+      
+      const { startDaemonTask } = await import('./daemon.js');
+      const task = await startDaemonTask({
+        task: ralphMode.taskDescription!,
+        iterations: ralphMode.maxIterations || 20,
+        agent: ralphMode.agentId || state.currentAgentId,
+      });
+      
+      console.log(chalk.green('✓ Ralph 已在后台启动'));
+      console.log(chalk.gray(`任务 ID: ${task.id}`));
+      console.log(chalk.gray(`日志文件: ${task.logFile}`));
+      console.log();
+      console.log(chalk.cyan('查询状态: /ralph status'));
+      console.log(chalk.cyan('查看日志: /ralph log ' + task.id));
+      console.log();
+      
+      // 返回普通对话模式
+    } else {
+      // 前台模式
+      console.log(chalk.cyan('🔄 Ralph Loop 模式已启用'));
     console.log(chalk.gray('Agent 将持续迭代直到任务完成。'));
     console.log();
     
@@ -359,6 +384,7 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
     console.log();
     console.log(chalk.cyan('已切换到普通对话模式'));
     console.log();
+    } // 前台模式结束
   }
 
   // 主循环
@@ -582,6 +608,19 @@ async function askRalphMode(
   }
   
   return { enabled: false };
+}
+
+/**
+ * 询问运行模式
+ */
+async function askRunMode(rl: readlinePromises.Interface): Promise<'foreground' | 'background'> {
+  console.log(chalk.cyan('选择运行模式:'));
+  console.log(chalk.gray('  1. 前台运行 - 实时查看进度'));
+  console.log(chalk.gray('  2. 后台运行 - 完成后通知'));
+  console.log();
+  
+  const answer = await rl.question(chalk.cyan('选择 [1/2，默认 1]: '));
+  return answer.trim() === '2' ? 'background' : 'foreground';
 }
 
 /**

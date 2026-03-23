@@ -130,6 +130,10 @@ export async function handleCommand(
       await handleMemoryCommand(state, arg, parts);
       break;
 
+    case 'ralph':
+      await handleRalphCommand(state, arg || '', parts.slice(2));
+      break;
+
     case 'sessions':
       await handleSessionsCommand(sessionStorage);
       break;
@@ -2067,5 +2071,127 @@ function printHelp(): void {
   console.log(chalk.gray('提示: 执行中按 Ctrl+C 打断操作，等待时按两次 Ctrl+C 退出'));
   console.log(chalk.gray('提示: 使用 /checkpoint 管理任务检查点'));
   console.log(chalk.gray('提示: 使用 /collab 进行 Agent 协作'));
+  console.log(chalk.gray('提示: 使用 /ralph 管理后台 Ralph 任务'));
   console.log();
+}
+
+/**
+ * 处理 Ralph 后台任务命令
+ */
+async function handleRalphCommand(
+  _state: ReplState,
+  subCommand: string,
+  args: string[]
+): Promise<void> {
+  const { listTasks, loadTask, cancelTask, getTaskLog, formatTaskStatus } = await import('./daemon.js');
+  
+  switch (subCommand) {
+    case 'status': {
+      const tasks = listTasks({ runningOnly: true });
+      if (tasks.length === 0) {
+        console.log(chalk.gray('没有运行中的后台任务'));
+      } else {
+        console.log(chalk.cyan.bold(`\n运行中的任务 (${tasks.length}):\n`));
+        for (const task of tasks) {
+          console.log(formatTaskStatus(task));
+          console.log();
+        }
+      }
+      break;
+    }
+    
+    case 'list': {
+      const tasks = listTasks({ limit: 10 });
+      if (tasks.length === 0) {
+        console.log(chalk.gray('没有后台任务'));
+      } else {
+        console.log(chalk.cyan.bold(`\n最近任务 (${tasks.length}):\n`));
+        for (const task of tasks) {
+          const statusEmoji = {
+            pending: '⏳',
+            running: '🔄',
+            completed: '✅',
+            failed: '❌',
+            cancelled: '🚫',
+          };
+          console.log(`${statusEmoji[task.status]} ${task.id}: ${task.task.slice(0, 40)}...`);
+        }
+        console.log();
+        console.log(chalk.gray('查看详情: /ralph show <taskId>'));
+      }
+      break;
+    }
+    
+    case 'show': {
+      const taskId = args[0];
+      if (!taskId) {
+        console.log(chalk.yellow('用法: /ralph show <taskId>'));
+        break;
+      }
+      
+      const task = loadTask(taskId);
+      if (!task) {
+        console.log(chalk.red(`任务不存在: ${taskId}`));
+        break;
+      }
+      
+      console.log();
+      console.log(formatTaskStatus(task));
+      console.log();
+      break;
+    }
+    
+    case 'log': {
+      const taskId = args[0];
+      if (!taskId) {
+        console.log(chalk.yellow('用法: /ralph log <taskId>'));
+        break;
+      }
+      
+      const log = getTaskLog(taskId);
+      if (!log) {
+        console.log(chalk.red(`日志不存在: ${taskId}`));
+        break;
+      }
+      
+      console.log();
+      console.log(chalk.cyan.bold(`日志: ${taskId}`));
+      console.log(chalk.gray('─'.repeat(40)));
+      console.log(log);
+      break;
+    }
+    
+    case 'cancel': {
+      const taskId = args[0];
+      if (!taskId) {
+        console.log(chalk.yellow('用法: /ralph cancel <taskId>'));
+        break;
+      }
+      
+      const task = loadTask(taskId);
+      if (!task) {
+        console.log(chalk.red(`任务不存在: ${taskId}`));
+        break;
+      }
+      
+      if (task.status !== 'running') {
+        console.log(chalk.yellow(`任务已结束: ${task.status}`));
+        break;
+      }
+      
+      cancelTask(taskId);
+      console.log(chalk.green(`✓ 已取消任务: ${taskId}`));
+      break;
+    }
+    
+    default:
+      console.log(chalk.cyan.bold('\nRalph 后台任务管理\n'));
+      console.log('命令:');
+      console.log('  /ralph status           查看运行中的任务');
+      console.log('  /ralph list             列出最近任务');
+      console.log('  /ralph show <taskId>    查看任务详情');
+      console.log('  /ralph log <taskId>     查看任务日志');
+      console.log('  /ralph cancel <taskId>  取消运行中的任务');
+      console.log();
+  }
 }
