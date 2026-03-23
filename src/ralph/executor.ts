@@ -387,8 +387,12 @@ export class RalphExecutor {
       if (result.passed) {
         // 运行反馈循环
         if (this.config.feedbackCommands && this.config.feedbackCommands.length > 0) {
+          // 获取 agent 以确定工作目录
+          const agent = this.state.agents.get(this.state.currentAgentId) ?? getDefaultAgent(this.state.agents);
+          const workspace = agent?.workspace || process.cwd();
+          
           // 检测项目类型，选择合适的反馈命令
-          const detectedCommands = await this.detectFeedbackCommands();
+          const detectedCommands = await this.detectFeedbackCommands(workspace);
           const commandsToRun = detectedCommands.length > 0 ? detectedCommands : this.config.feedbackCommands;
           
           console.log(chalk.cyan('\n🔍 运行反馈循环...'));
@@ -396,7 +400,7 @@ export class RalphExecutor {
           
           const feedbackResult = await runFeedbackLoop({
             commands: commandsToRun,
-            cwd: process.cwd(),
+            cwd: workspace,
           });
           
           if (!feedbackResult.allPassed) {
@@ -935,8 +939,8 @@ ${iterationResult.output?.slice(0, 2000) || '无输出'}
   /**
    * 检测项目类型并返回合适的反馈命令
    */
-  private async detectFeedbackCommands(): Promise<string[]> {
-    const cwd = process.cwd();
+  private async detectFeedbackCommands(workspace?: string): Promise<string[]> {
+    const cwd = workspace || process.cwd();
     const commands: string[] = [];
     
     // 检测 Python 项目
@@ -957,6 +961,7 @@ ${iterationResult.output?.slice(0, 2000) || '无输出'}
         commands.push('ruff check .');
       }
       
+      console.log(chalk.gray(`  检测到 Python 项目: ${cwd}`));
       return commands;
     }
     
@@ -978,6 +983,7 @@ ${iterationResult.output?.slice(0, 2000) || '无输出'}
         // 忽略解析错误
       }
       
+      console.log(chalk.gray(`  检测到 Node.js 项目: ${cwd}`));
       return commands;
     }
     
@@ -985,10 +991,12 @@ ${iterationResult.output?.slice(0, 2000) || '无输出'}
     if (existsSync(join(cwd, 'go.mod'))) {
       commands.push('go test ./...');
       commands.push('go vet ./...');
+      console.log(chalk.gray(`  检测到 Go 项目: ${cwd}`));
       return commands;
     }
     
-    // 未知项目类型，返回空
+    // 未知项目类型
+    console.log(chalk.gray(`  未知项目类型: ${cwd}`));
     return [];
   }
   
