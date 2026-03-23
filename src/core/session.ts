@@ -241,6 +241,8 @@ export function getRecentMessages(session: Session, limit: number): Message[] {
  */
 export function clearSessionHistory(session: Session): void {
   session.history = [];
+  session.plan = undefined;
+  session.planStack = undefined;
   session.updatedAt = new Date();
 }
 
