@@ -24,6 +24,7 @@ import { getPRDStats, formatPRDStats } from './state-bridge.js';
 import { runFeedbackLoop } from './feedback.js';
 import { commitForTask } from './git.js';
 import { ProgressDisplay } from './progress-display.js';
+import { formatError, RalphError, RalphErrorType } from './errors.js';
 
 // ============ 卡住检测配置 ============
 
@@ -158,6 +159,68 @@ export function updateStoryStatus(prd: RalphPRD, storyId: string, passes: boolea
  */
 export function allTasksComplete(prd: RalphPRD): boolean {
   return prd.userStories.every(s => s.passes);
+}
+
+/**
+ * 验证 PRD 质量（独立函数，供测试使用）
+ * 
+ * 检查项：
+ * - 分支名称有效性
+ * - 任务数量非空
+ * - 每个任务的 ID、标题、验收标准、优先级
+ * - 任务 ID 唯一性
+ * 
+ * @param prd - 待验证的 PRD 对象
+ * @returns 验证结果，包含 valid 标志和 issues 列表
+ */
+export function validatePRD(prd: RalphPRD): { valid: boolean; issues: string[] } {
+  const issues: string[] = [];
+  
+  // 检查分支名
+  if (!prd.branchName || prd.branchName.length < 3) {
+    issues.push('分支名称太短或缺失');
+  }
+  
+  // 检查任务数量
+  if (!prd.userStories || prd.userStories.length === 0) {
+    issues.push('没有定义任何任务');
+    return { valid: false, issues };
+  }
+  
+  // 检查每个任务
+  for (const story of prd.userStories) {
+    // 任务 ID
+    if (!story.id || story.id.length < 2) {
+      issues.push(`任务 "${story.title}": ID 无效`);
+    }
+    
+    // 任务标题
+    if (!story.title || story.title.length < 5) {
+      issues.push(`任务 ${story.id}: 标题太短`);
+    }
+    
+    // 验收标准
+    if (!story.acceptanceCriteria || story.acceptanceCriteria.length === 0) {
+      issues.push(`任务 ${story.id}: 缺少验收标准`);
+    }
+    
+    // 优先级
+    if (story.priority === undefined || story.priority < 1) {
+      issues.push(`任务 ${story.id}: 优先级无效`);
+    }
+  }
+  
+  // 检查任务 ID 唯一性
+  const ids = prd.userStories.map(s => s.id);
+  const uniqueIds = new Set(ids);
+  if (ids.length !== uniqueIds.size) {
+    issues.push('存在重复的任务 ID');
+  }
+  
+  return {
+    valid: issues.length === 0,
+    issues,
+  };
 }
 
 // ============ 进度管理 ============
@@ -306,7 +369,7 @@ export class RalphExecutor {
       let prd = await createPRDFromDescription(taskDescription, this.state.modelAdapter, model);
     
     // 2. 验证 PRD 质量
-    const validation = this.validatePRD(prd);
+    const validation = validatePRD(prd);
     if (!validation.valid) {
       console.log(chalk.yellow('\n⚠️ PRD 存在问题:'));
       validation.issues.forEach(issue => console.log(chalk.gray(`  - ${issue}`)));
@@ -480,7 +543,7 @@ export class RalphExecutor {
           console.log(chalk.gray(`错误: ${result.error || '未知错误'}`));
           console.log();
           
-          const action = await this.askStuckAction(task);
+          const action = await this.askStuckAction();
           
           if (action === 'skip') {
             console.log(chalk.yellow(`⏭️ 跳过任务 ${task.id}`));
@@ -670,7 +733,7 @@ export class RalphExecutor {
             
             console.log(chalk.gray(`  结果: ${resultContent.slice(0, 100)}...`));
           } catch (err) {
-            const errorMsg = err instanceof Error ? err.message : String(err);
+            const errorMsg = formatError(err);
             currentMessages.push({
               role: 'tool',
               toolCallId: toolCall.id,
@@ -703,9 +766,11 @@ export class RalphExecutor {
       console.log(chalk.gray(`迭代耗时: ${result.duration}ms, 工具调用: ${toolCallRounds} 轮`));
       
     } catch (error) {
-      result.error = error instanceof Error ? error.message : String(error);
+      const ralphError = RalphError.fromError(error, RalphErrorType.TASK_FAILED);
+      result.error = ralphError.message;
       result.passed = false;
       result.duration = Date.now() - startTime;
+      console.log(chalk.red(`  迭代错误: ${ralphError.message}`));
     }
     
     return result;
@@ -746,59 +811,6 @@ export class RalphExecutor {
   }
   
   /**
-   * 验证 PRD 质量
-   */
-  private validatePRD(prd: RalphPRD): { valid: boolean; issues: string[] } {
-    const issues: string[] = [];
-    
-    // 检查分支名
-    if (!prd.branchName || prd.branchName.length < 3) {
-      issues.push('分支名称太短或缺失');
-    }
-    
-    // 检查任务数量
-    if (!prd.userStories || prd.userStories.length === 0) {
-      issues.push('没有定义任何任务');
-      return { valid: false, issues };
-    }
-    
-    // 检查每个任务
-    for (const story of prd.userStories) {
-      // 任务 ID
-      if (!story.id || story.id.length < 2) {
-        issues.push(`任务 "${story.title}": ID 无效`);
-      }
-      
-      // 任务标题
-      if (!story.title || story.title.length < 5) {
-        issues.push(`任务 ${story.id}: 标题太短`);
-      }
-      
-      // 验收标准
-      if (!story.acceptanceCriteria || story.acceptanceCriteria.length === 0) {
-        issues.push(`任务 ${story.id}: 缺少验收标准`);
-      }
-      
-      // 优先级
-      if (story.priority === undefined || story.priority < 1) {
-        issues.push(`任务 ${story.id}: 优先级无效`);
-      }
-    }
-    
-    // 检查任务 ID 唯一性
-    const ids = prd.userStories.map(s => s.id);
-    const uniqueIds = new Set(ids);
-    if (ids.length !== uniqueIds.size) {
-      issues.push('存在重复的任务 ID');
-    }
-    
-    return {
-      valid: issues.length === 0,
-      issues,
-    };
-  }
-  
-  /**
    * 确认 PRD
    */
   private async confirmPRD(prd: RalphPRD): Promise<boolean> {
@@ -831,7 +843,7 @@ export class RalphExecutor {
         prd.updatedAt = updatedPRD.updatedAt;
         
         // 重新验证
-        const validation = this.validatePRD(prd);
+        const validation = validatePRD(prd);
         if (!validation.valid) {
           console.log(chalk.yellow('\n⚠️ 修改后的 PRD 仍存在问题:'));
           validation.issues.forEach(issue => console.log(chalk.gray(`  - ${issue}`)));
@@ -855,8 +867,10 @@ export class RalphExecutor {
   
   /**
    * 卡住时询问用户操作
+   * 当任务连续失败达到阈值时调用，让用户决定如何处理
+   * @returns 用户选择的操作: retry(重试) | skip(跳过) | abort(中止)
    */
-  private async askStuckAction(_task: RalphStory): Promise<StuckAction> {
+  private async askStuckAction(): Promise<StuckAction> {
     console.log(chalk.cyan('请选择操作:'));
     console.log(chalk.gray('  1. 重试 - 重置失败计数，继续尝试'));
     console.log(chalk.gray('  2. 跳过 - 跳过此任务，继续下一个'));
