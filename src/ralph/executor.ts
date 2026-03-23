@@ -257,16 +257,42 @@ ${progress.issues?.length ? `- **问题**:\n${progress.issues.map(i => `  - ${i}
 }
 
 /**
+ * 从进度文件中提取最后一次错误
+ */
+function extractLastError(progressContent: string): string {
+  const sections = progressContent.split('---');
+  // 从后往前找第一个有 "问题:" 的部分
+  for (let i = sections.length - 1; i >= 0; i--) {
+    const section = sections[i];
+    if (section && section.includes('问题:')) {
+      const lines = section.split('\n');
+      const errorStart = lines.findIndex(l => l.includes('问题:'));
+      if (errorStart !== -1) {
+        return lines.slice(errorStart).join('\n').replace(/^- \*\*问题\*\*:\n?/, '').trim();
+      }
+    }
+  }
+  return '';
+}
+
+/**
  * 构建迭代提示（供外部使用）
  */
 export function buildIterationPrompt(
   task: RalphStory, 
   progressPath: string, 
-  completionPromise: string
+  completionPromise: string,
+  lastError?: string
 ): string {
   const progressContent = existsSync(progressPath) 
     ? readFileSync(progressPath, 'utf-8')
     : '';
+  
+  // 检查上次是否失败
+  const lastFailed = progressContent.includes('未完成') || progressContent.includes('问题:');
+  
+  // 构建错误提示
+  const errorPrompt = lastError || (lastFailed ? extractLastError(progressContent) : '');
   
   return `
 # Ralph 迭代任务
@@ -275,6 +301,12 @@ export function buildIterationPrompt(
 - ID: ${task.id}
 - 标题: ${task.title}
 - 验收标准: ${task.acceptanceCriteria.join('\n  - ')}
+
+${errorPrompt ? `## ⚠️ 上次迭代失败原因
+${errorPrompt}
+
+**请务必修复上述问题后再提交。**
+` : ''}
 
 ## 进度上下文
 ${progressContent.slice(0, 2000)}
@@ -304,6 +336,7 @@ export class RalphExecutor {
   private progressPath: string;
   private iterations: RalphIteration[] = [];
   private rl: readline.Interface;
+  private lastError: string = ''; // 存储最后一次错误
   
   constructor(state: ReplState, rl: readline.Interface, config: Partial<RalphConfig> = {}) {
     this.state = state;
@@ -524,6 +557,9 @@ export class RalphExecutor {
         console.log(chalk.yellow(`⚠ 任务 ${task.id} 未完成 (失败 ${stuckCount}/${MAX_STUCK_COUNT} 次)`));
         
         if (result.error) {
+          // 保存错误信息，供下一轮迭代使用
+          this.lastError = result.error;
+          
           appendProgress(this.progressPath, {
             timestamp: new Date().toISOString(),
             storyId: task.id,
@@ -631,8 +667,12 @@ export class RalphExecutor {
       const iterationPrompt = buildIterationPrompt(
         task, 
         this.progressPath, 
-        this.config.completionPromise
+        this.config.completionPromise,
+        this.lastError // 传入上次错误
       );
+      
+      // 清空上次错误（已传递给 prompt）
+      this.lastError = '';
       
       // 3. 添加用户消息
       addUserMessage(session, iterationPrompt);
