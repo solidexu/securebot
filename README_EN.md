@@ -383,6 +383,58 @@ securebot audit search <kw> # Search logs
 
 ---
 
+## 🔄 Ralph Loop Mode
+
+> ⚠️ **Experimental Feature** - Ralph Loop is currently in debugging phase and may be unstable.
+
+Ralph Loop is a continuous iteration mode that automatically breaks down tasks and executes them in a loop until completion.
+
+### Starting
+
+```bash
+securebot chat
+
+Select mode:
+  1. Normal Chat - Single interaction mode
+  2. Ralph Loop - Iterate until task completion
+
+Select mode [1/2]: 2
+```
+
+### Features
+
+| Feature | Description |
+|---------|-------------|
+| Task Breakdown | Automatically breaks down complex tasks into PRD task list |
+| Continuous Iteration | Executes one task per iteration until all complete |
+| Progress Tracking | Real-time display of task progress and iteration count |
+| Stuck Detection | Prompts user intervention when task fails |
+| Background Mode | Run in background with notification on completion |
+| Ctrl+C Interrupt | Interrupt execution at any time |
+
+### Background Task Commands
+
+```bash
+/ralph status           # View running tasks
+/ralph list             # List recent tasks
+/ralph show <taskId>    # View task details
+/ralph log <taskId>     # View task logs
+/ralph cancel <taskId>  # Cancel running task
+```
+
+### Session Branches
+
+Support for multi-branch conversations to try different approaches:
+
+```bash
+/branch create <name>   # Create new branch
+/branch list            # List all branches
+/branch tree            # Display branch tree
+/branch abandon <name>  # Abandon branch
+```
+
+---
+
 ## Directory Structure
 
 ```
