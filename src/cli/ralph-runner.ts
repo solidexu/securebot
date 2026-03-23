@@ -11,6 +11,8 @@ import { Command } from 'commander';
 import { existsSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import * as readline from 'node:readline/promises';
+import { stdin as input, stdout as output } from 'node:process';
 
 const program = new Command();
 
@@ -85,14 +87,19 @@ async function main(): Promise<void> {
       abortController: new AbortController(),
     };
     
+    // 创建 readline 接口
+    const rl = readline.createInterface({ input, output });
+    
     // 创建执行器
-    const executor = new RalphExecutor(state);
+    const executor = new RalphExecutor(state, rl);
     
     // 运行 Ralph Loop
     const result = await executor.run({
       taskDescription: options.task,
       maxIterations: parseInt(options.iterations, 10),
     });
+    
+    rl.close();
     
     // 保存结果
     const resultPath = join(DAEMON_DIR, `${taskId}-result.json`);

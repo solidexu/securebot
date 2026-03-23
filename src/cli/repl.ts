@@ -355,7 +355,7 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
     console.log(chalk.gray('Agent 将持续迭代直到任务完成。'));
     console.log();
     
-    const executor = new RalphExecutor(state);
+    const executor = new RalphExecutor(state, rl);
     const result = await executor.run({
       taskDescription: ralphMode.taskDescription!,
       maxIterations: ralphMode.maxIterations,

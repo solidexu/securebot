@@ -15,7 +15,6 @@ import { join } from 'node:path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import * as readline from 'node:readline/promises';
-import { stdin as input, stdout as output } from 'node:process';
 import type { ReplState, ModelAdapter, ChatParams, Message } from '../core/types.js';
 import type { RalphPRD, RalphStory, RalphProgress, RalphConfig, RalphResult, RalphIteration, RalphModeOptions } from './types.js';
 import { getDefaultAgent } from '../core/agent.js';
@@ -241,9 +240,11 @@ export class RalphExecutor {
   private prdPath: string;
   private progressPath: string;
   private iterations: RalphIteration[] = [];
+  private rl: readline.Interface;
   
-  constructor(state: ReplState, config: Partial<RalphConfig> = {}) {
+  constructor(state: ReplState, rl: readline.Interface, config: Partial<RalphConfig> = {}) {
     this.state = state;
+    this.rl = rl;
     this.config = { ...DEFAULT_RALPH_CONFIG, ...config };
     
     const rootDir = state.config.rootDir ?? join(homedir(), '.securebot');
@@ -408,9 +409,7 @@ export class RalphExecutor {
             console.log(chalk.gray('  2. 重试 - 稍后重试此任务'));
             console.log();
             
-            const rl = readline.createInterface({ input, output });
-            const choice = await rl.question(chalk.cyan('选择 [1/2，默认 2]: '));
-            rl.close();
+            const choice = await this.rl.question(chalk.cyan('选择 [1/2，默认 2]: '));
             
             if (choice.trim() === '1') {
               console.log(chalk.gray('忽略反馈失败，继续...'));
@@ -799,17 +798,13 @@ export class RalphExecutor {
    * 确认 PRD
    */
   private async confirmPRD(prd: RalphPRD): Promise<boolean> {
-    const rl = readline.createInterface({ input, output });
-    
     console.log(chalk.cyan('是否按此计划执行？'));
     console.log(chalk.gray('  y - 确认执行'));
     console.log(chalk.gray('  e - 编辑 PRD 文件后继续'));
     console.log(chalk.gray('  n - 取消'));
     console.log();
     
-    const answer = await rl.question(chalk.cyan('选择 [y/e/n]: '));
-    rl.close();
-    
+    const answer = await this.rl.question(chalk.cyan('选择 [y/e/n]: '));
     const choice = answer.trim().toLowerCase();
     
     if (choice === 'y') {
@@ -821,9 +816,7 @@ export class RalphExecutor {
       console.log(chalk.gray('请编辑文件后按回车继续...'));
       
       // 等待用户编辑
-      const rl2 = readline.createInterface({ input, output });
-      await rl2.question('');
-      rl2.close();
+      await this.rl.question('');
       
       // 重新加载 PRD
       const updatedPRD = loadPRD(this.prdPath);
@@ -860,16 +853,13 @@ export class RalphExecutor {
    * 卡住时询问用户操作
    */
   private async askStuckAction(_task: RalphStory): Promise<StuckAction> {
-    const rl = readline.createInterface({ input, output });
-    
     console.log(chalk.cyan('请选择操作:'));
     console.log(chalk.gray('  1. 重试 - 重置失败计数，继续尝试'));
     console.log(chalk.gray('  2. 跳过 - 跳过此任务，继续下一个'));
     console.log(chalk.gray('  3. 中止 - 停止 Ralph 循环'));
     console.log();
     
-    const answer = await rl.question(chalk.cyan('选择 [1/2/3]: '));
-    rl.close();
+    const answer = await this.rl.question(chalk.cyan('选择 [1/2/3]: '));
     
     switch (answer.trim()) {
       case '1':
