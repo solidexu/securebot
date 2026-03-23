@@ -386,15 +386,39 @@ export class RalphExecutor {
       if (result.passed) {
         // 运行反馈循环
         if (this.config.feedbackCommands && this.config.feedbackCommands.length > 0) {
+          // 检测项目类型，选择合适的反馈命令
+          const detectedCommands = await this.detectFeedbackCommands();
+          const commandsToRun = detectedCommands.length > 0 ? detectedCommands : this.config.feedbackCommands;
+          
+          console.log(chalk.cyan('\n🔍 运行反馈循环...'));
+          console.log(chalk.gray(`  命令: ${commandsToRun.join(', ')}`));
+          
           const feedbackResult = await runFeedbackLoop({
-            commands: this.config.feedbackCommands,
+            commands: commandsToRun,
             cwd: process.cwd(),
           });
           
           if (!feedbackResult.allPassed) {
-            console.log(chalk.yellow(`⚠ 反馈检查未通过，任务将在下一轮重试`));
-            result.passed = false;
-            result.error = `反馈检查失败: ${feedbackResult.failedCommands.join(', ')}`;
+            console.log(chalk.yellow(`⚠ 反馈检查未通过: ${feedbackResult.failedCommands.join(', ')}`));
+            
+            // 询问用户是否继续
+            console.log();
+            console.log(chalk.cyan('反馈检查失败，请选择:'));
+            console.log(chalk.gray('  1. 继续 - 忽略反馈失败，标记任务完成'));
+            console.log(chalk.gray('  2. 重试 - 稍后重试此任务'));
+            console.log();
+            
+            const rl = readline.createInterface({ input, output });
+            const choice = await rl.question(chalk.cyan('选择 [1/2，默认 2]: '));
+            rl.close();
+            
+            if (choice.trim() === '1') {
+              console.log(chalk.gray('忽略反馈失败，继续...'));
+              result.passed = true;
+            } else {
+              result.passed = false;
+              result.error = `反馈检查失败: ${feedbackResult.failedCommands.join(', ')}`;
+            }
           }
         }
         
@@ -916,6 +940,66 @@ ${iterationResult.output?.slice(0, 2000) || '无输出'}
       // 异常时默认通过
       return { passed: true };
     }
+  }
+  
+  /**
+   * 检测项目类型并返回合适的反馈命令
+   */
+  private async detectFeedbackCommands(): Promise<string[]> {
+    const cwd = process.cwd();
+    const commands: string[] = [];
+    
+    // 检测 Python 项目
+    if (existsSync(join(cwd, 'pyproject.toml')) || 
+        existsSync(join(cwd, 'setup.py')) ||
+        existsSync(join(cwd, 'requirements.txt'))) {
+      
+      // 优先使用 pytest
+      if (existsSync(join(cwd, 'pytest.ini')) || 
+          existsSync(join(cwd, 'pyproject.toml'))) {
+        commands.push('python -m pytest -x --tb=short');
+      } else {
+        commands.push('python -m unittest discover -v');
+      }
+      
+      // 检查是否有 ruff/lint
+      if (existsSync(join(cwd, 'ruff.toml')) || existsSync(join(cwd, '.ruff.toml'))) {
+        commands.push('ruff check .');
+      }
+      
+      return commands;
+    }
+    
+    // 检测 Node.js/TypeScript 项目
+    if (existsSync(join(cwd, 'package.json'))) {
+      // 检查是否有测试脚本
+      try {
+        const pkg = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf-8'));
+        if (pkg.scripts?.test && pkg.scripts.test !== 'echo "Error: no test specified"') {
+          commands.push('npm test');
+        }
+        if (pkg.scripts?.typecheck) {
+          commands.push('npm run typecheck');
+        }
+        if (pkg.scripts?.lint) {
+          commands.push('npm run lint');
+        }
+      } catch {
+        // 忽略解析错误
+      }
+      
+      return commands;
+    }
+    
+    // 检测 Go 项目
+    if (existsSync(join(cwd, 'go.mod'))) {
+      commands.push('go test ./...');
+      commands.push('go vet ./...');
+      return commands;
+    }
+    
+    // 未知项目类型，返回空
+    return [];
   }
   
   cleanup(): void {
