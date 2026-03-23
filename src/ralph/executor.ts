@@ -20,6 +20,7 @@ import { getDefaultAgent } from '../core/agent.js';
 import { createSession, addUserMessage, buildSystemPrompt } from '../core/session.js';
 import { getAvailableTools } from '../tools/index.js';
 import { getPRDStats, formatPRDStats } from './state-bridge.js';
+import { runFeedbackLoop } from './feedback.js';
 
 // ============ 默认配置 ============
 
@@ -286,6 +287,22 @@ export class RalphExecutor {
       
       const result = await this.runIteration(task, iterations);
       this.iterations.push(result);
+      
+      if (result.passed) {
+        // 运行反馈循环
+        if (this.config.feedbackCommands && this.config.feedbackCommands.length > 0) {
+          const feedbackResult = await runFeedbackLoop({
+            commands: this.config.feedbackCommands,
+            cwd: process.cwd(),
+          });
+          
+          if (!feedbackResult.allPassed) {
+            console.log(chalk.yellow(`⚠ 反馈检查未通过，任务将在下一轮重试`));
+            result.passed = false;
+            result.error = `反馈检查失败: ${feedbackResult.failedCommands.join(', ')}`;
+          }
+        }
+      }
       
       if (result.passed) {
         updateStoryStatus(prd, task.id, true, result.output?.slice(0, 200));

@@ -56,3 +56,17 @@ export {
   type ProgressSyncConfig,
   DEFAULT_SYNC_CONFIG,
 } from './progress-sync.js';
+
+// 反馈循环
+export {
+  executeCommand,
+  executeCommands,
+  runFeedbackLoop,
+  runFeedbackLoopWithRetry,
+  detectFeedbackConfig,
+  type FeedbackResult,
+  type FeedbackConfig,
+  type FeedbackLoopResult,
+  FEEDBACK_PRESETS,
+  DEFAULT_FEEDBACK_CONFIG,
+} from './feedback.js';
