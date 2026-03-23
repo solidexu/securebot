@@ -14,6 +14,8 @@ import chalk from 'chalk';
 import { join } from 'node:path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
+import * as readline from 'node:readline/promises';
+import { stdin as input, stdout as output } from 'node:process';
 import type { ReplState, ModelAdapter, ChatParams, Message } from '../core/types.js';
 import type { RalphPRD, RalphStory, RalphProgress, RalphConfig, RalphResult, RalphIteration, RalphModeOptions } from './types.js';
 import { getDefaultAgent } from '../core/agent.js';
@@ -22,6 +24,14 @@ import { getAvailableTools } from '../tools/index.js';
 import { getPRDStats, formatPRDStats } from './state-bridge.js';
 import { runFeedbackLoop } from './feedback.js';
 import { commitForTask } from './git.js';
+
+// ============ 卡住检测配置 ============
+
+/** 同一任务连续失败的最大次数 */
+const MAX_STUCK_COUNT = 3;
+
+/** 卡住时的处理选项 */
+type StuckAction = 'retry' | 'skip' | 'abort';
 
 // ============ 默认配置 ============
 
@@ -268,7 +278,10 @@ export class RalphExecutor {
     this.printTaskList(prd);
     console.log();
     
-    // 2. 开始循环
+    // 2. 初始化卡住检测
+    const stuckCounts = new Map<string, number>();
+    
+    // 3. 开始循环
     let iterations = 0;
     const startTime = Date.now();
     
@@ -325,7 +338,12 @@ export class RalphExecutor {
         });
         console.log(chalk.green(`✓ 任务 ${task.id} 完成`));
       } else {
-        console.log(chalk.yellow(`⚠ 任务 ${task.id} 未完成，将在下一轮重试`));
+        // 任务失败，更新卡住计数
+        const stuckCount = (stuckCounts.get(task.id) || 0) + 1;
+        stuckCounts.set(task.id, stuckCount);
+        
+        console.log(chalk.yellow(`⚠ 任务 ${task.id} 未完成 (失败 ${stuckCount}/${MAX_STUCK_COUNT} 次)`));
+        
         if (result.error) {
           appendProgress(this.progressPath, {
             timestamp: new Date().toISOString(),
@@ -334,6 +352,29 @@ export class RalphExecutor {
             completed: '未完成',
             issues: [result.error],
           });
+        }
+        
+        // 卡住检测：达到阈值时请求用户介入
+        if (stuckCount >= MAX_STUCK_COUNT) {
+          console.log();
+          console.log(chalk.red.bold(`❌ 任务 ${task.id} 多次失败，需要人工介入`));
+          console.log(chalk.gray(`错误: ${result.error || '未知错误'}`));
+          console.log();
+          
+          const action = await this.askStuckAction(task);
+          
+          if (action === 'skip') {
+            console.log(chalk.yellow(`⏭️ 跳过任务 ${task.id}`));
+            updateStoryStatus(prd, task.id, false, '用户跳过');
+            savePRD(this.prdPath, prd);
+            stuckCounts.set(task.id, 0); // 重置计数
+          } else if (action === 'abort') {
+            console.log(chalk.red('🛑 用户中止 Ralph 循环'));
+            return this.buildResult(false, iterations, prd, 'user_aborted');
+          } else {
+            console.log(chalk.cyan('🔄 重试任务...'));
+            stuckCounts.set(task.id, 0); // 重置计数，给新的机会
+          }
         }
       }
       
@@ -545,6 +586,34 @@ export class RalphExecutor {
     const prd = loadPRD(this.prdPath);
     if (!prd) return '无 PRD 数据';
     return formatPRDStats(getPRDStats(prd));
+  }
+  
+  /**
+   * 卡住时询问用户操作
+   */
+  private async askStuckAction(_task: RalphStory): Promise<StuckAction> {
+    const rl = readline.createInterface({ input, output });
+    
+    console.log(chalk.cyan('请选择操作:'));
+    console.log(chalk.gray('  1. 重试 - 重置失败计数，继续尝试'));
+    console.log(chalk.gray('  2. 跳过 - 跳过此任务，继续下一个'));
+    console.log(chalk.gray('  3. 中止 - 停止 Ralph 循环'));
+    console.log();
+    
+    const answer = await rl.question(chalk.cyan('选择 [1/2/3]: '));
+    rl.close();
+    
+    switch (answer.trim()) {
+      case '1':
+        return 'retry';
+      case '2':
+        return 'skip';
+      case '3':
+        return 'abort';
+      default:
+        console.log(chalk.gray('默认: 重试'));
+        return 'retry';
+    }
   }
   
   cleanup(): void {
