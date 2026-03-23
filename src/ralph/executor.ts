@@ -472,22 +472,16 @@ export class RalphExecutor {
           if (!feedbackResult.allPassed) {
             console.log(chalk.yellow(`⚠ 反馈检查未通过: ${feedbackResult.failedCommands.join(', ')}`));
             
-            // 询问用户是否继续
-            console.log();
-            console.log(chalk.cyan('反馈检查失败，请选择:'));
-            console.log(chalk.gray('  1. 继续 - 忽略反馈失败，标记任务完成'));
-            console.log(chalk.gray('  2. 重试 - 稍后重试此任务'));
-            console.log();
+            // 将失败信息作为任务错误，触发自动重试
+            result.passed = false;
+            result.error = `反馈检查失败:\n${feedbackResult.results
+              .filter(r => !r.passed)
+              .map(r => `命令: ${r.command}\n错误: ${r.error || r.output}`)
+              .join('\n\n')}`;
             
-            const choice = await this.rl.question(chalk.cyan('选择 [1/2，默认 2]: '));
-            
-            if (choice.trim() === '1') {
-              console.log(chalk.gray('忽略反馈失败，继续...'));
-              result.passed = true;
-            } else {
-              result.passed = false;
-              result.error = `反馈检查失败: ${feedbackResult.failedCommands.join(', ')}`;
-            }
+            console.log(chalk.gray('将在下一轮迭代中自动重试...'));
+          } else {
+            console.log(chalk.green('✓ 所有反馈检查通过'));
           }
         }
         
