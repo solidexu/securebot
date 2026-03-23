@@ -40,7 +40,7 @@ const DEFAULT_RALPH_CONFIG: RalphConfig = {
   maxIterations: 20,
   completionPromise: '<promise>COMPLETE</promise>',
   autoCommit: true,
-  feedbackCommands: ['npm test', 'npm run typecheck'],
+  feedbackCommands: [], // 默认禁用，让 agent 自己决定何时运行测试
   prdFile: 'prd.json',
   progressFile: 'progress.txt',
 };
@@ -313,11 +313,14 @@ ${progressContent.slice(0, 2000)}
 
 ## 指令
 1. 完成上述任务的实现
-2. 运行必要的测试确保代码正确
-3. 当你完成当前任务后，在回复末尾输出：${completionPromise}
+2. **自行运行测试确保代码正确**（重要！）
+3. 如果测试失败，分析原因并修复
+4. 当你确认任务完成且测试通过后，在回复末尾输出：${completionPromise}
 
-## 重要
-- 这是一个持续迭代的过程，你只需要完成当前这一个任务
+## 重要提示
+- 你需要自己运行测试，不要等待系统运行
+- 如果测试失败，请修复后重新运行测试
+- 确认测试通过后再输出完成信号
 - 完成后输出 ${completionPromise}，系统会自动进入下一个任务
 - 不要输出"任务完成"等文字，只需输出 ${completionPromise}
 `;
