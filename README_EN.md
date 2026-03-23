@@ -385,9 +385,34 @@ securebot audit search <kw> # Search logs
 
 ## 🔄 Ralph Loop Mode
 
-> ⚠️ **Experimental Feature** - Ralph Loop is currently in debugging phase and may be unstable.
-
 Ralph Loop is a continuous iteration mode that automatically breaks down tasks and executes them in a loop until completion.
+
+### How It Works
+
+```
+Task Description
+    ↓
+┌─────────────────┐
+│  1. Create PRD   │  Auto-break into task list
+└────────┬────────┘
+         ↓
+┌─────────────────┐
+│  2. Confirm      │  Show tasks, get approval
+└────────┬────────┘
+         ↓
+┌─────────────────┐
+│  3. Iterate      │  One task per iteration
+│   - Implement    │
+│   - Self-test    │
+│   - Fix issues   │
+└────────┬────────┘
+         ↓
+┌─────────────────┐
+│  4. Track        │  Show progress
+└────────┬────────┘
+         ↓
+    All Done ✅
+```
 
 ### Starting
 
@@ -399,18 +424,107 @@ Select mode:
   2. Ralph Loop - Iterate until task completion
 
 Select mode [1/2]: 2
+
+🔄 Ralph Loop mode enabled
+Agent will iterate until task completion.
+
+Describe the task: Implement an optical flow library with Horn-Schunck and Lucas-Kanade algorithms
+
+📋 Creating task list...
+✓ Created 5 tasks:
+
+Task list:
+  ○ US-001: Setup Python development environment
+  ○ US-002: Implement Horn-Schunck algorithm
+  ○ US-003: Implement Lucas-Kanade algorithm
+  ○ US-004: Add test cases
+  ○ US-005: Write usage documentation
+
+Execute this plan?
+  y - Confirm and execute
+  e - Edit PRD file then continue
+  n - Cancel
+
+Select [y/e/n]: y
 ```
 
 ### Features
 
 | Feature | Description |
 |---------|-------------|
-| Task Breakdown | Automatically breaks down complex tasks into PRD task list |
-| Continuous Iteration | Executes one task per iteration until all complete |
-| Progress Tracking | Real-time display of task progress and iteration count |
-| Stuck Detection | Prompts user intervention when task fails |
-| Background Mode | Run in background with notification on completion |
-| Ctrl+C Interrupt | Interrupt execution at any time |
+| **Auto Task Breakdown** | Breaks complex tasks into executable user stories |
+| **Continuous Iteration** | One task per iteration until all complete |
+| **Self-Testing** | Agent runs tests itself, auto-fixes on failure |
+| **Progress Tracking** | Real-time task progress and iteration count |
+| **Stuck Detection** | Prompts user after 3 consecutive failures |
+| **Error Learning** | Failure info passed to next iteration |
+| **Background Mode** | Run in background with notification |
+| **Session Branches** | Multi-branch conversations for different approaches |
+
+### Configuration
+
+Configure in `~/.securebot/config.json`:
+
+```json
+{
+  "ralph": {
+    "maxIterations": 20,
+    "autoCommit": true,
+    "feedbackCommands": []
+  }
+}
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `maxIterations` | 20 | Maximum iterations |
+| `autoCommit` | true | Auto git commit after each task |
+| `feedbackCommands` | [] | Feedback commands (disabled by default) |
+
+### Best Practices
+
+**1. Be Specific**
+
+```
+✅ Good: Implement an optical flow library with Horn-Schunck and Lucas-Kanade algorithms, with tests
+❌ Bad: Help me write an optical flow library
+```
+
+**2. Clear Acceptance Criteria**
+
+Tasks auto-generate acceptance criteria, but you can add more:
+```
+Implement login with: phone verification, password login, third-party (WeChat)
+```
+
+**3. Use Branches for Different Approaches**
+
+```
+/branch create react-impl    # Try React implementation
+...iteration complete...
+
+/branch main                 # Back to main
+/branch create vue-impl      # Try Vue implementation
+...iteration complete...
+
+/branch tree                 # Compare branches
+● main
+  ○ react-impl ✓
+  ○ vue-impl ✓
+```
+
+**4. Manual Intervention When Stuck**
+
+After 3 consecutive failures:
+```
+❌ Task US-002 failed multiple times, needs manual intervention
+Error: Test case test_compute_basic failed
+
+Choose action:
+  1. Retry - Reset failure count, try again
+  2. Skip - Skip this task, continue next
+  3. Abort - Stop Ralph loop
+```
 
 ### Background Task Commands
 
@@ -422,16 +536,25 @@ Select mode [1/2]: 2
 /ralph cancel <taskId>  # Cancel running task
 ```
 
-### Session Branches
-
-Support for multi-branch conversations to try different approaches:
+### Session Branch Commands
 
 ```bash
 /branch create <name>   # Create new branch
 /branch list            # List all branches
 /branch tree            # Display branch tree
+/branch switch <name>   # Switch branch
+/branch merge           # Merge to main
 /branch abandon <name>  # Abandon branch
 ```
+
+### Interrupt and Resume
+
+**Interrupt:**
+- Press `Ctrl+C` once: Graceful interrupt, wait for current task
+- Press `Ctrl+C` twice: Force exit
+
+**Resume:**
+When re-entering Ralph mode, system detects incomplete PRD and asks to continue.
 
 ---
 
