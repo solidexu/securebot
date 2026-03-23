@@ -21,6 +21,7 @@ import { createSession, addUserMessage, buildSystemPrompt } from '../core/sessio
 import { getAvailableTools } from '../tools/index.js';
 import { getPRDStats, formatPRDStats } from './state-bridge.js';
 import { runFeedbackLoop } from './feedback.js';
+import { commitForTask } from './git.js';
 
 // ============ 默认配置 ============
 
@@ -307,6 +308,12 @@ export class RalphExecutor {
       if (result.passed) {
         updateStoryStatus(prd, task.id, true, result.output?.slice(0, 200));
         savePRD(this.prdPath, prd);
+        
+        // Git 自动提交
+        if (this.config.autoCommit) {
+          await commitForTask(task, { cwd: process.cwd() });
+        }
+        
         appendProgress(this.progressPath, {
           timestamp: new Date().toISOString(),
           storyId: task.id,

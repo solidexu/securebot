@@ -70,3 +70,21 @@ export {
   FEEDBACK_PRESETS,
   DEFAULT_FEEDBACK_CONFIG,
 } from './feedback.js';
+
+// Git 集成
+export {
+  isGitRepo,
+  hasChanges,
+  getCurrentBranch,
+  stageAll,
+  commit,
+  push,
+  createBranch,
+  generateCommitMessage,
+  commitForTask,
+  createRalphBranch,
+  getRalphWorkSummary,
+  type GitResult,
+  type GitConfig,
+  DEFAULT_GIT_CONFIG,
+} from './git.js';
