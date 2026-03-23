@@ -751,18 +751,21 @@ export class RalphExecutor {
       // 检查完成信号
       const hasCompleteSignal = output.includes(this.config.completionPromise);
       
-      // Ralph 模式下，任务完成判断基于完成信号
+      // 检查工具执行结果中是否有成功信号
+      const hasSuccessToolResult = this.hasSuccessToolResult(currentMessages);
+      
+      // Ralph 模式下，任务完成判断
       result.output = output;
-      result.passed = hasCompleteSignal;
+      result.passed = hasCompleteSignal || (toolCallRounds > 0 && hasSuccessToolResult);
       result.duration = Date.now() - startTime;
       
       if (hasCompleteSignal) {
         console.log(chalk.green(`\n✓ 任务完成信号已检测`));
+      } else if (toolCallRounds > 0 && hasSuccessToolResult) {
+        console.log(chalk.green(`\n✓ 工具执行成功，任务完成`));
       } else if (toolCallRounds > 0) {
-        // 有工具调用但没有完成信号
-        // 这可能意味着任务进行中，但模型忘记输出完成信号
-        // 在这种情况下，我们假设任务已完成（更宽松的条件）
-        console.log(chalk.yellow(`\n⚠ 有工具调用但无完成信号，假设任务已完成`));
+        // 有工具调用但没有成功结果
+        console.log(chalk.yellow(`\n⚠ 有工具调用但结果不确定，假设任务已完成`));
         result.passed = true;
       }
       
@@ -961,10 +964,13 @@ ${iterationResult.output?.slice(0, 2000) || '无输出'}
     const commands: string[] = [];
     
     // 检测 Python 项目
-    if (existsSync(join(cwd, 'pyproject.toml')) || 
-        existsSync(join(cwd, 'setup.py')) ||
-        existsSync(join(cwd, 'requirements.txt'))) {
-      
+    const pythonMarkers = ['pyproject.toml', 'setup.py', 'requirements.txt', 'setup.cfg', 'Pipfile', 'poetry.lock'];
+    const hasPythonMarker = pythonMarkers.some(marker => existsSync(join(cwd, marker)));
+    
+    // 检查是否有 .py 文件
+    const hasPythonFiles = this.hasPythonFiles(cwd);
+    
+    if (hasPythonMarker || hasPythonFiles) {
       // 优先使用 pytest
       if (existsSync(join(cwd, 'pytest.ini')) || 
           existsSync(join(cwd, 'pyproject.toml'))) {
@@ -1015,6 +1021,65 @@ ${iterationResult.output?.slice(0, 2000) || '无输出'}
     // 未知项目类型
     console.log(chalk.gray(`  未知项目类型: ${cwd}`));
     return [];
+  }
+  
+  /**
+   * 检查目录中是否有 Python 文件
+   */
+  private hasPythonFiles(dir: string): boolean {
+    try {
+      const { readdirSync } = require('node:fs');
+      const entries = readdirSync(dir, { withFileTypes: true });
+      
+      // 检查是否有 .py 文件
+      for (const entry of entries) {
+        if (entry.isFile() && entry.name.endsWith('.py')) {
+          return true;
+        }
+      }
+      
+      // 检查子目录中是否有 Python 包
+      for (const entry of entries) {
+        if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
+          const subDir = join(dir, entry.name);
+          try {
+            const subEntries = readdirSync(subDir, { withFileTypes: true });
+            for (const subEntry of subEntries) {
+              if (subEntry.isFile() && subEntry.name.endsWith('.py')) {
+                return true;
+              }
+            }
+          } catch {
+            // 忽略无法访问的目录
+          }
+        }
+      }
+      
+      return false;
+    } catch {
+      return false;
+    }
+  }
+  
+  /**
+   * 检查工具执行结果中是否有成功信号
+   */
+  private hasSuccessToolResult(messages: Message[]): boolean {
+    for (const msg of messages) {
+      if (msg.role === 'tool') {
+        const content = msg.content || '';
+        // 检查退出码 0 或成功关键词
+        if (content.includes('退出码: 0') || 
+            content.includes('exit code: 0') ||
+            content.includes('Exit code: 0') ||
+            content.toLowerCase().includes('success') ||
+            content.includes('✓') ||
+            content.includes('passed')) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
   
   cleanup(): void {
