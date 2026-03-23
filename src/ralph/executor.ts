@@ -271,17 +271,40 @@ export class RalphExecutor {
     const model = this.state.config.model.model || 'qwen3.5:35b-a3b';
     let prd = await createPRDFromDescription(taskDescription, this.state.modelAdapter, model);
     
-    savePRD(this.prdPath, prd);
-    initProgressFile(this.progressPath);
+    // 2. 验证 PRD 质量
+    const validation = this.validatePRD(prd);
+    if (!validation.valid) {
+      console.log(chalk.yellow('\n⚠️ PRD 存在问题:'));
+      validation.issues.forEach(issue => console.log(chalk.gray(`  - ${issue}`)));
+      console.log();
+    }
     
-    console.log(chalk.green(`✓ 已创建 ${prd.userStories.length} 个任务`));
+    // 3. 显示 PRD 并请求确认
+    console.log(chalk.green(`\n✓ 已创建 ${prd.userStories.length} 个任务:`));
     this.printTaskList(prd);
     console.log();
     
-    // 2. 初始化卡住检测
+    // 4. 用户确认 PRD
+    const confirmed = await this.confirmPRD(prd);
+    if (!confirmed) {
+      console.log(chalk.gray('已取消 Ralph 循环'));
+      return {
+        success: false,
+        iterations: 0,
+        completedStories: 0,
+        totalStories: prd.userStories.length,
+        reason: 'user_cancelled_prd',
+      };
+    }
+    
+    savePRD(this.prdPath, prd);
+    initProgressFile(this.progressPath);
+    console.log();
+    
+    // 5. 初始化卡住检测
     const stuckCounts = new Map<string, number>();
     
-    // 3. 开始循环
+    // 6. 开始循环
     let iterations = 0;
     const startTime = Date.now();
     
@@ -586,6 +609,120 @@ export class RalphExecutor {
     const prd = loadPRD(this.prdPath);
     if (!prd) return '无 PRD 数据';
     return formatPRDStats(getPRDStats(prd));
+  }
+  
+  /**
+   * 验证 PRD 质量
+   */
+  private validatePRD(prd: RalphPRD): { valid: boolean; issues: string[] } {
+    const issues: string[] = [];
+    
+    // 检查分支名
+    if (!prd.branchName || prd.branchName.length < 3) {
+      issues.push('分支名称太短或缺失');
+    }
+    
+    // 检查任务数量
+    if (!prd.userStories || prd.userStories.length === 0) {
+      issues.push('没有定义任何任务');
+      return { valid: false, issues };
+    }
+    
+    // 检查每个任务
+    for (const story of prd.userStories) {
+      // 任务 ID
+      if (!story.id || story.id.length < 2) {
+        issues.push(`任务 "${story.title}": ID 无效`);
+      }
+      
+      // 任务标题
+      if (!story.title || story.title.length < 5) {
+        issues.push(`任务 ${story.id}: 标题太短`);
+      }
+      
+      // 验收标准
+      if (!story.acceptanceCriteria || story.acceptanceCriteria.length === 0) {
+        issues.push(`任务 ${story.id}: 缺少验收标准`);
+      }
+      
+      // 优先级
+      if (story.priority === undefined || story.priority < 1) {
+        issues.push(`任务 ${story.id}: 优先级无效`);
+      }
+    }
+    
+    // 检查任务 ID 唯一性
+    const ids = prd.userStories.map(s => s.id);
+    const uniqueIds = new Set(ids);
+    if (ids.length !== uniqueIds.size) {
+      issues.push('存在重复的任务 ID');
+    }
+    
+    return {
+      valid: issues.length === 0,
+      issues,
+    };
+  }
+  
+  /**
+   * 确认 PRD
+   */
+  private async confirmPRD(prd: RalphPRD): Promise<boolean> {
+    const rl = readline.createInterface({ input, output });
+    
+    console.log(chalk.cyan('是否按此计划执行？'));
+    console.log(chalk.gray('  y - 确认执行'));
+    console.log(chalk.gray('  e - 编辑 PRD 文件后继续'));
+    console.log(chalk.gray('  n - 取消'));
+    console.log();
+    
+    const answer = await rl.question(chalk.cyan('选择 [y/e/n]: '));
+    rl.close();
+    
+    const choice = answer.trim().toLowerCase();
+    
+    if (choice === 'y') {
+      return true;
+    } else if (choice === 'e') {
+      // 显示 PRD 文件路径，让用户编辑
+      console.log();
+      console.log(chalk.cyan(`PRD 文件路径: ${this.prdPath}`));
+      console.log(chalk.gray('请编辑文件后按回车继续...'));
+      
+      // 等待用户编辑
+      const rl2 = readline.createInterface({ input, output });
+      await rl2.question('');
+      rl2.close();
+      
+      // 重新加载 PRD
+      const updatedPRD = loadPRD(this.prdPath);
+      if (updatedPRD) {
+        // 更新 prd 对象
+        prd.branchName = updatedPRD.branchName;
+        prd.userStories = updatedPRD.userStories;
+        prd.updatedAt = updatedPRD.updatedAt;
+        
+        // 重新验证
+        const validation = this.validatePRD(prd);
+        if (!validation.valid) {
+          console.log(chalk.yellow('\n⚠️ 修改后的 PRD 仍存在问题:'));
+          validation.issues.forEach(issue => console.log(chalk.gray(`  - ${issue}`)));
+          console.log();
+          return this.confirmPRD(prd); // 递归确认
+        }
+        
+        console.log(chalk.green('\n✓ PRD 已更新'));
+        this.printTaskList(prd);
+        console.log();
+        
+        // 再次确认
+        return this.confirmPRD(prd);
+      }
+      
+      return false;
+    }
+    
+    return false;
   }
   
   /**
