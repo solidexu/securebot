@@ -184,7 +184,7 @@ export async function runFeedbackLoop(
     };
   }
   
-  console.log(chalk.cyan('\n🔍 运行反馈循环...'));
+  console.log(chalk.gray('  开始执行反馈命令...'));
   
   const startTime = Date.now();
   const results = await executeCommands(finalConfig.commands, config);

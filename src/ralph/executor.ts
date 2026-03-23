@@ -454,12 +454,15 @@ export class RalphExecutor {
           const agent = this.state.agents.get(this.state.currentAgentId) ?? getDefaultAgent(this.state.agents);
           const workspace = agent?.workspace || process.cwd();
           
+          console.log(chalk.cyan('\n🔍 运行反馈循环...'));
+          console.log(chalk.gray(`  工作目录: ${workspace}`));
+          
           // 检测项目类型，选择合适的反馈命令
           const detectedCommands = await this.detectFeedbackCommands(workspace);
-          const commandsToRun = detectedCommands.length > 0 ? detectedCommands : this.config.feedbackCommands;
+          console.log(chalk.gray(`  检测结果: ${detectedCommands.length > 0 ? detectedCommands.join(', ') : '(未检测到)'}`));
           
-          console.log(chalk.cyan('\n🔍 运行反馈循环...'));
-          console.log(chalk.gray(`  命令: ${commandsToRun.join(', ')}`));
+          const commandsToRun = detectedCommands.length > 0 ? detectedCommands : this.config.feedbackCommands;
+          console.log(chalk.gray(`  执行命令: ${commandsToRun.join(', ')}`));
           
           const feedbackResult = await runFeedbackLoop({
             commands: commandsToRun,
