@@ -337,15 +337,24 @@ export class RalphExecutor {
         }
       }
       
-      if (result.output?.includes(this.config.completionPromise)) {
-        console.log(chalk.green.bold('\n🎉 检测到完成信号'));
-        return this.buildResult(true, iterations, prd, 'completion_promise_detected');
-      }
+      // 显示当前进度
+      const stats = getPRDStats(prd);
+      console.log(chalk.cyan(`\n📊 总进度: ${formatPRDStats(stats)}`));
     }
     
+    // 循环结束，检查是否所有任务完成
+    const finalStats = getPRDStats(prd);
     const duration = Math.round((Date.now() - startTime) / 1000);
+    
+    if (allTasksComplete(prd)) {
+      console.log(chalk.green.bold('\n🎉 所有任务已完成！'));
+      console.log(chalk.gray(`总耗时: ${duration}秒`));
+      return this.buildResult(true, iterations, prd, 'all_tasks_complete');
+    }
+    
     console.log(chalk.yellow.bold(`\n⚠️ 达到最大迭代次数 (${maxIterations})`));
     console.log(chalk.gray(`总耗时: ${duration}秒`));
+    console.log(chalk.gray(`完成: ${finalStats.completed}/${finalStats.total} 任务`));
     
     return this.buildResult(false, iterations, prd, 'max_iterations_reached');
   }
