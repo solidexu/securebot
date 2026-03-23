@@ -1204,8 +1204,6 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
           // 初始化执行状态
           if (!ctx.executionState) {
             ctx.executionState = createExecutionState(currentPlan, 'guided');
-            // 注意：不自动标记第一个步骤为 in_progress
-            // 等用户确认后才标记
           }
           
           const newRender = renderTaskProgress(currentPlan);
@@ -1221,7 +1219,7 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
             
             lastPlanRender = newRender;
             
-            // ★ 新增：等待用户确认计划
+            // ★ 等待用户确认计划
             console.log();
             console.log(chalk.yellow('是否按此计划执行？'));
             const answer = await interruptibleQuestion(chalk.cyan('[y/N]: '));
@@ -1238,23 +1236,30 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
               return;
             }
             
-            // ★ 用户确认后，显示带进度条的计划，然后逐条执行
+            // 用户确认后，开始执行
             console.log();
             console.log(chalk.green('✓ 计划已确认，开始执行：'));
             console.log();
             
             // 标记第一个步骤为 in_progress
-            if (currentPlan && currentPlan.steps.length > 0) {
+            if (currentPlan && currentPlan.steps.length > 0 && currentPlan.steps[0]) {
               currentPlan.steps[0].status = 'in_progress';
               savePlanToSession(session, currentPlan, message);
             }
             
             // 显示带进度条的计划
-            console.log(renderTaskProgress(currentPlan!));
+            console.log(renderTaskProgress(currentPlan));
             if (ctx.executionState) {
-              console.log(showTaskProgress(currentPlan!, ctx.executionState));
+              console.log(showTaskProgress(currentPlan, ctx.executionState));
             }
             console.log();
+          }
+          
+          // ★ 关键：计划解析成功后，清除模型返回的工具调用，等待用户确认
+          // 如果模型同时返回了工具调用，忽略它们，等用户确认后再执行
+          if (result.toolCalls && result.toolCalls.length > 0) {
+            console.log(chalk.gray('（模型尝试调用工具，已暂存等待计划确认后执行）'));
+            result.toolCalls = undefined;
           }
         }
       }
