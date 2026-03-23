@@ -134,6 +134,10 @@ export async function handleCommand(
       await handleRalphCommand(state, arg || '', parts.slice(2));
       break;
 
+    case 'branch':
+      await handleBranchCommand(arg || '', parts.slice(2));
+      break;
+
     case 'sessions':
       await handleSessionsCommand(sessionStorage);
       break;
@@ -2192,6 +2196,154 @@ async function handleRalphCommand(
       console.log('  /ralph show <taskId>    查看任务详情');
       console.log('  /ralph log <taskId>     查看任务日志');
       console.log('  /ralph cancel <taskId>  取消运行中的任务');
+      console.log();
+  }
+}
+
+/**
+ * 处理分支命令
+ */
+async function handleBranchCommand(
+  subCommand: string,
+  args: string[]
+): Promise<void> {
+  const { 
+    createBranch, 
+    listBranches, 
+    deleteBranch, 
+    abandonBranch, 
+    restoreBranch,
+    formatBranchList,
+    formatBranchDetail,
+    renderBranchTree,
+  } = await import('./branch.js');
+  
+  switch (subCommand) {
+    case 'create': {
+      const name = args[0];
+      if (!name) {
+        console.log(chalk.yellow('用法: /branch create <名称> [描述]'));
+        break;
+      }
+      
+      const description = args.slice(1).join(' ');
+      const branch = createBranch(name, 'main', 0, description);
+      
+      console.log(chalk.green(`✓ 已创建分支: ${branch.name}`));
+      console.log(chalk.gray(`ID: ${branch.id}`));
+      break;
+    }
+    
+    case 'list': {
+      const branches = listBranches();
+      console.log(chalk.cyan.bold('\n📋 分支列表\n'));
+      console.log(formatBranchList(branches));
+      console.log();
+      break;
+    }
+    
+    case 'tree': {
+      const includeAbandoned = args[0] === '--all';
+      console.log();
+      console.log(renderBranchTree(includeAbandoned));
+      console.log();
+      break;
+    }
+    
+    case 'show': {
+      const branchId = args[0];
+      if (!branchId) {
+        console.log(chalk.yellow('用法: /branch show <分支名或ID>'));
+        break;
+      }
+      
+      // 尝试通过名称或 ID 查找
+      const branches = listBranches();
+      const branch = branches.find(b => b.id === branchId || b.name === branchId);
+      
+      if (!branch) {
+        console.log(chalk.red(`分支不存在: ${branchId}`));
+        break;
+      }
+      
+      console.log();
+      console.log(formatBranchDetail(branch));
+      console.log();
+      break;
+    }
+    
+    case 'abandon': {
+      const branchId = args[0];
+      if (!branchId) {
+        console.log(chalk.yellow('用法: /branch abandon <分支名或ID>'));
+        break;
+      }
+      
+      const branches = listBranches();
+      const branch = branches.find(b => b.id === branchId || b.name === branchId);
+      
+      if (!branch) {
+        console.log(chalk.red(`分支不存在: ${branchId}`));
+        break;
+      }
+      
+      abandonBranch(branch.id);
+      console.log(chalk.yellow(`✓ 已废弃分支: ${branch.name}`));
+      break;
+    }
+    
+    case 'restore': {
+      const branchId = args[0];
+      if (!branchId) {
+        console.log(chalk.yellow('用法: /branch restore <分支名或ID>'));
+        break;
+      }
+      
+      const branches = listBranches();
+      const branch = branches.find(b => b.id === branchId || b.name === branchId);
+      
+      if (!branch) {
+        console.log(chalk.red(`分支不存在: ${branchId}`));
+        break;
+      }
+      
+      restoreBranch(branch.id);
+      console.log(chalk.green(`✓ 已恢复分支: ${branch.name}`));
+      break;
+    }
+    
+    case 'delete': {
+      const branchId = args[0];
+      if (!branchId) {
+        console.log(chalk.yellow('用法: /branch delete <分支名或ID>'));
+        break;
+      }
+      
+      const branches = listBranches();
+      const branch = branches.find(b => b.id === branchId || b.name === branchId);
+      
+      if (!branch) {
+        console.log(chalk.red(`分支不存在: ${branchId}`));
+        break;
+      }
+      
+      deleteBranch(branch.id);
+      console.log(chalk.green(`✓ 已删除分支: ${branch.name}`));
+      break;
+    }
+    
+    default:
+      console.log(chalk.cyan.bold('\n🌿 会话分支管理\n'));
+      console.log('命令:');
+      console.log('  /branch create <名称> [描述]  创建新分支');
+      console.log('  /branch list                  列出所有分支');
+      console.log('  /branch tree [--all]          显示分支树');
+      console.log('  /branch show <名称|ID>        查看分支详情');
+      console.log('  /branch abandon <名称|ID>     废弃分支');
+      console.log('  /branch restore <名称|ID>     恢复分支');
+      console.log('  /branch delete <名称|ID>      删除分支');
+      console.log();
+      console.log(chalk.gray('提示: 分支允许你尝试不同方案后选择最佳结果'));
       console.log();
   }
 }
