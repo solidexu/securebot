@@ -24,6 +24,7 @@ import { getAvailableTools } from '../tools/index.js';
 import { getPRDStats, formatPRDStats } from './state-bridge.js';
 import { runFeedbackLoop } from './feedback.js';
 import { commitForTask } from './git.js';
+import { ProgressDisplay } from './progress-display.js';
 
 // ============ 卡住检测配置 ============
 
@@ -336,6 +337,9 @@ export class RalphExecutor {
     // 5. 初始化卡住检测
     const stuckCounts = new Map<string, number>();
     
+    // 5.5 初始化进度显示
+    const progressDisplay = new ProgressDisplay();
+    
     // 6. 开始循环
     let iterations = 0;
     const startTime = Date.now();
@@ -351,15 +355,22 @@ export class RalphExecutor {
       prd = loadPRD(this.prdPath) ?? prd;
       
       if (allTasksComplete(prd)) {
-        console.log(chalk.green.bold('\n🎉 所有任务已完成！'));
+        const duration = Math.round((Date.now() - startTime) / 1000);
+        progressDisplay.showCompletionSummary(
+          true,
+          iterations,
+          prd.userStories.filter(s => s.passes).length,
+          prd.userStories.length,
+          duration
+        );
         return this.buildResult(true, iterations, prd, 'all_tasks_complete');
       }
       
       const task = getNextTask(prd);
       if (!task) break;
       
-      console.log(chalk.cyan.bold(`\n═══ 迭代 ${iterations}/${maxIterations} ═══`));
-      console.log(chalk.white(`📋 任务: ${task.id} - ${task.title}`));
+      // 显示迭代进度
+      progressDisplay.startTask(task.id, task.title, iterations, maxIterations);
       console.log(chalk.gray(`验收标准: ${task.acceptanceCriteria.join(', ')}`));
       console.log();
       
