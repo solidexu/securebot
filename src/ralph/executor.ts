@@ -208,10 +208,13 @@ ${progressContent.slice(0, 2000)}
 
 ## 指令
 1. 完成上述任务的实现
-2. 运行必要的测试和类型检查
-3. 如果所有任务都已完成，输出 ${completionPromise}
+2. 运行必要的测试确保代码正确
+3. 当你完成当前任务后，在回复末尾输出：${completionPromise}
 
-注意：每次只完成一个任务，完成后停止等待下一轮迭代。
+## 重要
+- 这是一个持续迭代的过程，你只需要完成当前这一个任务
+- 完成后输出 ${completionPromise}，系统会自动进入下一个任务
+- 不要输出"任务完成"等文字，只需输出 ${completionPromise}
 `;
 }
 
@@ -475,17 +478,22 @@ export class RalphExecutor {
       // 检查完成信号
       const hasCompleteSignal = output.includes(this.config.completionPromise);
       
-      // 检查是否有关键词表明任务完成
-      const completionKeywords = ['完成', '已实现', 'done', 'complete', 'finished', '成功'];
-      const hasCompletionKeyword = completionKeywords.some(kw => 
-        output.toLowerCase().includes(kw.toLowerCase())
-      );
-      
+      // Ralph 模式下，任务完成判断基于完成信号
       result.output = output;
-      result.passed = hasCompleteSignal || hasCompletionKeyword || toolCallRounds > 0;
+      result.passed = hasCompleteSignal;
       result.duration = Date.now() - startTime;
       
-      console.log(chalk.gray(`\n迭代耗时: ${result.duration}ms, 工具调用: ${toolCallRounds} 轮`));
+      if (hasCompleteSignal) {
+        console.log(chalk.green(`\n✓ 任务完成信号已检测`));
+      } else if (toolCallRounds > 0) {
+        // 有工具调用但没有完成信号
+        // 这可能意味着任务进行中，但模型忘记输出完成信号
+        // 在这种情况下，我们假设任务已完成（更宽松的条件）
+        console.log(chalk.yellow(`\n⚠ 有工具调用但无完成信号，假设任务已完成`));
+        result.passed = true;
+      }
+      
+      console.log(chalk.gray(`迭代耗时: ${result.duration}ms, 工具调用: ${toolCallRounds} 轮`));
       
     } catch (error) {
       result.error = error instanceof Error ? error.message : String(error);
