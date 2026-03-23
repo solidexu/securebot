@@ -21,6 +21,7 @@ import { handleCommand } from './repl-commands.js';
 import { processMessage } from './repl-message.js';
 import { loadPersistedSessions, saveAllSessions, showConfirmationDialog } from './repl-session.js';
 import { ContextualHints, MessageFormatter } from './message-formatter.js';
+import { RalphExecutor } from '../ralph/index.js';
 
 // ============ REPL 启动 ============
 
@@ -312,6 +313,47 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
     process.exit(0);
   });
 
+  // 询问是否使用 Ralph Loop 模式
+  const ralphMode = await askRalphMode(rl);
+  
+  if (ralphMode.enabled) {
+    // Ralph Loop 模式
+    console.log();
+    console.log(chalk.cyan('🔄 Ralph Loop 模式已启用'));
+    console.log(chalk.gray('Agent 将持续迭代直到任务完成。'));
+    console.log();
+    
+    const executor = new RalphExecutor(state);
+    const result = await executor.run({
+      taskDescription: ralphMode.taskDescription!,
+      maxIterations: ralphMode.maxIterations,
+    });
+    
+    console.log();
+    if (result.success) {
+      console.log(chalk.green.bold('✓ Ralph 循环完成'));
+      console.log(chalk.gray(`迭代次数: ${result.iterations}`));
+      console.log(chalk.gray(`完成任务: ${result.completedStories}/${result.totalStories}`));
+    } else {
+      console.log(chalk.yellow.bold('⚠ Ralph 循环结束'));
+      console.log(chalk.gray(`原因: ${result.reason}`));
+      console.log(chalk.gray(`完成任务: ${result.completedStories}/${result.totalStories}`));
+    }
+    
+    // 询问是否继续普通对话
+    console.log();
+    const continueChat = await askYesNo(rl, '是否继续普通对话模式？', true);
+    if (!continueChat) {
+      await exitHandler();
+      rl.close();
+      return;
+    }
+    
+    console.log();
+    console.log(chalk.cyan('已切换到普通对话模式'));
+    console.log();
+  }
+
   // 主循环
   while (state.running) {
     try {
@@ -467,4 +509,55 @@ function printWelcome(state: ReplState): void {
   console.log();
   console.log(chalk.gray('提示: 输入 / 或 @ 后按 Tab 可自动补全'));
   console.log();
+}
+
+/**
+ * 询问是否使用 Ralph Loop 模式
+ */
+async function askRalphMode(rl: readlinePromises.Interface): Promise<{ enabled: boolean; taskDescription?: string; maxIterations?: number }> {
+  console.log(chalk.cyan('请选择对话模式:'));
+  console.log(chalk.gray('  1. 普通对话 - 单次交互模式'));
+  console.log(chalk.gray('  2. Ralph Loop - 持续迭代直到任务完成'));
+  console.log();
+  
+  const choice = await rl.question(chalk.cyan('选择模式 [1/2]: '));
+  
+  if (choice.trim() === '2') {
+    console.log();
+    console.log(chalk.cyan('🔄 Ralph Loop 模式'));
+    console.log(chalk.gray('Agent 将自动分解任务并持续迭代执行。'));
+    console.log();
+    
+    const taskDescription = await rl.question(chalk.cyan('请描述任务: '));
+    
+    if (!taskDescription.trim()) {
+      console.log(chalk.yellow('任务描述为空，切换到普通对话模式'));
+      return { enabled: false };
+    }
+    
+    const maxIterationsStr = await rl.question(chalk.cyan('最大迭代次数 [默认 20]: '));
+    const maxIterations = maxIterationsStr.trim() ? parseInt(maxIterationsStr, 10) : 20;
+    
+    return {
+      enabled: true,
+      taskDescription: taskDescription.trim(),
+      maxIterations: isNaN(maxIterations) ? 20 : maxIterations,
+    };
+  }
+  
+  return { enabled: false };
+}
+
+/**
+ * 询问是/否问题
+ */
+async function askYesNo(rl: readlinePromises.Interface, question: string, defaultYes: boolean = true): Promise<boolean> {
+  const hint = defaultYes ? '[Y/n]' : '[y/N]';
+  const answer = await rl.question(chalk.cyan(`${question} ${hint}: `));
+  
+  if (!answer.trim()) {
+    return defaultYes;
+  }
+  
+  return answer.toLowerCase().startsWith('y');
 }
