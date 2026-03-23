@@ -154,10 +154,25 @@ async function main(): Promise<void> {
 async function sendNotification(sessionKey: string): Promise<void> {
   try {
     // 使用 OpenClaw 的 message 工具发送通知
-    // 这里暂时只记录日志，实际发送需要集成消息系统
-    log(chalk.gray(`通知已发送到会话: ${sessionKey}`));
+    const response = await fetch('http://localhost:3000/api/message', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        sessionKey,
+        message: '📊 Ralph 任务完成\n\n请查看结果: /ralph status',
+      }),
+    });
+    
+    if (response.ok) {
+      log(chalk.gray(`通知已发送到会话: ${sessionKey}`));
+    } else {
+      log(chalk.yellow(`通知发送失败: HTTP ${response.status}`));
+    }
   } catch (error) {
-    log(chalk.yellow(`通知发送失败: ${error}`));
+    // OpenClaw 服务可能未运行，忽略错误
+    log(chalk.gray(`通知跳过: OpenClaw 服务未运行`));
   }
 }
 

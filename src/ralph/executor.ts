@@ -386,6 +386,20 @@ export class RalphExecutor {
             result.error = `反馈检查失败: ${feedbackResult.failedCommands.join(', ')}`;
           }
         }
+        
+        // 审查者模型检查
+        if (result.passed && this.state.config.model.reviewer) {
+          console.log(chalk.cyan('\n🔍 审查者检查...'));
+          const reviewResult = await this.runReview(task, result);
+          
+          if (!reviewResult.passed) {
+            console.log(chalk.yellow(`⚠ 审查未通过: ${reviewResult.issues?.join(', ')}`));
+            result.passed = false;
+            result.error = `审查失败: ${reviewResult.issues?.join(', ')}`;
+          } else {
+            console.log(chalk.green('✓ 审查通过'));
+          }
+        }
       }
       
       if (result.passed) {
@@ -832,6 +846,64 @@ export class RalphExecutor {
       default:
         console.log(chalk.gray('默认: 重试'));
         return 'retry';
+    }
+  }
+  
+  /**
+   * 运行审查者检查
+   */
+  private async runReview(
+    task: RalphStory,
+    iterationResult: RalphIteration
+  ): Promise<{ passed: boolean; issues?: string[] }> {
+    const reviewerModel = this.state.config.model.reviewer;
+    if (!reviewerModel) {
+      return { passed: true };
+    }
+    
+    try {
+      // 构建审查提示
+      const reviewPrompt = `你是代码审查专家。请审查以下任务是否真正完成。
+
+任务: ${task.title}
+验收标准: ${task.acceptanceCriteria.join('\n')}
+
+执行输出:
+${iterationResult.output?.slice(0, 2000) || '无输出'}
+
+请判断：
+1. 任务是否按验收标准完成？
+2. 是否存在明显的问题或遗漏？
+
+请用 JSON 格式回复：
+{
+  "passed": true/false,
+  "issues": ["问题1", "问题2"] // 如果通过则为空数组
+}`;
+
+      const response = await this.state.modelAdapter.chat({
+        model: reviewerModel,
+        messages: [{ role: 'user', content: reviewPrompt }],
+      });
+
+      const content = response.content || '';
+      
+      // 解析 JSON
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        return {
+          passed: parsed.passed ?? false,
+          issues: parsed.issues || [],
+        };
+      }
+      
+      // 无法解析，默认通过
+      return { passed: true };
+    } catch (error) {
+      console.log(chalk.yellow(`审查异常: ${error}`));
+      // 异常时默认通过
+      return { passed: true };
     }
   }
   

@@ -246,6 +246,12 @@ export interface ModelConfig {
   temperature?: number;
   /** 最大 Token */
   maxTokens?: number;
+  /** 规划模型（用于复杂任务规划） */
+  planner?: string;
+  /** 编码模型（用于代码实现） */
+  coder?: string;
+  /** 审查模型（用于代码审查） */
+  reviewer?: string;
 }
 
 /**
