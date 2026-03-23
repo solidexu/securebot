@@ -17,6 +17,9 @@ import { homedir } from 'node:os';
 import type { ReplState, ModelAdapter, ChatParams } from '../core/types.js';
 import type { RalphPRD, RalphStory, RalphProgress, RalphConfig, RalphResult, RalphIteration, RalphModeOptions } from './types.js';
 import { getDefaultAgent } from '../core/agent.js';
+import { createSession, addUserMessage, buildSystemPrompt } from '../core/session.js';
+import { getAvailableTools } from '../tools/index.js';
+import { getPRDStats, formatPRDStats } from './state-bridge.js';
 
 // ============ 默认配置 ============
 
@@ -221,6 +224,7 @@ export class RalphExecutor {
   private ralphDir: string;
   private prdPath: string;
   private progressPath: string;
+  private iterations: RalphIteration[] = [];
   
   constructor(state: ReplState, config: Partial<RalphConfig> = {}) {
     this.state = state;
@@ -281,6 +285,7 @@ export class RalphExecutor {
       console.log();
       
       const result = await this.runIteration(task, iterations);
+      this.iterations.push(result);
       
       if (result.passed) {
         updateStoryStatus(prd, task.id, true, result.output?.slice(0, 200));
@@ -319,32 +324,82 @@ export class RalphExecutor {
   }
   
   /**
-   * 执行单次迭代（占位实现）
+   * 执行单次迭代
    */
   private async runIteration(task: RalphStory, iteration: number): Promise<RalphIteration> {
     const startTime = Date.now();
+    const result: RalphIteration = {
+      iteration,
+      currentStory: task,
+    };
     
     try {
       const agent = this.state.agents.get(this.state.currentAgentId) ?? getDefaultAgent(this.state.agents);
-      if (!agent) throw new Error('找不到 Agent');
+      if (!agent) {
+        throw new Error('找不到 Agent');
+      }
       
-      // TODO: 集成 processMessage 执行实际任务
-      return {
-        iteration,
-        currentStory: task,
-        output: `执行任务: ${task.title}`,
-        passed: true,
-        duration: Date.now() - startTime,
+      // 1. 创建干净的 session
+      const session = createSession(agent.id, `ralph-${iteration}`);
+      
+      // 2. 构建迭代提示
+      const iterationPrompt = buildIterationPrompt(
+        task, 
+        this.progressPath, 
+        this.config.completionPromise
+      );
+      
+      // 3. 添加用户消息
+      addUserMessage(session, iterationPrompt);
+      
+      // 4. 构建系统提示词
+      const toolNames = getAvailableTools(agent, this.state.config.tools)
+        .map(t => t.name);
+      const systemPrompt = await buildSystemPrompt(
+        agent, 
+        this.state.config, 
+        toolNames
+      );
+      
+      // 5. 获取工具
+      const tools = getAvailableTools(agent, this.state.config.tools);
+      
+      // 6. 调用模型
+      const model = this.state.config.model.model || 'qwen3.5:35b-a3b';
+      const params: ChatParams = {
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...session.history,
+        ],
+        tools,
       };
+      
+      const response = await this.state.modelAdapter.chat(params);
+      
+      // 6. 检查结果
+      const output = response.content || '';
+      
+      // 7. 检查完成信号
+      const hasCompleteSignal = output.includes(this.config.completionPromise);
+      
+      // 8. 检查是否有关键词表明任务完成
+      const completionKeywords = ['完成', '已实现', 'done', 'complete', 'finished'];
+      const hasCompletionKeyword = completionKeywords.some(kw => 
+        output.toLowerCase().includes(kw.toLowerCase())
+      );
+      
+      result.output = output;
+      result.passed = hasCompleteSignal || hasCompletionKeyword;
+      result.duration = Date.now() - startTime;
+      
     } catch (error) {
-      return {
-        iteration,
-        currentStory: task,
-        error: error instanceof Error ? error.message : String(error),
-        passed: false,
-        duration: Date.now() - startTime,
-      };
+      result.error = error instanceof Error ? error.message : String(error);
+      result.passed = false;
+      result.duration = Date.now() - startTime;
     }
+    
+    return result;
   }
   
   private buildResult(success: boolean, iterations: number, prd: RalphPRD, reason: string): RalphResult {
@@ -363,6 +418,22 @@ export class RalphExecutor {
       const status = story.passes ? chalk.green('✓') : chalk.gray('○');
       console.log(`  ${status} ${story.id}: ${story.title}`);
     }
+  }
+  
+  /**
+   * 获取迭代历史
+   */
+  getIterations(): RalphIteration[] {
+    return this.iterations;
+  }
+  
+  /**
+   * 获取当前进度统计
+   */
+  getStats(): string {
+    const prd = loadPRD(this.prdPath);
+    if (!prd) return '无 PRD 数据';
+    return formatPRDStats(getPRDStats(prd));
   }
   
   cleanup(): void {
