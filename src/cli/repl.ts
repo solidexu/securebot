@@ -314,11 +314,18 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
   });
 
   // 询问是否使用 Ralph Loop 模式
-  const ralphMode = await askRalphMode(rl);
+  const ralphMode = await askRalphMode(rl, agents, state.currentAgentId);
   
   if (ralphMode.enabled) {
+    // 如果选择了不同的 Agent，切换到该 Agent
+    if (ralphMode.agentId && ralphMode.agentId !== state.currentAgentId) {
+      state.currentAgentId = ralphMode.agentId;
+      const newAgent = agents.get(ralphMode.agentId);
+      console.log(chalk.cyan(`已切换到 Agent: ${newAgent?.name || ralphMode.agentId}`));
+      console.log();
+    }
+    
     // Ralph Loop 模式
-    console.log();
     console.log(chalk.cyan('🔄 Ralph Loop 模式已启用'));
     console.log(chalk.gray('Agent 将持续迭代直到任务完成。'));
     console.log();
@@ -514,7 +521,11 @@ function printWelcome(state: ReplState): void {
 /**
  * 询问是否使用 Ralph Loop 模式
  */
-async function askRalphMode(rl: readlinePromises.Interface): Promise<{ enabled: boolean; taskDescription?: string; maxIterations?: number }> {
+async function askRalphMode(
+  rl: readlinePromises.Interface, 
+  agents: Map<string, { id: string; name: string }>,
+  currentAgentId: string
+): Promise<{ enabled: boolean; taskDescription?: string; maxIterations?: number; agentId?: string }> {
   console.log(chalk.cyan('请选择对话模式:'));
   console.log(chalk.gray('  1. 普通对话 - 单次交互模式'));
   console.log(chalk.gray('  2. Ralph Loop - 持续迭代直到任务完成'));
@@ -526,6 +537,30 @@ async function askRalphMode(rl: readlinePromises.Interface): Promise<{ enabled: 
     console.log();
     console.log(chalk.cyan('🔄 Ralph Loop 模式'));
     console.log(chalk.gray('Agent 将自动分解任务并持续迭代执行。'));
+    console.log();
+    
+    // 选择 Agent
+    console.log(chalk.cyan('可用 Agent:'));
+    const agentList = Array.from(agents.values());
+    agentList.forEach((agent, index) => {
+      const current = agent.id === currentAgentId ? ' (当前)' : '';
+      console.log(chalk.gray(`  ${index + 1}. ${agent.name} [${agent.id}]${current}`));
+    });
+    console.log();
+    
+    const agentChoice = await rl.question(chalk.cyan(`选择 Agent [1-${agentList.length}，默认当前]: `));
+    
+    let selectedAgentId = currentAgentId;
+    if (agentChoice.trim()) {
+      const agentIndex = parseInt(agentChoice, 10) - 1;
+      if (agentIndex >= 0 && agentIndex < agentList.length) {
+        const selectedAgent = agentList[agentIndex];
+        if (selectedAgent) {
+          selectedAgentId = selectedAgent.id;
+          console.log(chalk.gray(`已选择: ${selectedAgent.name}`));
+        }
+      }
+    }
     console.log();
     
     const taskDescription = await rl.question(chalk.cyan('请描述任务: '));
@@ -542,6 +577,7 @@ async function askRalphMode(rl: readlinePromises.Interface): Promise<{ enabled: 
       enabled: true,
       taskDescription: taskDescription.trim(),
       maxIterations: isNaN(maxIterations) ? 20 : maxIterations,
+      agentId: selectedAgentId,
     };
   }
   
