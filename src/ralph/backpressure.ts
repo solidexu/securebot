@@ -11,6 +11,8 @@
  */
 
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import chalk from 'chalk';
 import type { BackpressureConfig, BackpressureResult, BackpressureCheckResult } from './types.js';
 
@@ -39,6 +41,53 @@ const DEFAULT_BACKPRESSURE_CONFIG: BackpressureConfig = {
 };
 
 /**
+ * 允许的命令前缀（防止命令注入）
+ */
+const ALLOWED_COMMAND_PREFIXES = [
+  'npm ',
+  'npx ',
+  'node ',
+  'python ',
+  'python3 ',
+  'pip ',
+  'pytest',
+  'ruff ',
+  'go ',
+  'cargo ',
+  'make ',
+  'gradle',
+  'mvn ',
+];
+
+/**
+ * 验证命令是否安全
+ */
+export function isCommandSafe(command: string): boolean {
+  const normalizedCmd = command.trim().toLowerCase();
+  
+  // 检查是否以允许的前缀开头
+  const isAllowed = ALLOWED_COMMAND_PREFIXES.some(prefix => 
+    normalizedCmd.startsWith(prefix.toLowerCase())
+  );
+  
+  if (!isAllowed) {
+    return false;
+  }
+  
+  // 检查危险字符
+  const dangerousPatterns = [
+    /[;&|`$]/,           // 命令连接符
+    /\$\(/,              // 命令替换
+    />\s*\//,            // 重定向到根目录
+    /rm\s+-rf/,          // 危险删除
+    /sudo/,              // 提权
+    /chmod\s+777/,       // 危险权限
+  ];
+  
+  return !dangerousPatterns.some(pattern => pattern.test(command));
+}
+
+/**
  * 执行单个命令
  */
 async function executeCommand(
@@ -47,6 +96,15 @@ async function executeCommand(
   timeout: number = 60000
 ): Promise<{ exitCode: number; output: string; duration: number }> {
   const startTime = Date.now();
+  
+  // 验证命令安全性
+  if (!isCommandSafe(command)) {
+    return {
+      exitCode: 1,
+      output: `安全错误: 命令被拒绝 - "${command}"`,
+      duration: 0,
+    };
+  }
   
   return new Promise((resolve) => {
     const proc = spawn(command, [], {
@@ -87,9 +145,6 @@ async function executeCommand(
  * 检测项目类型并返回合适的反压命令
  */
 function detectBackpressureCommands(cwd: string): Partial<BackpressureConfig> {
-  const { existsSync } = require('node:fs');
-  const { join } = require('node:path');
-  
   // Python 项目
   if (
     existsSync(join(cwd, 'pyproject.toml')) ||

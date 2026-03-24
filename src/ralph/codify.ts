@@ -10,7 +10,7 @@
  * 4. 固化 (Codify) - 固化所学到的东西
  */
 
-import { existsSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import chalk from 'chalk';
@@ -461,7 +461,6 @@ export class PatternCodifier {
     try {
       // 确保目录存在
       if (!existsSync(this.config.codifyDir)) {
-        const { mkdirSync } = require('node:fs');
         mkdirSync(this.config.codifyDir, { recursive: true });
       }
       
@@ -609,7 +608,6 @@ ${pattern.problemsSolved.map(p => `- 问题: ${p.problem}\n  解决: ${p.solutio
       const skillsDir = join(homedir(), '.securebot', 'agents', agent.id, 'skills');
       
       if (!existsSync(skillsDir)) {
-        const { mkdirSync } = require('node:fs');
         mkdirSync(skillsDir, { recursive: true });
       }
       
