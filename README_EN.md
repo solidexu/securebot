@@ -470,7 +470,18 @@ Configure in `~/.securebot/config.json`:
   "ralph": {
     "maxIterations": 20,
     "autoCommit": true,
-    "feedbackCommands": []
+    "feedbackCommands": [],
+    "reviewer": {
+      "enabled": true,
+      "model": "glm-4",
+      "failAction": "block"
+    },
+    "backpressure": {
+      "typecheck": { "enabled": true },
+      "test": { "enabled": true },
+      "lint": { "enabled": true },
+      "onFail": "block"
+    }
   }
 }
 ```
@@ -480,6 +491,52 @@ Configure in `~/.securebot/config.json`:
 | `maxIterations` | 20 | Maximum iterations |
 | `autoCommit` | true | Auto git commit after each task |
 | `feedbackCommands` | [] | Feedback commands (disabled by default) |
+| `reviewer.enabled` | true | Enable reviewer check |
+| `reviewer.model` | - | Reviewer model (should differ from implementer) |
+| `reviewer.failAction` | block | Action on review fail: block/warn/auto-fix |
+| `backpressure.typecheck` | disabled | Type check config |
+| `backpressure.test` | disabled | Test config |
+| `backpressure.lint` | disabled | Lint config |
+| `backpressure.onFail` | block | Action on backpressure fail |
+
+### Reviewer Mechanism
+
+**Core Principle: Implementer-Reviewer Separation**
+
+If the same model instance implements and evaluates its own work, it will have bias. SecureBot enables reviewer check by default:
+
+```
+Implementation              Review
+┌─────────────┐            ┌─────────────┐
+│   Model A   │ ─────────▶ │   Model B   │
+│   (qwen)    │            │  (glm-4)    │
+│  Implement  │            │   Review    │
+└─────────────┘            └─────────────┘
+```
+
+### Backpressure Mechanism
+
+**Core Principle: Constraints > Instructions**
+
+Backpressure is automated feedback that lets agents detect and fix errors without human intervention:
+
+```
+Task Complete
+    ↓
+┌─────────────────┐
+│  Type Check     │  ← First line of defense
+└────────┬────────┘
+         ↓
+┌─────────────────┐
+│  Test           │  ← Second line of defense
+└────────┬────────┘
+         ↓
+┌─────────────────┐
+│  Lint           │  ← Third line of defense
+└────────┬────────┘
+         ↓
+    All Pass ✅
+```
 
 ### Best Practices
 

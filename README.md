@@ -466,7 +466,18 @@ Agent 将持续迭代直到任务完成。
   "ralph": {
     "maxIterations": 20,
     "autoCommit": true,
-    "feedbackCommands": []
+    "feedbackCommands": [],
+    "reviewer": {
+      "enabled": true,
+      "model": "glm-4",
+      "failAction": "block"
+    },
+    "backpressure": {
+      "typecheck": { "enabled": true },
+      "test": { "enabled": true },
+      "lint": { "enabled": true },
+      "onFail": "block"
+    }
   }
 }
 ```
@@ -476,6 +487,52 @@ Agent 将持续迭代直到任务完成。
 | `maxIterations` | 20 | 最大迭代次数 |
 | `autoCommit` | true | 每次任务完成后自动 git commit |
 | `feedbackCommands` | [] | 反馈命令（默认禁用，让 agent 自行测试） |
+| `reviewer.enabled` | true | 是否启用审查者检查 |
+| `reviewer.model` | - | 审查者模型（建议与实现者不同） |
+| `reviewer.failAction` | block | 审查失败时的行为：block/warn/auto-fix |
+| `backpressure.typecheck` | 禁用 | 类型检查配置 |
+| `backpressure.test` | 禁用 | 测试配置 |
+| `backpressure.lint` | 禁用 | Lint 配置 |
+| `backpressure.onFail` | block | 反压失败时的行为 |
+
+### 审查者机制
+
+**核心原则：实现者与审查者分离**
+
+如果同一个模型实例实现并评估自己的工作，它就会有偏见。SecureBot 默认启用审查者检查：
+
+```
+实现阶段                    审查阶段
+┌─────────────┐            ┌─────────────┐
+│   模型 A    │ ─────────▶ │   模型 B    │
+│   (qwen)    │            │   (glm-4)   │
+│    实现     │            │    审查     │
+└─────────────┘            └─────────────┘
+```
+
+### 反压机制
+
+**核心原则：约束 > 指令**
+
+反压是自动化的反馈机制，让智能体在没有人类干预的情况下检测和纠正错误：
+
+```
+任务完成
+    ↓
+┌─────────────────┐
+│  类型检查        │  ← 第一道防线
+└────────┬────────┘
+         ↓
+┌─────────────────┐
+│  测试           │  ← 第二道防线
+└────────┬────────┘
+         ↓
+┌─────────────────┐
+│  Lint           │  ← 第三道防线
+└────────┬────────┘
+         ↓
+    全部通过 ✅
+```
 
 ### 最佳实践
 

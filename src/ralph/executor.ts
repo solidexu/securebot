@@ -25,6 +25,7 @@ import { runFeedbackLoop } from './feedback.js';
 import { commitForTask } from './git.js';
 import { ProgressDisplay } from './progress-display.js';
 import { formatError, RalphError, RalphErrorType } from './errors.js';
+import { runBackpressure, generateBackpressureError } from './backpressure.js';
 
 // ============ 卡住检测配置 ============
 
@@ -43,6 +44,26 @@ const DEFAULT_RALPH_CONFIG: RalphConfig = {
   feedbackCommands: [], // 默认禁用，让 agent 自己决定何时运行测试
   prdFile: 'prd.json',
   progressFile: 'progress.txt',
+  // 审查者配置 - 实现者与审查者分离
+  reviewer: {
+    enabled: true,
+    model: undefined, // 使用不同的模型（如果配置了）
+    failAction: 'block',
+  },
+  // 反压配置 - 自动化的反馈机制
+  backpressure: {
+    typecheck: {
+      enabled: false, // 默认禁用，让用户按需启用
+    },
+    test: {
+      enabled: false,
+    },
+    lint: {
+      enabled: false,
+    },
+    onFail: 'block',
+    maxAutoRetry: 0,
+  },
 };
 
 // ============ PRD 管理 ============
@@ -521,17 +542,49 @@ export class RalphExecutor {
           }
         }
         
-        // 审查者模型检查
-        if (result.passed && this.state.config.model.reviewer) {
-          console.log(chalk.cyan('\n🔍 审查者检查...'));
-          const reviewResult = await this.runReview(task, result);
+        // 反压检查（如果启用）
+        if (result.passed && this.config.backpressure) {
+          const agent = this.state.agents.get(this.state.currentAgentId) ?? getDefaultAgent(this.state.agents);
+          const workspace = agent?.workspace || process.cwd();
           
-          if (!reviewResult.passed) {
-            console.log(chalk.yellow(`⚠ 审查未通过: ${reviewResult.issues?.join(', ')}`));
+          const backpressureResult = await runBackpressure(
+            this.config.backpressure,
+            workspace
+          );
+          
+          if (!backpressureResult.allPassed) {
+            console.log(chalk.yellow('⚠ 反压检查未通过'));
+            
+            // 生成错误信息
+            const errorDetails = generateBackpressureError(backpressureResult);
             result.passed = false;
-            result.error = `审查失败: ${reviewResult.issues?.join(', ')}`;
+            result.error = errorDetails;
+          }
+        }
+        
+        // 审查者检查（如果启用）
+        if (result.passed && this.config.reviewer?.enabled) {
+          console.log(chalk.cyan('\n🔍 审查者检查...'));
+          
+          // 使用不同的模型作为审查者
+          const reviewerModel = this.config.reviewer.model || this.state.config.model.reviewer;
+          
+          if (reviewerModel) {
+            const reviewResult = await this.runReviewWithDifferentModel(
+              task,
+              result,
+              reviewerModel
+            );
+            
+            if (!reviewResult.passed) {
+              console.log(chalk.yellow(`⚠ 审查未通过: ${reviewResult.issues?.join(', ')}`));
+              result.passed = false;
+              result.error = `审查失败: ${reviewResult.issues?.join(', ')}`;
+            } else {
+              console.log(chalk.green('✓ 审查通过'));
+            }
           } else {
-            console.log(chalk.green('✓ 审查通过'));
+            console.log(chalk.gray('  审查者模型未配置，跳过'));
           }
         }
       }
@@ -936,36 +989,60 @@ export class RalphExecutor {
   }
   
   /**
-   * 运行审查者检查
+   * 使用不同模型进行审查（实现者与审查者分离）
+   * 
+   * 核心原则：如果同一个模型实例实现并评估自己的工作，它就会有偏见
+   * 
+   * @param task - 任务
+   * @param iterationResult - 迭代结果
+   * @param reviewerModel - 审查者模型（应该与实现者不同）
    */
-  private async runReview(
+  private async runReviewWithDifferentModel(
     task: RalphStory,
-    iterationResult: RalphIteration
+    iterationResult: RalphIteration,
+    reviewerModel: string
   ): Promise<{ passed: boolean; issues?: string[] }> {
-    const reviewerModel = this.state.config.model.reviewer;
-    if (!reviewerModel) {
-      return { passed: true };
-    }
+    console.log(chalk.gray(`  审查者模型: ${reviewerModel}`));
     
     try {
       // 构建审查提示
-      const reviewPrompt = `你是代码审查专家。请审查以下任务是否真正完成。
+      const reviewPrompt = `你是一位独立的代码审查专家。你的职责是严格审查另一个 AI 实现的代码。
 
-任务: ${task.title}
-验收标准: ${task.acceptanceCriteria.join('\n')}
+## 任务信息
+- ID: ${task.id}
+- 标题: ${task.title}
+- 验收标准:
+  ${task.acceptanceCriteria.map(c => `- ${c}`).join('\n  ')}
 
-执行输出:
-${iterationResult.output?.slice(0, 2000) || '无输出'}
+## 实现者的输出
+${iterationResult.output?.slice(0, 3000) || '无输出'}
 
-请判断：
-1. 任务是否按验收标准完成？
-2. 是否存在明显的问题或遗漏？
+## 审查要点
+1. **功能完整性**：所有验收标准是否都已实现？
+2. **代码质量**：是否存在明显的 bug、性能问题或安全漏洞？
+3. **边界情况**：是否处理了空输入、异常情况？
+4. **测试覆盖**：是否有测试？测试是否通过？
+
+## 重要提示
+- 你是独立的审查者，不是实现者
+- 请严格审查，不要因为实现者声称完成就通过
+- 发现问题时要具体指出
 
 请用 JSON 格式回复：
+\`\`\`json
 {
-  "passed": true/false,
-  "issues": ["问题1", "问题2"] // 如果通过则为空数组
-}`;
+  "passed": true,
+  "issues": []
+}
+\`\`\`
+
+或者（如果发现问题）：
+\`\`\`json
+{
+  "passed": false,
+  "issues": ["具体问题1", "具体问题2"]
+}
+\`\`\``;
 
       const response = await this.state.modelAdapter.chat({
         model: reviewerModel,
@@ -975,21 +1052,35 @@ ${iterationResult.output?.slice(0, 2000) || '无输出'}
       const content = response.content || '';
       
       // 解析 JSON
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      const jsonMatch = content.match(/```json\s*(\{[\s\S]*?\})\s*```/) || 
+                        content.match(/\{[\s\S]*\}/);
+      
       if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
+        const parsed = JSON.parse(jsonMatch[1] || jsonMatch[0]);
         return {
           passed: parsed.passed ?? false,
           issues: parsed.issues || [],
         };
       }
       
-      // 无法解析，默认通过
-      return { passed: true };
+      // 无法解析，检查是否包含 "passed": true
+      if (content.includes('"passed": true') || content.includes('"passed":true')) {
+        return { passed: true, issues: [] };
+      }
+      
+      // 默认不通过
+      return {
+        passed: false,
+        issues: ['无法解析审查结果，请检查输出'],
+      };
     } catch (error) {
-      console.log(chalk.yellow(`审查异常: ${error}`));
-      // 异常时默认通过
-      return { passed: true };
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.log(chalk.yellow(`审查异常: ${errorMsg}`));
+      // 异常时保守处理 - 不通过
+      return {
+        passed: false,
+        issues: [`审查过程出错: ${errorMsg}`],
+      };
     }
   }
   

@@ -73,6 +73,84 @@ export interface RalphConfig {
   prdFile: string;
   /** 进度文件路径 */
   progressFile: string;
+  /** 审查者配置 */
+  reviewer?: ReviewerConfig;
+  /** 反压配置 */
+  backpressure?: BackpressureConfig;
+}
+
+/**
+ * 审查者配置
+ * 
+ * 实现者与审查者分离，避免同一模型的偏见
+ */
+export interface ReviewerConfig {
+  /** 是否启用审查者 */
+  enabled: boolean;
+  /** 审查者模型（与实现者不同） */
+  model?: string;
+  /** 审查失败时的处理方式 */
+  failAction: 'block' | 'warn' | 'auto-fix';
+}
+
+/**
+ * 反压配置
+ * 
+ * 自动化的反馈机制，让智能体在没有人类干预的情况下检测和纠正错误
+ */
+export interface BackpressureConfig {
+  /** 类型检查 */
+  typecheck?: BackpressureCheck;
+  /** 测试 */
+  test?: BackpressureCheck;
+  /** Lint */
+  lint?: BackpressureCheck;
+  /** 失败时的行为 */
+  onFail: 'block' | 'warn' | 'auto-retry';
+  /** 最大自动重试次数 */
+  maxAutoRetry?: number;
+}
+
+/**
+ * 单个反压检查配置
+ */
+export interface BackpressureCheck {
+  /** 是否启用 */
+  enabled: boolean;
+  /** 执行命令 */
+  command?: string;
+  /** 超时时间（毫秒） */
+  timeout?: number;
+  /** 是否自动修复 */
+  autoFix?: boolean;
+}
+
+/**
+ * 反压检查结果
+ */
+export interface BackpressureResult {
+  /** 是否全部通过 */
+  allPassed: boolean;
+  /** 各检查结果 */
+  results: BackpressureCheckResult[];
+  /** 总耗时 */
+  duration: number;
+}
+
+/**
+ * 单个反压检查结果
+ */
+export interface BackpressureCheckResult {
+  /** 检查类型 */
+  type: 'typecheck' | 'test' | 'lint';
+  /** 是否通过 */
+  passed: boolean;
+  /** 输出 */
+  output?: string;
+  /** 错误 */
+  error?: string;
+  /** 耗时 */
+  duration: number;
 }
 
 /**
