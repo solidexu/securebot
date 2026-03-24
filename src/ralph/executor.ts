@@ -26,6 +26,7 @@ import { commitForTask } from './git.js';
 import { ProgressDisplay } from './progress-display.js';
 import { formatError, RalphError, RalphErrorType } from './errors.js';
 import { runBackpressure, generateBackpressureError } from './backpressure.js';
+import { PatternCodifier } from './codify.js';
 
 // ============ 卡住检测配置 ============
 
@@ -590,6 +591,9 @@ export class RalphExecutor {
       }
       
       if (result.passed) {
+        // 获取 agent 以确定工作目录
+        const agent = this.state.agents.get(this.state.currentAgentId) ?? getDefaultAgent(this.state.agents);
+        
         updateStoryStatus(prd, task.id, true, result.output?.slice(0, 200));
         savePRD(this.prdPath, prd);
         
@@ -605,6 +609,14 @@ export class RalphExecutor {
           completed: result.output || '完成',
         });
         console.log(chalk.green(`✓ 任务 ${task.id} 完成`));
+        
+        // 固化成功模式（复利工程）
+        const codifier = new PatternCodifier(this.state);
+        await codifier.codifySuccess(
+          task,
+          { ...result, iteration: iterations, currentStory: task },
+          agent?.workspace || process.cwd()
+        );
       } else {
         // 任务失败，更新卡住计数
         const stuckCount = (stuckCounts.get(task.id) || 0) + 1;
