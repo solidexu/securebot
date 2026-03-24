@@ -5,7 +5,7 @@
  */
 
 import type { Session, Message, AgentConfig, Config } from './types.js';
-import { getAgentsDir, getMemoryDir } from './config.js';
+import { getAgentsDir, getMemoryDir, getSkillsDir, getSessionsDir } from './config.js';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -287,6 +287,8 @@ export async function buildSystemPrompt(
 ): Promise<string> {
   const agentsDir = getAgentsDir(config);
   const memoryDir = getMemoryDir(config);
+  const skillsDir = getSkillsDir(config);
+  const sessionsDir = getSessionsDir(config);
   
   const workspaceDir = agent.workspace.startsWith('/')
     ? agent.workspace
@@ -330,30 +332,6 @@ ${agent.systemPrompt ? `- **角色**: ${agent.systemPrompt}` : ''}
 2. **用户确认执行**：用户说"执行"、"开始"、"继续"、"确认"后，再开始调用工具
 3. **不要自作主张**：计划生成后不要立即执行，除非用户明确要求执行
 
-### 直接执行原则（重要！）
-**普通对话中，不要输出任务进度条！**
-
-1. **直接开始工作**：
-   - 收到任务后，直接开始实现
-   - 不要先输出 "📋 任务进度" 或任务列表
-   - 直接调用工具（write, edit, exec 等）完成工作
-
-2. **示例**：
-   ❌ 错误：
-   "我来帮你实现。
-   📋 任务进度
-   ✅ 项目结构
-   🔄 实现...
-   ⬜ 测试..."
-   
-   ✅ 正确：
-   "好的，我来实现股票动态规划算法。"
-   [直接开始创建文件、编写代码]
-
-3. **何时输出进度**：
-   - 只有在 Ralph Loop 模式下才显示任务进度
-   - 普通对话直接执行，不显示进度条
-
 ### 层次化规划原则
 当执行复杂任务时，支持多层次规划：
 
@@ -377,6 +355,51 @@ ${agent.systemPrompt ? `- **角色**: ${agent.systemPrompt}` : ''}
 4. **子规划完成标记**：细粒度任务完成后
    - 明确说"步骤X的子任务已完成，返回主规划"
    - 继续执行父规划的下一步
+
+### 后续任务计划输出规范
+当在对话中输出后续任务计划时：
+
+**关键规则：每个任务只用一个状态符号，不要组合使用！**
+
+1. **状态符号说明**：
+   - ✅ 已完成任务（前面只显示✅，不要加其他符号）
+   - 🔄 进行中任务
+   - ⬜ 待办任务（前面只显示⬜，不要在后面加✓）
+
+2. **正确示例**：
+   \`\`\`
+   📋 任务进度
+   
+   ✅ 用户表设计
+   ✅ 登录接口开发
+   🔄 密码加密功能
+   ⬜ 权限管理模块
+   ⬜ 单元测试
+   \`\`\`
+
+3. **错误示例**（绝对不要这样输出）：
+   \`\`\`
+   ❌ ⬜ 用户表设计 ✓    （错误！矛盾：既显示待办又显示完成）
+   ❌ ⬜ 登录接口 ✓      （错误！完成的任务应该用✅而不是⬜+✓）
+   ❌ - 用户表设计 ✓    （错误！没有明确的状态符号）
+   \`\`\`
+
+4. **分组输出方式**（推荐）：
+   \`\`\`
+   📋 任务进度
+   
+   ✅ 已完成：
+   - 用户表设计
+   - 登录接口开发
+   
+   🔄 进行中：
+   - 密码加密功能
+   
+   ⬜ 待完成：
+   - 权限管理模块
+   \`\`\`
+
+**记住：每个任务行最前面只有一个状态emoji，不要叠加！**
 
 ### 主动解决问题
 - 当遇到问题或错误时，尝试分析原因并提供解决方案
