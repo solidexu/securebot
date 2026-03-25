@@ -1292,6 +1292,20 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
               console.log(showTaskProgress(currentPlan, ctx.executionState));
             }
             console.log();
+            
+            // ★ 关键：添加引导消息让模型执行第一步
+            const firstStep = currentPlan?.steps[0];
+            if (firstStep) {
+              addAssistantMessage(session, result.content);
+              addUserMessage(session, 
+                `计划已确认。现在开始执行第1步：${firstStep.description}\n\n` +
+                `直接调用工具（如 write, exec 等）完成这一步。不要再输出计划格式。`
+              );
+              // 清除工具调用，让模型重新开始
+              result.toolCalls = undefined;
+              // 继续循环，让模型执行第一步
+              continue;
+            }
           }
           
           // ★ 关键：计划解析成功后，清除模型返回的工具调用，等待用户确认
