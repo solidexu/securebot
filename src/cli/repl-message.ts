@@ -1841,19 +1841,24 @@ ${errorMsg}
       
       // 只在模型明确说"步骤完成"时推进
       if (currentPlan && toolResult?.success) {
+        // ★ 关键修复：检查会话历史中的最后一条 assistant 消息
+        // result.content 可能是空的（工具调用前），需要从历史中获取
+        const lastAssistantMsg = [...session.history].reverse()
+          .find(m => m.role === 'assistant');
+        const content = lastAssistantMsg?.content || result.content || '';
+        
         // 检查模型是否说"步骤完成"
         const stepCompletedKeywords = [
           '步骤完成', 'step completed', '✓ 步骤', '✅ 步骤',
           '步骤.*完成', 'step.*complete',
         ];
-        const content = result.content || '';
         const modelSaysStepCompleted = stepCompletedKeywords.some(kw => 
           new RegExp(kw, 'i').test(content)
         );
         
         // ★ 调试日志
         console.log(chalk.gray(`[DEBUG] 检查步骤完成: ${modelSaysStepCompleted}`));
-        console.log(chalk.gray(`[DEBUG] 内容片段: ${content.slice(0, 100)}...`));
+        console.log(chalk.gray(`[DEBUG] 内容片段: ${content.slice(0, 100) || '(空)'}`));
         
         if (modelSaysStepCompleted) {
           // 模型明确说步骤完成了，可以推进
