@@ -1847,17 +1847,32 @@ ${errorMsg}
           .find(m => m.role === 'assistant');
         const content = lastAssistantMsg?.content || result.content || '';
         
-        // 检查模型是否说"步骤完成"
-        const stepCompletedKeywords = [
-          '步骤完成', 'step completed', '✓ 步骤', '✅ 步骤',
-          '步骤.*完成', 'step.*complete',
-        ];
-        const modelSaysStepCompleted = stepCompletedKeywords.some(kw => 
-          new RegExp(kw, 'i').test(content)
-        );
+        // ★ 改进：检查模型是否说"已完成：[当前步骤描述]"
+        // 防止模型记错步骤编号
+        const currentStep = currentPlan.steps.find(s => s.status === 'in_progress');
+        let modelSaysStepCompleted = false;
+        
+        if (currentStep) {
+          // 方式1：匹配步骤描述（最可靠）
+          const descMatch = new RegExp(`已完成[：:]\\s*${currentStep.description}`, 'i');
+          const descMatch2 = new RegExp(`完成[：:]\\s*${currentStep.description}`, 'i');
+          
+          // 方式2：旧的步骤编号匹配（兼容）
+          const stepIndex = currentPlan.steps.findIndex(s => s.id === currentStep.id) + 1;
+          const indexMatch = new RegExp(`步骤\\s*${stepIndex}\\s*完成`, 'i');
+          
+          // 方式3：通用完成关键词
+          const genericMatch = /步骤完成|step completed/i.test(content);
+          
+          modelSaysStepCompleted = descMatch.test(content) || 
+                                    descMatch2.test(content) || 
+                                    indexMatch.test(content) ||
+                                    genericMatch;
+        }
         
         // ★ 调试日志
         console.log(chalk.gray(`[DEBUG] 检查步骤完成: ${modelSaysStepCompleted}`));
+        console.log(chalk.gray(`[DEBUG] 当前步骤: ${currentStep?.description || '(无)'}`));
         console.log(chalk.gray(`[DEBUG] 内容片段: ${content.slice(0, 100) || '(空)'}`));
         
         if (modelSaysStepCompleted) {
@@ -1893,10 +1908,13 @@ ${errorMsg}
             console.log(chalk.cyan('\n📍 下一步: ') + advanceResult.nextStep.description);
             
             // ★ 关键：添加引导消息让模型执行下一步
+            // 告诉模型当前是第几步，避免记错编号
+            const stepIndex = currentPlan.steps.findIndex(s => s.id === advanceResult.nextStep!.id) + 1;
+            const totalSteps = currentPlan.steps.length;
             addAssistantMessage(session, result.content);
             addUserMessage(session, 
-              `步骤已完成。继续执行下一步：${advanceResult.nextStep.description}\n\n` +
-              `直接调用工具（如 write, exec 等）完成这一步。不要再输出计划格式。`
+              `步骤已完成。现在执行第 ${stepIndex}/${totalSteps} 步：${advanceResult.nextStep.description}\n\n` +
+              `直接调用工具完成这一步。完成后说"已完成：${advanceResult.nextStep.description}"，不要说步骤编号。`
             );
             continue;  // 让模型继续执行下一步
           } else if (!advanceResult.advanced) {
