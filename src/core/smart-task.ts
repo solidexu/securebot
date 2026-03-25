@@ -12,6 +12,15 @@ import { homedir } from 'node:os';
 
 // ============ 类型定义 ============
 
+/** 工具调用记录 */
+export interface ToolCallRecord {
+  tool: string;
+  args: Record<string, unknown>;
+  result: 'success' | 'failed';
+  error?: string;
+  timestamp: string;
+}
+
 export interface TaskStep {
   id: string;
   description: string;
@@ -23,6 +32,13 @@ export interface TaskStep {
   estimatedMinutes?: number;
   /** 优先级 */
   priority?: 'low' | 'medium' | 'high';
+  
+  /** 工具调用追踪 */
+  toolCalls?: ToolCallRecord[];
+  
+  /** 引导追踪 */
+  guidanceCount?: number;
+  lastGuidance?: string;
 }
 
 export interface TaskPlan {
@@ -1292,4 +1308,369 @@ export function getPlanSummary(plan: TaskPlan): string {
   const inProgress = plan.steps.filter(s => s.status === 'in_progress').length;
   
   return `任务进度: ✅${completed} 🔄${inProgress} ⬜${pending} ❌${failed}`;
+}
+
+// ============ 工具调用追踪 ============
+
+/**
+ * 记录工具调用
+ */
+export function recordToolCall(
+  plan: TaskPlan,
+  stepId: string,
+  tool: string,
+  args: Record<string, unknown>,
+  result: 'success' | 'failed',
+  error?: string
+): void {
+  const step = plan.steps.find(s => s.id === stepId);
+  if (!step) return;
+  
+  if (!step.toolCalls) {
+    step.toolCalls = [];
+  }
+  
+  step.toolCalls.push({
+    tool,
+    args,
+    result,
+    error,
+    timestamp: new Date().toISOString(),
+  });
+  
+  plan.updatedAt = new Date();
+}
+
+// ============ 步骤完成检查 ============
+
+/** 步骤检查结果 */
+export interface StepCheckResult {
+  /** 是否完成 */
+  complete: boolean;
+  /** 错误类型 */
+  errorType?: 'no_tool_call' | 'irrelevant_tool' | 'wrong_step' | 'tool_failed';
+  /** 诊断信息 */
+  diagnosis: string;
+  /** 引导消息 */
+  guidance: string;
+}
+
+/**
+ * 检查步骤是否完成
+ */
+export function checkStepCompletion(
+  step: TaskStep,
+  modelOutput: string,
+  toolCalls: TaskStep['toolCalls']
+): StepCheckResult {
+  const successCalls = toolCalls?.filter(c => c.result === 'success') ?? [];
+  
+  // ═══════════════════════════════════════════
+  // 错误类型 1：没有工具调用
+  // ═══════════════════════════════════════════
+  if (successCalls.length === 0) {
+    // 检查是否有失败的工具调用
+    const failedCalls = toolCalls?.filter(c => c.result === 'failed') ?? [];
+    
+    if (failedCalls.length > 0) {
+      return {
+        complete: false,
+        errorType: 'tool_failed',
+        diagnosis: `工具调用失败: ${failedCalls.map(c => c.tool).join(', ')}`,
+        guidance: buildGuidance('tool_failed', step, { 
+          failedTools: failedCalls.map(c => ({ tool: c.tool, error: c.error }))
+        }),
+      };
+    }
+    
+    // 检查模型是否说"已完成"
+    if (/已完成[：:]/.test(modelOutput)) {
+      return {
+        complete: false,
+        errorType: 'no_tool_call',
+        diagnosis: '模型说"已完成"但没有调用任何工具',
+        guidance: buildGuidance('no_tool_call', step, { modelSaidComplete: true }),
+      };
+    }
+    
+    // 模型在说话但没行动
+    return {
+      complete: false,
+      errorType: 'no_tool_call',
+      diagnosis: '模型没有调用工具',
+      guidance: buildGuidance('no_tool_call', step, { modelSaidComplete: false }),
+    };
+  }
+  
+  // ═══════════════════════════════════════════
+  // 错误类型 2：工具调用不相关
+  // ═══════════════════════════════════════════
+  const relevantCalls = filterRelevantCalls(step.description, successCalls);
+  
+  if (relevantCalls.length === 0) {
+    return {
+      complete: false,
+      errorType: 'irrelevant_tool',
+      diagnosis: `工具调用与步骤不相关: ${successCalls.map(c => c.tool).join(', ')}`,
+      guidance: buildGuidance('irrelevant_tool', step, {
+        calledTools: successCalls.map(c => ({ tool: c.tool, args: c.args })),
+      }),
+    };
+  }
+  
+  // ═══════════════════════════════════════════
+  // 错误类型 3：步骤不匹配
+  // ═══════════════════════════════════════════
+  const mentionedStep = extractMentionedStep(modelOutput);
+  
+  if (mentionedStep && !isSimilarDescription(mentionedStep, step.description)) {
+    return {
+      complete: false,
+      errorType: 'wrong_step',
+      diagnosis: `模型提到步骤"${mentionedStep}"，但当前步骤是"${step.description}"`,
+      guidance: buildGuidance('wrong_step', step, { mentionedStep }),
+    };
+  }
+  
+  // ═══════════════════════════════════════════
+  // 验证通过
+  // ═══════════════════════════════════════════
+  if (/已完成[：:]/.test(modelOutput)) {
+    return {
+      complete: true,
+      diagnosis: '验证通过',
+      guidance: '',
+    };
+  }
+  
+  // 有正确的工具调用，但模型还没说完成
+  return {
+    complete: false,
+    errorType: undefined,
+    diagnosis: '工具调用正确，等待模型确认完成',
+    guidance: `工具调用成功。如果步骤已完成，请说"已完成：${step.description}"。`,
+  };
+}
+
+/**
+ * 从模型输出提取提到的步骤
+ */
+function extractMentionedStep(modelOutput: string): string | null {
+  const match = modelOutput.match(/已完成[：:]\s*(.+?)(?:\n|$)/);
+  return match?.[1]?.trim() ?? null;
+}
+
+/**
+ * 判断两个步骤描述是否相似
+ */
+function isSimilarDescription(a: string, b: string): boolean {
+  const aLower = a.toLowerCase();
+  const bLower = b.toLowerCase();
+  
+  // 包含关系
+  if (aLower.includes(bLower) || bLower.includes(aLower)) {
+    return true;
+  }
+  
+  // 关键词重叠（简单实现）
+  const aWords = aLower.split(/[\s,，。、]+/).filter(w => w.length > 1);
+  const bWords = bLower.split(/[\s,，。、]+/).filter(w => w.length > 1);
+  const overlap = aWords.filter(w => bWords.includes(w));
+  
+  return overlap.length >= Math.min(aWords.length, bWords.length) * 0.5;
+}
+
+/**
+ * 过滤与步骤相关的工具调用
+ */
+function filterRelevantCalls(
+  stepDescription: string,
+  calls: ToolCallRecord[]
+): ToolCallRecord[] {
+  const desc = stepDescription.toLowerCase();
+  
+  return calls.filter(call => {
+    // 目录相关
+    if (desc.includes('目录') || desc.includes('文件夹')) {
+      return call.tool === 'exec' && 
+             String(call.args.command).includes('mkdir');
+    }
+    
+    // 文件创建/编写
+    if (desc.includes('创建') || desc.includes('编写') || desc.includes('实现')) {
+      // 如果步骤提到特定文件，检查是否匹配
+      const fileMatch = stepDescription.match(/(\w+\.(ts|js|py|go|java|md|json|yaml|yml|sh))/i);
+      if (fileMatch) {
+        const targetFile = fileMatch[1];
+        return call.tool === 'write' && 
+               String(call.args.path).includes(targetFile);
+      }
+      return call.tool === 'write';
+    }
+    
+    // 测试
+    if (desc.includes('测试')) {
+      return call.tool === 'exec' || call.tool === 'write';
+    }
+    
+    // 安装/配置
+    if (desc.includes('安装') || desc.includes('配置')) {
+      return call.tool === 'exec';
+    }
+    
+    // 读取/查看
+    if (desc.includes('读取') || desc.includes('查看') || desc.includes('检查')) {
+      return call.tool === 'read';
+    }
+    
+    // 默认：任何工具调用都算相关
+    return true;
+  });
+}
+
+/**
+ * 构建引导消息
+ */
+function buildGuidance(
+  errorType: 'no_tool_call' | 'irrelevant_tool' | 'wrong_step' | 'tool_failed',
+  step: TaskStep,
+  context: Record<string, unknown>
+): string {
+  const lines: string[] = [];
+  
+  lines.push('## ⚠️ 步骤执行问题');
+  lines.push('');
+  lines.push(`**当前步骤**: ${step.description}`);
+  lines.push('');
+  
+  switch (errorType) {
+    case 'no_tool_call': {
+      const ctx = context as { modelSaidComplete?: boolean };
+      if (ctx.modelSaidComplete) {
+        lines.push('**问题**: 你说"已完成"，但没有调用任何工具。');
+        lines.push('');
+        lines.push('**提醒**: 步骤完成需要实际执行操作，不能只说完成。');
+      } else {
+        lines.push('**问题**: 你在说话但没有调用工具。');
+        lines.push('');
+        lines.push('**提醒**: 请使用工具来执行操作。');
+      }
+      lines.push('');
+      lines.push('**建议的工具**:');
+      
+      const suggestions = suggestToolsForStep(step.description);
+      for (const s of suggestions) {
+        lines.push(`- ${s}`);
+      }
+      lines.push('');
+      lines.push('请直接调用工具完成这个步骤。');
+      break;
+    }
+    
+    case 'irrelevant_tool': {
+      const ctx = context as { calledTools: Array<{ tool: string; args: Record<string, unknown> }> };
+      lines.push('**问题**: 你调用的工具与当前步骤不相关。');
+      lines.push('');
+      lines.push('**你调用的工具**:');
+      for (const call of ctx.calledTools) {
+        const argsPreview = JSON.stringify(call.args).slice(0, 50);
+        lines.push(`- ${call.tool}: ${argsPreview}`);
+      }
+      lines.push('');
+      lines.push('**这个步骤需要的操作**:');
+      
+      const needed = analyzeStepNeeds(step.description);
+      lines.push(`- ${needed}`);
+      lines.push('');
+      lines.push('请调用正确的工具完成步骤。');
+      break;
+    }
+    
+    case 'wrong_step': {
+      const ctx = context as { mentionedStep: string };
+      lines.push('**问题**: 你提到了错误的步骤。');
+      lines.push('');
+      lines.push(`**你说的**: ${ctx.mentionedStep}`);
+      lines.push(`**实际当前步骤**: ${step.description}`);
+      lines.push('');
+      lines.push(`请专注于当前步骤，完成后说: "已完成：${step.description}"`);
+      break;
+    }
+    
+    case 'tool_failed': {
+      const ctx = context as { failedTools: Array<{ tool: string; error?: string }> };
+      lines.push('**问题**: 工具调用失败。');
+      lines.push('');
+      lines.push('**失败的调用**:');
+      for (const fail of ctx.failedTools) {
+        const errorMsg = fail.error?.slice(0, 100) || '未知错误';
+        lines.push(`- ${fail.tool}: ${errorMsg}`);
+      }
+      lines.push('');
+      lines.push('**建议**:');
+      lines.push('- 检查参数是否正确');
+      lines.push('- 尝试不同的方法');
+      lines.push('- 如果无法解决，可以说"跳过此步骤"');
+      break;
+    }
+  }
+  
+  return lines.join('\n');
+}
+
+/**
+ * 根据步骤描述建议工具
+ */
+function suggestToolsForStep(stepDescription: string): string[] {
+  const suggestions: string[] = [];
+  const desc = stepDescription.toLowerCase();
+  
+  if (desc.includes('目录') || desc.includes('文件夹')) {
+    suggestions.push('`exec`: `mkdir -p <目录名>`');
+  }
+  
+  if (desc.includes('创建') || desc.includes('编写') || desc.includes('实现')) {
+    const fileMatch = stepDescription.match(/(\w+\.(ts|js|py|go|java|md|json|yaml|sh))/i);
+    if (fileMatch) {
+      suggestions.push(`\`write\`: 创建文件 \`${fileMatch[1]}\``);
+    } else {
+      suggestions.push('`write`: 创建相关文件');
+    }
+  }
+  
+  if (desc.includes('测试')) {
+    suggestions.push('`write`: 编写测试文件');
+    suggestions.push('`exec`: 运行测试命令');
+  }
+  
+  if (desc.includes('安装') || desc.includes('配置')) {
+    suggestions.push('`exec`: 执行安装/配置命令');
+  }
+  
+  if (desc.includes('读取') || desc.includes('查看') || desc.includes('检查')) {
+    suggestions.push('`read`: 读取文件内容');
+  }
+  
+  if (suggestions.length === 0) {
+    suggestions.push('`write`: 创建或修改文件');
+    suggestions.push('`exec`: 执行命令');
+    suggestions.push('`read`: 读取文件');
+  }
+  
+  return suggestions;
+}
+
+/**
+ * 分析步骤需要什么操作
+ */
+function analyzeStepNeeds(stepDescription: string): string {
+  const desc = stepDescription.toLowerCase();
+  
+  if (desc.includes('目录')) return '创建目录结构';
+  if (desc.includes('创建') || desc.includes('编写')) return '创建或修改文件';
+  if (desc.includes('测试')) return '编写或运行测试';
+  if (desc.includes('安装')) return '执行安装命令';
+  if (desc.includes('读取')) return '读取文件内容';
+  
+  return '执行相关操作';
 }

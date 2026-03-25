@@ -29,7 +29,10 @@ import {
   updateStepStatus,
   getNextPendingStep,
   getPlanSummary,
+  recordToolCall,
+  checkStepCompletion,
   type TaskPlan,
+  type TaskStep,
 } from '../core/smart-task.js';
 import { createStepManager, type StepManager } from '../core/step-manager.js';
 import { savePlanToSession, clearPlanFromSession, renderHierarchicalPlan } from './repl-plan.js';
@@ -1741,6 +1744,22 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         sessionStorage,
       });
       
+      // ★ 记录工具调用
+      if (currentPlan) {
+        const currentStep = currentPlan.steps.find(s => s.status === 'in_progress');
+        if (currentStep) {
+          recordToolCall(
+            currentPlan,
+            currentStep.id,
+            toolCall.name,
+            toolCall.arguments,
+            toolResult.success ? 'success' : 'failed',
+            toolResult.error
+          );
+          savePlanToSession(session, currentPlan);
+        }
+      }
+      
       // 追踪工具使用
       ctx.taskTracker.toolsUsed.add(toolCall.name);
       ctx.taskTracker.steps.push({
@@ -1911,106 +1930,127 @@ ${errorMsg}
         }
       }
       
-      // ★ 修复：不要在工具执行成功后自动推进步骤
-      // 原因：工具调用内容可能和步骤内容不相关
-      // 让模型自己说"步骤完成"后再推进
-      // 例如：步骤是"实现计算器类"，但工具是"mkdir"，不应该推进
-      
+      // ★ 使用新的步骤完成检查逻辑
       // 只在模型明确说"步骤完成"时推进
       if (currentPlan && toolResult?.success) {
-        // ★ 关键修复：检查会话历史中的最后一条 assistant 消息
-        // result.content 可能是空的（工具调用前），需要从历史中获取
-        const lastAssistantMsg = [...session.history].reverse()
-          .find(m => m.role === 'assistant');
-        const content = lastAssistantMsg?.content || result.content || '';
-        
-        // ★ 改进：检查模型是否说"已完成：[当前步骤描述]"
-        // 防止模型记错步骤编号
         let currentStep = currentPlan.steps.find(s => s.status === 'in_progress');
         
-        // ★ 回退：如果没有 in_progress 步骤，检查 pending 步骤
         if (!currentStep) {
           currentStep = currentPlan.steps.find(s => s.status === 'pending');
-          if (currentStep) {
-            console.log(chalk.gray(`[DEBUG] 回退到 pending 步骤: ${currentStep.description}`));
-          }
         }
-        
-        let modelSaysStepCompleted = false;
         
         if (currentStep) {
-          // 方式1：匹配步骤描述（最可靠）
-          const descMatch = new RegExp(`已完成[：:]\\s*${currentStep.description}`, 'i');
-          const descMatch2 = new RegExp(`完成[：:]\\s*${currentStep.description}`, 'i');
+          // 获取模型输出
+          const lastAssistantMsg = [...session.history].reverse()
+            .find(m => m.role === 'assistant');
+          const modelOutput = lastAssistantMsg?.content || result.content || '';
           
-          // 方式2：旧的步骤编号匹配（兼容）
-          const stepIndex = currentPlan.steps.findIndex(s => s.id === currentStep.id) + 1;
-          const indexMatch = new RegExp(`步骤\\s*${stepIndex}\\s*完成`, 'i');
+          // ★ 使用新的检查函数
+          const checkResult = checkStepCompletion(currentStep, modelOutput, currentStep.toolCalls);
           
-          // 方式3：通用完成关键词
-          const genericMatch = /步骤完成|step completed/i.test(content);
+          console.log(chalk.gray(`[DEBUG] ${checkResult.diagnosis}`));
           
-          modelSaysStepCompleted = descMatch.test(content) || 
-                                    descMatch2.test(content) || 
-                                    indexMatch.test(content) ||
-                                    genericMatch;
-        }
-        
-        // ★ 调试日志
-        console.log(chalk.gray(`[DEBUG] 检查步骤完成: ${modelSaysStepCompleted}`));
-        console.log(chalk.gray(`[DEBUG] 当前步骤: ${currentStep?.description || '(无)'}`));
-        console.log(chalk.gray(`[DEBUG] 内容片段: ${content.slice(0, 100) || '(空)'}`));
-        
-        if (modelSaysStepCompleted) {
-          // 模型明确说步骤完成了，可以推进
-          let advanceResult: { advanced: boolean; nextStep?: { id: string; description: string } };
-          
-          // 使用 stepManager 推进步骤
-          if (ctx.stepManager) {
-            const result = ctx.stepManager.advanceStep();
-            advanceResult = {
-              advanced: result.success && !result.allCompleted,
-              nextStep: result.nextStep,
-            };
-          } else {
-            const result = advanceToNextStep(currentPlan, session);
-            advanceResult = {
-              advanced: result.advanced,
-              nextStep: result.nextStep,
-            };
-          }
-          
-          if (advanceResult.advanced && advanceResult.nextStep) {
-            // 显示进度
-            console.log();
-            if (ctx.executionState) {
-              console.log(showTaskProgress(currentPlan, ctx.executionState));
-              updateExecutionState(ctx.executionState, 'step_complete');
-            } else if (ctx.stepManager) {
-              console.log(ctx.stepManager.renderStepList());
+          if (checkResult.complete) {
+            // 验证通过，推进步骤
+            let advanceResult: { advanced: boolean; nextStep?: { id: string; description: string } };
+            
+            if (ctx.stepManager) {
+              const r = ctx.stepManager.advanceStep();
+              advanceResult = {
+                advanced: r.success && !r.allCompleted,
+                nextStep: r.nextStep,
+              };
+            } else {
+              const r = advanceToNextStep(currentPlan, session);
+              advanceResult = {
+                advanced: r.advanced,
+                nextStep: r.nextStep,
+              };
             }
             
-            // 显示下一步
-            console.log(chalk.cyan('\n📍 下一步: ') + advanceResult.nextStep.description);
+            if (advanceResult.advanced && advanceResult.nextStep) {
+              console.log();
+              if (ctx.executionState) {
+                console.log(showTaskProgress(currentPlan, ctx.executionState));
+                updateExecutionState(ctx.executionState, 'step_complete');
+              } else if (ctx.stepManager) {
+                console.log(ctx.stepManager.renderStepList());
+              }
+              
+              console.log(chalk.cyan('\n📍 下一步: ') + advanceResult.nextStep.description);
+              
+              const stepIndex = currentPlan.steps.findIndex(s => s.id === advanceResult.nextStep!.id) + 1;
+              const totalSteps = currentPlan.steps.length;
+              addAssistantMessage(session, result.content);
+              addUserMessage(session, 
+                `步骤已完成。现在执行第 ${stepIndex}/${totalSteps} 步：${advanceResult.nextStep.description}\n\n` +
+                `直接调用工具完成这一步。完成后说"已完成：${advanceResult.nextStep.description}"。`
+              );
+              continue;
+            } else {
+              console.log(chalk.green('\n✓ 所有步骤已完成'));
+              await recordTaskEnd(ctx, 'completed', { summary: '任务完成' });
+              return;
+            }
+          } else {
+            // ★ 有问题，添加引导消息
+            const guidanceCount = (currentStep.guidanceCount || 0) + 1;
+            currentStep.guidanceCount = guidanceCount;
+            currentStep.lastGuidance = checkResult.guidance;
             
-            // ★ 关键：添加引导消息让模型执行下一步
-            // 告诉模型当前是第几步，避免记错编号
-            const stepIndex = currentPlan.steps.findIndex(s => s.id === advanceResult.nextStep!.id) + 1;
-            const totalSteps = currentPlan.steps.length;
-            addAssistantMessage(session, result.content);
-            addUserMessage(session, 
-              `步骤已完成。现在执行第 ${stepIndex}/${totalSteps} 步：${advanceResult.nextStep.description}\n\n` +
-              `直接调用工具完成这一步。完成后说"已完成：${advanceResult.nextStep.description}"，不要说步骤编号。`
-            );
-            continue;  // 让模型继续执行下一步
-          } else if (!advanceResult.advanced) {
-            // 所有步骤已完成
-            console.log(chalk.green('\n✓ 所有步骤已完成'));
-            await recordTaskEnd(ctx, 'completed', { summary: '任务完成' });
-            return;
+            if (guidanceCount > 3) {
+              // 多次引导无效，让用户介入
+              console.log(chalk.red('\n⚠️ 多次引导后仍未完成此步骤'));
+              console.log(chalk.cyan('请选择:'));
+              console.log(chalk.gray('  1. 手动描述如何执行'));
+              console.log(chalk.gray('  2. 跳过此步骤 (s)'));
+              console.log(chalk.gray('  3. 停止任务 (q)'));
+              
+              const answer = await interruptibleQuestion(chalk.cyan('\n请选择: '));
+              
+              if (answer === 's') {
+                // 跳过
+                if (ctx.stepManager) {
+                  const skipResult = ctx.stepManager.skipStep(currentStep.id, '多次引导无效');
+                  if (skipResult.nextStep) {
+                    console.log(chalk.cyan(`📍 下一步: ${skipResult.nextStep.description}`));
+                    addUserMessage(session, `跳过此步骤。继续执行: ${skipResult.nextStep.description}`);
+                  } else {
+                    console.log(chalk.green('\n✓ 所有步骤已处理完成'));
+                    await recordTaskEnd(ctx, 'completed', { summary: '任务完成' });
+                    return;
+                  }
+                } else {
+                  // 兼容旧逻辑
+                  updateStepStatus(currentPlan, currentStep.id, 'skipped', '多次引导无效');
+                  const nextStep = getNextPendingStep(currentPlan);
+                  if (nextStep) {
+                    updateStepStatus(currentPlan, nextStep.id, 'in_progress');
+                    console.log(chalk.cyan(`📍 下一步: ${nextStep.description}`));
+                    addUserMessage(session, `跳过此步骤。继续执行: ${nextStep.description}`);
+                  } else {
+                    console.log(chalk.green('\n✓ 所有步骤已处理完成'));
+                    await recordTaskEnd(ctx, 'completed', { summary: '任务完成' });
+                    return;
+                  }
+                }
+                savePlanToSession(session, currentPlan);
+              } else if (answer === 'q') {
+                return;
+              } else {
+                // 用户手动指导
+                addUserMessage(session, `用户指导: ${answer}`);
+              }
+            } else {
+              // 添加引导消息
+              console.log(chalk.yellow(`\n引导模型纠正 (第 ${guidanceCount} 次)...`));
+              addAssistantMessage(session, result.content);
+              addUserMessage(session, checkResult.guidance);
+            }
+            
+            savePlanToSession(session, currentPlan);
           }
         }
-        // 否则：工具执行成功，但不推进步骤，继续让模型执行当前步骤
       }
     }
     
