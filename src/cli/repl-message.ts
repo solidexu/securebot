@@ -168,8 +168,17 @@ function hasSubstantialProgress(result: ModelResult): boolean {
   
   // 5. 输出步骤完成标记 = 实质进展
   // 例如: "✓ 已完成" 或 "步骤1完成"
+  // ★ 修复：不能只看关键词，必须有成功的工具调用
+  // 以前：模型说"成功"就算完成（即使工具调用失败）
+  // 现在：必须检查是否有工具调用，且工具调用成功
   if (/(✓|✅|✔|完成|成功)/.test(content)) {
-    return true;
+    // 如果有工具调用，需要验证工具调用是否成功
+    if (result.toolCalls && result.toolCalls.length > 0) {
+      // 有工具调用，暂时不算完成，等下一轮验证结果
+      return true;
+    }
+    // 没有工具调用，只说"完成"不算实质进展
+    return false;
   }
   
   // 6. 内容长度显著增加 = 实质进展
