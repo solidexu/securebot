@@ -1834,38 +1834,56 @@ ${errorMsg}
         }
       }
       
-      // 如果有计划，在工具执行成功后推进步骤
+      // ★ 修复：不要在工具执行成功后自动推进步骤
+      // 原因：工具调用内容可能和步骤内容不相关
+      // 让模型自己说"步骤完成"后再推进
+      // 例如：步骤是"实现计算器类"，但工具是"mkdir"，不应该推进
+      
+      // 只在模型明确说"步骤完成"时推进
       if (currentPlan && toolResult?.success) {
-        let advanceResult: { advanced: boolean; nextStep?: { id: string; description: string } };
+        // 检查模型是否说"步骤完成"
+        const stepCompletedKeywords = [
+          '步骤完成', 'step completed', '✓ 步骤', '✅ 步骤',
+          '步骤.*完成', 'step.*complete',
+        ];
+        const modelSaysStepCompleted = stepCompletedKeywords.some(kw => 
+          new RegExp(kw, 'i').test(result.content || '')
+        );
         
-        // 使用 stepManager 推进步骤
-        if (ctx.stepManager) {
-          const result = ctx.stepManager.advanceStep();
-          advanceResult = {
-            advanced: result.success && !result.allCompleted,
-            nextStep: result.nextStep,
-          };
-        } else {
-          const result = advanceToNextStep(currentPlan, session);
-          advanceResult = {
-            advanced: result.advanced,
-            nextStep: result.nextStep,
-          };
-        }
-        
-        if (advanceResult.advanced && advanceResult.nextStep) {
-          // 显示进度
-          console.log();
-          if (ctx.executionState) {
-            console.log(showTaskProgress(currentPlan, ctx.executionState));
-            updateExecutionState(ctx.executionState, 'step_complete');
-          } else if (ctx.stepManager) {
-            console.log(ctx.stepManager.renderStepList());
+        if (modelSaysStepCompleted) {
+          // 模型明确说步骤完成了，可以推进
+          let advanceResult: { advanced: boolean; nextStep?: { id: string; description: string } };
+          
+          // 使用 stepManager 推进步骤
+          if (ctx.stepManager) {
+            const result = ctx.stepManager.advanceStep();
+            advanceResult = {
+              advanced: result.success && !result.allCompleted,
+              nextStep: result.nextStep,
+            };
+          } else {
+            const result = advanceToNextStep(currentPlan, session);
+            advanceResult = {
+              advanced: result.advanced,
+              nextStep: result.nextStep,
+            };
           }
           
-          // 显示下一步（不提示用户，让模型自动继续）
-          console.log(chalk.cyan('\n📍 下一步: ') + advanceResult.nextStep.description);
+          if (advanceResult.advanced && advanceResult.nextStep) {
+            // 显示进度
+            console.log();
+            if (ctx.executionState) {
+              console.log(showTaskProgress(currentPlan, ctx.executionState));
+              updateExecutionState(ctx.executionState, 'step_complete');
+            } else if (ctx.stepManager) {
+              console.log(ctx.stepManager.renderStepList());
+            }
+            
+            // 显示下一步
+            console.log(chalk.cyan('\n📍 下一步: ') + advanceResult.nextStep.description);
+          }
         }
+        // 否则：工具执行成功，但不推进步骤，继续让模型执行当前步骤
       }
     }
     
