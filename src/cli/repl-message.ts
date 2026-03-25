@@ -1357,9 +1357,6 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         );
         
         if (hasIncompleteSteps) {
-          // 还有未完成的步骤，这是步骤完成信号，不是任务完成
-          console.log(chalk.gray('[DEBUG] 检测到"已完成"，但有计划未完成，视为步骤完成'));
-          
           // 查找当前步骤
           let currentStep = currentPlan.steps.find(s => s.status === 'in_progress');
           if (!currentStep) {
@@ -1367,32 +1364,62 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
           }
           
           if (currentStep) {
-            // 推进步骤
-            const advanceResult = advanceToNextStep(currentPlan, session);
+            // ★ 关键：验证"已完成"是否匹配当前步骤
+            const content = result.content || '';
+            const completedMatch = content.match(/已完成[：:]\s*(.+?)(?:\n|$)/);
+            const completedDesc = completedMatch?.[1]?.trim();
             
-            if (advanceResult.advanced && advanceResult.nextStep) {
-              // ★ 显示进度条
-              console.log();
-              if (ctx.executionState) {
-                console.log(showTaskProgress(currentPlan, ctx.executionState));
-              } else {
-                console.log(renderTaskProgress(currentPlan));
-              }
-              console.log(chalk.cyan('\n📍 下一步: ') + advanceResult.nextStep.description);
+            // 检查是否匹配当前步骤
+            const matchesCurrentStep = completedDesc && (
+              completedDesc === currentStep.description ||
+              completedDesc.includes(currentStep.description) ||
+              currentStep.description.includes(completedDesc)
+            );
+            
+            console.log(chalk.gray(`[DEBUG] 当前步骤: ${currentStep.description}`));
+            console.log(chalk.gray(`[DEBUG] 已完成描述: ${completedDesc || '(未匹配)'}`));
+            console.log(chalk.gray(`[DEBUG] 匹配结果: ${matchesCurrentStep}`));
+            
+            if (matchesCurrentStep) {
+              // 匹配当前步骤，推进
+              console.log(chalk.gray('[DEBUG] 检测到匹配的步骤完成，推进'));
+              const advanceResult = advanceToNextStep(currentPlan, session);
               
+              if (advanceResult.advanced && advanceResult.nextStep) {
+                // ★ 显示进度条
+                console.log();
+                if (ctx.executionState) {
+                  console.log(showTaskProgress(currentPlan, ctx.executionState));
+                } else {
+                  console.log(renderTaskProgress(currentPlan));
+                }
+                console.log(chalk.cyan('\n📍 下一步: ') + advanceResult.nextStep.description);
+                
+                addAssistantMessage(session, result.content);
+                const stepIndex = currentPlan.steps.findIndex(s => s.id === advanceResult.nextStep!.id) + 1;
+                const totalSteps = currentPlan.steps.length;
+                addUserMessage(session, 
+                  `步骤已完成。现在执行第 ${stepIndex}/${totalSteps} 步：${advanceResult.nextStep.description}\n\n` +
+                  `直接调用工具完成这一步。完成后说"已完成：${advanceResult.nextStep.description}"。`
+                );
+                continue;
+              } else {
+                // 所有步骤完成
+                console.log(chalk.green('\n✓ 所有步骤已完成'));
+                await recordTaskEnd(ctx, 'completed', { summary: '任务完成' });
+                return;
+              }
+            } else {
+              // 不匹配当前步骤，忽略（可能是模型幻觉）
+              console.log(chalk.yellow('[DEBUG] "已完成"不匹配当前步骤，忽略'));
               addAssistantMessage(session, result.content);
-              const stepIndex = currentPlan.steps.findIndex(s => s.id === advanceResult.nextStep!.id) + 1;
-              const totalSteps = currentPlan.steps.length;
+              // 继续执行当前步骤
               addUserMessage(session, 
-                `步骤已完成。现在执行第 ${stepIndex}/${totalSteps} 步：${advanceResult.nextStep.description}\n\n` +
-                `直接调用工具完成这一步。完成后说"已完成：${advanceResult.nextStep.description}"。`
+                `你说的"已完成"与当前步骤"${currentStep.description}"不匹配。\n\n` +
+                `当前步骤是：${currentStep.description}\n` +
+                `请继续执行这一步，完成后说"已完成：${currentStep.description}"。`
               );
               continue;
-            } else {
-              // 所有步骤完成
-              console.log(chalk.green('\n✓ 所有步骤已完成'));
-              await recordTaskEnd(ctx, 'completed', { summary: '任务完成' });
-              return;
             }
           }
         }
