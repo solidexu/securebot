@@ -1352,6 +1352,15 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
             const advanceResult = advanceToNextStep(currentPlan, session);
             
             if (advanceResult.advanced && advanceResult.nextStep) {
+              // ★ 显示进度条
+              console.log();
+              if (ctx.executionState) {
+                console.log(showTaskProgress(currentPlan, ctx.executionState));
+              } else {
+                console.log(renderTaskProgress(currentPlan));
+              }
+              console.log(chalk.cyan('\n📍 下一步: ') + advanceResult.nextStep.description);
+              
               addAssistantMessage(session, result.content);
               const stepIndex = currentPlan.steps.findIndex(s => s.id === advanceResult.nextStep!.id) + 1;
               const totalSteps = currentPlan.steps.length;
