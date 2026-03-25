@@ -1827,9 +1827,14 @@ ${errorMsg}
           '步骤完成', 'step completed', '✓ 步骤', '✅ 步骤',
           '步骤.*完成', 'step.*complete',
         ];
+        const content = result.content || '';
         const modelSaysStepCompleted = stepCompletedKeywords.some(kw => 
-          new RegExp(kw, 'i').test(result.content || '')
+          new RegExp(kw, 'i').test(content)
         );
+        
+        // ★ 调试日志
+        console.log(chalk.gray(`[DEBUG] 检查步骤完成: ${modelSaysStepCompleted}`));
+        console.log(chalk.gray(`[DEBUG] 内容片段: ${content.slice(0, 100)}...`));
         
         if (modelSaysStepCompleted) {
           // 模型明确说步骤完成了，可以推进
@@ -1862,6 +1867,19 @@ ${errorMsg}
             
             // 显示下一步
             console.log(chalk.cyan('\n📍 下一步: ') + advanceResult.nextStep.description);
+            
+            // ★ 关键：添加引导消息让模型执行下一步
+            addAssistantMessage(session, result.content);
+            addUserMessage(session, 
+              `步骤已完成。继续执行下一步：${advanceResult.nextStep.description}\n\n` +
+              `直接调用工具（如 write, exec 等）完成这一步。不要再输出计划格式。`
+            );
+            continue;  // 让模型继续执行下一步
+          } else if (!advanceResult.advanced) {
+            // 所有步骤已完成
+            console.log(chalk.green('\n✓ 所有步骤已完成'));
+            await recordTaskEnd(ctx, 'completed', { summary: '任务完成' });
+            return;
           }
         }
         // 否则：工具执行成功，但不推进步骤，继续让模型执行当前步骤
