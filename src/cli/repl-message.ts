@@ -1203,8 +1203,29 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         s.status === 'pending' || s.status === 'in_progress'
       );
       
-      // 只有在没有未完成的计划时才解析新计划
-      if (!hasExistingPlan) {
+      // ★ 增强检查：如果已有计划，且步骤数量相同，忽略新计划
+      // 防止模型重复输出相同计划
+      if (hasExistingPlan) {
+        const parsedPlan = parseTaskPlan(result.content);
+        // 检查是否是重复计划
+        if (parsedPlan && parsedPlan.steps.length > 0) {
+          const sameStepCount = parsedPlan.steps.length === currentPlan?.steps.length;
+          const similarContent = parsedPlan.steps.some((s, i) => 
+            currentPlan?.steps[i]?.description.includes(s.description) ||
+            s.description.includes(currentPlan?.steps[i]?.description || '')
+          );
+          
+          if (sameStepCount && similarContent) {
+            // 这是重复计划，忽略
+            console.log(chalk.gray('（检测到重复计划，继续执行当前计划）'));
+            // 清除模型输出中的工具调用，继续执行
+            if (result.toolCalls) {
+              result.toolCalls = undefined;
+            }
+          }
+        }
+      } else {
+        // 只有在没有未完成的计划时才解析新计划
         const parsedPlan = parseTaskPlan(result.content);
         if (parsedPlan && parsedPlan.steps.length > 0) {
           currentPlan = parsedPlan;
