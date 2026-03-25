@@ -14,8 +14,10 @@ import {
   updateStepStatus,
   isPlanCompleted,
   getPlanSummary,
+  recordToolCall,
+  checkStepCompletion,
 } from './smart-task.js';
-import type { TaskStep, TaskPlan } from './smart-task.js';
+import type { TaskStep, TaskPlan, StepCheckResult } from './smart-task.js';
 
 // Mock fs module
 vi.mock('node:fs', () => ({
@@ -416,5 +418,326 @@ describe('getPlanSummary', () => {
     expect(summary).toContain('🔄1');
     expect(summary).toContain('⬜1');
     expect(summary).toContain('❌1');
+  });
+});
+
+// ============ Plan 状态机 v3 测试 ============
+
+describe('recordToolCall', () => {
+  it('should record successful tool call', () => {
+    const plan: TaskPlan = {
+      title: 'Test',
+      steps: [
+        { id: 'step-1', description: '创建项目目录', status: 'in_progress' },
+      ],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    recordToolCall(plan, 'step-1', 'exec', { command: 'mkdir -p project' }, 'success');
+
+    expect(plan.steps[0]?.toolCalls).toBeDefined();
+    expect(plan.steps[0]?.toolCalls?.length).toBe(1);
+    expect(plan.steps[0]?.toolCalls?.[0]?.tool).toBe('exec');
+    expect(plan.steps[0]?.toolCalls?.[0]?.result).toBe('success');
+  });
+
+  it('should record failed tool call with error', () => {
+    const plan: TaskPlan = {
+      title: 'Test',
+      steps: [
+        { id: 'step-1', description: '创建文件', status: 'in_progress' },
+      ],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    recordToolCall(plan, 'step-1', 'write', { path: '/root/file.txt' }, 'failed', 'Permission denied');
+
+    expect(plan.steps[0]?.toolCalls?.[0]?.result).toBe('failed');
+    expect(plan.steps[0]?.toolCalls?.[0]?.error).toBe('Permission denied');
+  });
+
+  it('should accumulate multiple tool calls', () => {
+    const plan: TaskPlan = {
+      title: 'Test',
+      steps: [
+        { id: 'step-1', description: '多步操作', status: 'in_progress' },
+      ],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    recordToolCall(plan, 'step-1', 'exec', { command: 'mkdir project' }, 'success');
+    recordToolCall(plan, 'step-1', 'write', { path: 'project/file.txt' }, 'success');
+
+    expect(plan.steps[0]?.toolCalls?.length).toBe(2);
+  });
+
+  it('should not affect non-existent step', () => {
+    const plan: TaskPlan = {
+      title: 'Test',
+      steps: [
+        { id: 'step-1', description: 'Task', status: 'pending' },
+      ],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    recordToolCall(plan, 'non-existent', 'exec', {}, 'success');
+
+    expect(plan.steps[0]?.toolCalls).toBeUndefined();
+  });
+});
+
+describe('checkStepCompletion', () => {
+  // ═══════════════════════════════════════════
+  // 错误类型 1：没有工具调用
+  // ═══════════════════════════════════════════
+  describe('no_tool_call error', () => {
+    it('should detect model says complete but no tool call', () => {
+      const step: TaskStep = {
+        id: 'step-1',
+        description: '创建项目目录',
+        status: 'in_progress',
+        toolCalls: [],
+      };
+
+      const result = checkStepCompletion(step, '已完成：创建项目目录', []);
+
+      expect(result.complete).toBe(false);
+      expect(result.errorType).toBe('no_tool_call');
+      expect(result.diagnosis).toContain('没有调用任何工具');
+      expect(result.guidance).toContain('建议的工具');
+    });
+
+    it('should detect model talking without action', () => {
+      const step: TaskStep = {
+        id: 'step-1',
+        description: '创建项目目录',
+        status: 'in_progress',
+        toolCalls: [],
+      };
+
+      const result = checkStepCompletion(step, '我来帮你创建目录...', []);
+
+      expect(result.complete).toBe(false);
+      expect(result.errorType).toBe('no_tool_call');
+      expect(result.diagnosis).toContain('没有调用工具');
+    });
+  });
+
+  // ═══════════════════════════════════════════
+  // 错误类型 2：工具调用不相关
+  // ═══════════════════════════════════════════
+  describe('irrelevant_tool error', () => {
+    it('should detect irrelevant tool call for directory creation', () => {
+      const step: TaskStep = {
+        id: 'step-1',
+        description: '创建项目目录',
+        status: 'in_progress',
+        toolCalls: [
+          { tool: 'write', args: { path: 'readme.md' }, result: 'success', timestamp: new Date().toISOString() },
+        ],
+      };
+
+      const result = checkStepCompletion(step, '已完成：创建项目目录', step.toolCalls);
+
+      expect(result.complete).toBe(false);
+      expect(result.errorType).toBe('irrelevant_tool');
+      expect(result.diagnosis).toContain('不相关');
+    });
+
+    it('should detect wrong file in tool call', () => {
+      const step: TaskStep = {
+        id: 'step-1',
+        description: '实现 calculator.py',
+        status: 'in_progress',
+        toolCalls: [
+          { tool: 'write', args: { path: 'readme.md' }, result: 'success', timestamp: new Date().toISOString() },
+        ],
+      };
+
+      const result = checkStepCompletion(step, '已完成：实现 calculator.py', step.toolCalls);
+
+      expect(result.complete).toBe(false);
+      expect(result.errorType).toBe('irrelevant_tool');
+    });
+
+    it('should accept relevant tool call', () => {
+      const step: TaskStep = {
+        id: 'step-1',
+        description: '实现 calculator.py',
+        status: 'in_progress',
+        toolCalls: [
+          { tool: 'write', args: { path: 'calculator.py' }, result: 'success', timestamp: new Date().toISOString() },
+        ],
+      };
+
+      const result = checkStepCompletion(step, '已完成：实现 calculator.py', step.toolCalls);
+
+      expect(result.complete).toBe(true);
+    });
+  });
+
+  // ═══════════════════════════════════════════
+  // 错误类型 3：步骤不匹配
+  // ═══════════════════════════════════════════
+  describe('wrong_step error', () => {
+    it('should detect wrong step mention', () => {
+      const step: TaskStep = {
+        id: 'step-1',
+        description: '编写单元测试',
+        status: 'in_progress',
+        toolCalls: [
+          { tool: 'write', args: { path: 'test.py' }, result: 'success', timestamp: new Date().toISOString() },
+        ],
+      };
+
+      const result = checkStepCompletion(step, '已完成：实现计算器类', step.toolCalls);
+
+      expect(result.complete).toBe(false);
+      expect(result.errorType).toBe('wrong_step');
+      expect(result.diagnosis).toContain('实现计算器类');
+      expect(result.diagnosis).toContain('编写单元测试');
+    });
+
+    it('should accept matching step mention', () => {
+      const step: TaskStep = {
+        id: 'step-1',
+        description: '编写单元测试',
+        status: 'in_progress',
+        toolCalls: [
+          { tool: 'write', args: { path: 'test.py' }, result: 'success', timestamp: new Date().toISOString() },
+        ],
+      };
+
+      const result = checkStepCompletion(step, '已完成：编写单元测试', step.toolCalls);
+
+      expect(result.complete).toBe(true);
+    });
+
+    it('should accept partial matching step mention', () => {
+      const step: TaskStep = {
+        id: 'step-1',
+        description: '创建项目目录结构',
+        status: 'in_progress',
+        toolCalls: [
+          { tool: 'exec', args: { command: 'mkdir -p project' }, result: 'success', timestamp: new Date().toISOString() },
+        ],
+      };
+
+      const result = checkStepCompletion(step, '已完成：创建项目目录', step.toolCalls);
+
+      expect(result.complete).toBe(true);
+    });
+  });
+
+  // ═══════════════════════════════════════════
+  // 错误类型 4：工具失败
+  // ═══════════════════════════════════════════
+  describe('tool_failed error', () => {
+    it('should detect tool failure', () => {
+      const step: TaskStep = {
+        id: 'step-1',
+        description: '创建文件',
+        status: 'in_progress',
+        toolCalls: [
+          { tool: 'write', args: { path: '/root/file.txt' }, result: 'failed', error: 'Permission denied', timestamp: new Date().toISOString() },
+        ],
+      };
+
+      const result = checkStepCompletion(step, '创建文件失败', step.toolCalls);
+
+      expect(result.complete).toBe(false);
+      expect(result.errorType).toBe('tool_failed');
+      expect(result.guidance).toContain('失败');
+    });
+  });
+
+  // ═══════════════════════════════════════════
+  // 正常完成
+  // ═══════════════════════════════════════════
+  describe('successful completion', () => {
+    it('should pass with correct tool call and model confirmation', () => {
+      const step: TaskStep = {
+        id: 'step-1',
+        description: '创建项目目录',
+        status: 'in_progress',
+        toolCalls: [
+          { tool: 'exec', args: { command: 'mkdir -p project' }, result: 'success', timestamp: new Date().toISOString() },
+        ],
+      };
+
+      const result = checkStepCompletion(step, '已完成：创建项目目录', step.toolCalls);
+
+      expect(result.complete).toBe(true);
+      expect(result.diagnosis).toBe('验证通过');
+    });
+
+    it('should wait for model confirmation when tool is correct', () => {
+      const step: TaskStep = {
+        id: 'step-1',
+        description: '创建项目目录',
+        status: 'in_progress',
+        toolCalls: [
+          { tool: 'exec', args: { command: 'mkdir -p project' }, result: 'success', timestamp: new Date().toISOString() },
+        ],
+      };
+
+      const result = checkStepCompletion(step, '目录已创建', step.toolCalls);
+
+      expect(result.complete).toBe(false);
+      expect(result.diagnosis).toContain('等待模型确认');
+    });
+  });
+
+  // ═══════════════════════════════════════════
+  // 引导消息生成
+  // ═══════════════════════════════════════════
+  describe('guidance generation', () => {
+    it('should suggest mkdir for directory step', () => {
+      const step: TaskStep = {
+        id: 'step-1',
+        description: '创建项目目录',
+        status: 'in_progress',
+        toolCalls: [],
+      };
+
+      const result = checkStepCompletion(step, '已完成', []);
+
+      expect(result.guidance).toContain('exec');
+      expect(result.guidance).toContain('mkdir');
+    });
+
+    it('should suggest write for file creation step', () => {
+      const step: TaskStep = {
+        id: 'step-1',
+        description: '创建 main.py 文件',
+        status: 'in_progress',
+        toolCalls: [],
+      };
+
+      const result = checkStepCompletion(step, '已完成', []);
+
+      expect(result.guidance).toContain('write');
+      expect(result.guidance).toContain('main.py');
+    });
+
+    it('should include correct step in wrong_step guidance', () => {
+      const step: TaskStep = {
+        id: 'step-1',
+        description: '编写单元测试',
+        status: 'in_progress',
+        toolCalls: [
+          { tool: 'write', args: { path: 'test.py' }, result: 'success', timestamp: new Date().toISOString() },
+        ],
+      };
+
+      const result = checkStepCompletion(step, '已完成：实现计算器类', step.toolCalls);
+
+      expect(result.guidance).toContain('编写单元测试');
+      expect(result.guidance).toContain('实现计算器类');
+    });
   });
 });
