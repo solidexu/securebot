@@ -197,10 +197,10 @@ describe('parseTaskPlan', () => {
 
   it('should parse status from TODO format', () => {
     const content = `
-- [x] 已完成
-- [ ] 待处理
-- [→] 进行中
-- [!] 失败
+- [x] 完成用户登录功能
+- [ ] 实现注册接口
+- [→] 编写测试用例
+- [!] 修复数据库连接
 `;
 
     const plan = parseTaskPlan(content);
@@ -230,7 +230,7 @@ describe('parseTaskPlan', () => {
   });
 
   it('should create timestamps', () => {
-    const content = '- [ ] Task 1\n- [ ] Task 2';
+    const content = '- [ ] 实现用户登录\n- [ ] 编写测试用例';
     const plan = parseTaskPlan(content);
 
     expect(plan?.createdAt).toBeInstanceOf(Date);

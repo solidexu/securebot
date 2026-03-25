@@ -212,10 +212,10 @@ describe('Skill Chain Tests', () => {
         systemPrompt: '提示词',
       });
 
-      const deleted = await skillManager.deleteSkill('delete-test', false);
+      const deleted = await skillManager.deleteSkill('delete-test', false, 'test-agent');
       expect(deleted).toBe(true);
 
-      const skill = await skillManager.loadSkill('delete-test', false);
+      const skill = await skillManager.loadSkill('delete-test', false, 'test-agent');
       expect(skill).toBeNull();
     });
   });

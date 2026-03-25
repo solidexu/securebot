@@ -7,6 +7,10 @@
 import * as readlinePromises from 'node:readline/promises';
 import chalk from 'chalk';
 import type { ReplState, Agent, Message, ChatParams, Session } from '../core/types.js';
+
+// 定义 EventListener 类型（Node.js 环境中没有 DOM 类型）
+type EventListener = (event: Event) => void;
+
 import { getOrCreateMainSession } from '../core/agent.js';
 import { addUserMessage, addAssistantMessage, addToolResultMessage, buildSystemPrompt } from '../core/session.js';
 import { getAvailableTools, executeTool, getAvailableToolNames } from '../tools/index.js';
@@ -1143,7 +1147,7 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       
       if (state.modelAdapter.chatWithStream) {
         result = await state.modelAdapter.chatWithStream({
-          model: state.config.model.model,
+          model: modelForThisRound,
           messages: finalMessages,
           tools: toolsForThisRound.length > 0 ? toolsForThisRound : undefined,
           onStream,
@@ -1151,7 +1155,7 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         } as ChatParams & { onStream: StreamCallback; signal: AbortSignal });
       } else {
         result = await state.modelAdapter.chat({
-          model: state.config.model.model,
+          model: modelForThisRound,
           messages: finalMessages,
           tools: toolsForThisRound.length > 0 ? toolsForThisRound : undefined,
         } as ChatParams);

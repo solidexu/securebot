@@ -545,8 +545,14 @@ export class SkillManager {
     let skill = await this.loadSkill(skillId, true);
 
     if (!skill) {
-      // 查找个人技能
-      skill = await this.loadSkill(skillId, false);
+      // 查找个人技能 - 尝试从 updates.agentId 或遍历所有 agent
+      if (updates.agentId) {
+        skill = await this.loadSkill(skillId, false, updates.agentId);
+      } else {
+        // 尝试在所有 agent 目录中查找
+        const allSkills = await this.listPrivateSkills();
+        skill = allSkills.find(s => s.id === skillId) || null;
+      }
     }
 
     if (!skill) {
