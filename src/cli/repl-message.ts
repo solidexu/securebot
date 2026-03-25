@@ -1349,6 +1349,46 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         result.content?.toLowerCase().includes(signal.toLowerCase())
       );
       
+      // ★ 关键修复：如果有计划，"已完成"应该是步骤完成，不是任务完成
+      if (isTaskCompleted && currentPlan) {
+        // 检查是否有未完成的步骤
+        const hasIncompleteSteps = currentPlan.steps.some(s => 
+          s.status === 'pending' || s.status === 'in_progress'
+        );
+        
+        if (hasIncompleteSteps) {
+          // 还有未完成的步骤，这是步骤完成信号，不是任务完成
+          console.log(chalk.gray('[DEBUG] 检测到"已完成"，但有计划未完成，视为步骤完成'));
+          
+          // 查找当前步骤
+          let currentStep = currentPlan.steps.find(s => s.status === 'in_progress');
+          if (!currentStep) {
+            currentStep = currentPlan.steps.find(s => s.status === 'pending');
+          }
+          
+          if (currentStep) {
+            // 推进步骤
+            const advanceResult = advanceToNextStep(currentPlan, session);
+            
+            if (advanceResult.advanced && advanceResult.nextStep) {
+              addAssistantMessage(session, result.content);
+              const stepIndex = currentPlan.steps.findIndex(s => s.id === advanceResult.nextStep!.id) + 1;
+              const totalSteps = currentPlan.steps.length;
+              addUserMessage(session, 
+                `步骤已完成。现在执行第 ${stepIndex}/${totalSteps} 步：${advanceResult.nextStep.description}\n\n` +
+                `直接调用工具完成这一步。完成后说"已完成：${advanceResult.nextStep.description}"。`
+              );
+              continue;
+            } else {
+              // 所有步骤完成
+              console.log(chalk.green('\n✓ 所有步骤已完成'));
+              await recordTaskEnd(ctx, 'completed', { summary: '任务完成' });
+              return;
+            }
+          }
+        }
+      }
+      
       // ★ 新增：检测是否是正常对话结束（简单问候/介绍等）
       // 如果是，直接结束，不触发无进展警告
       if (isNormalConversationEnd(result, complexity)) {
@@ -1704,11 +1744,12 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         if (failureCount < MAX_AUTO_RETRY) {
           console.log(chalk.cyan('\n🔄 尝试自动修复...'));
           
-          // 重置步骤状态为 pending，让模型可以重试
+          // ★ 修复：设置步骤状态为 in_progress，让模型立即重试
+          // 不要设置为 pending，否则检测当前步骤时找不到
           if (ctx.stepManager) {
             ctx.stepManager.retryStep(failedStep.id);
           } else if (currentPlan) {
-            updateStepStatus(currentPlan, failedStep.id, 'pending');
+            updateStepStatus(currentPlan, failedStep.id, 'in_progress');
             savePlanToSession(session, currentPlan);
           }
           
@@ -1849,7 +1890,16 @@ ${errorMsg}
         
         // ★ 改进：检查模型是否说"已完成：[当前步骤描述]"
         // 防止模型记错步骤编号
-        const currentStep = currentPlan.steps.find(s => s.status === 'in_progress');
+        let currentStep = currentPlan.steps.find(s => s.status === 'in_progress');
+        
+        // ★ 回退：如果没有 in_progress 步骤，检查 pending 步骤
+        if (!currentStep) {
+          currentStep = currentPlan.steps.find(s => s.status === 'pending');
+          if (currentStep) {
+            console.log(chalk.gray(`[DEBUG] 回退到 pending 步骤: ${currentStep.description}`));
+          }
+        }
+        
         let modelSaysStepCompleted = false;
         
         if (currentStep) {
