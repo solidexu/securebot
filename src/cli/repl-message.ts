@@ -1235,11 +1235,20 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
           );
           
           if (sameStepCount && similarContent) {
-            // 这是重复计划，忽略
-            console.log(chalk.gray('（检测到重复计划，继续执行当前计划）'));
-            // 清除模型输出中的工具调用，继续执行
-            if (result.toolCalls) {
+            // 这是重复计划，引导模型执行当前步骤
+            const currentStep = currentPlan?.steps.find(s => s.status === 'in_progress') || 
+                               getNextPendingStep(currentPlan!);
+            if (currentStep) {
+              console.log(chalk.gray('（检测到重复计划，继续执行当前步骤）'));
+              // 清除工具调用
               result.toolCalls = undefined;
+              // 添加引导消息
+              addAssistantMessage(session, result.content);
+              addUserMessage(session, 
+                `计划已在执行中。请继续执行当前步骤：${currentStep.description}\n\n` +
+                `直接调用工具完成这一步，不要再输出计划。`
+              );
+              continue;
             }
           }
         }
