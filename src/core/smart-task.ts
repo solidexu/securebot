@@ -1489,41 +1489,107 @@ function filterRelevantCalls(
 ): ToolCallRecord[] {
   const desc = stepDescription.toLowerCase();
   
+  // ✅ 改进：分析所有调用的工具类型
+  const toolTypes = new Set(calls.map(c => c.tool));
+  const hasWrite = toolTypes.has('write');
+  const hasExec = toolTypes.has('exec');
+  const hasRead = toolTypes.has('read');
+  
   return calls.filter(call => {
+    // ═══════════════════════════════════════════
     // 目录相关
+    // ═══════════════════════════════════════════
     if (desc.includes('目录') || desc.includes('文件夹')) {
-      return call.tool === 'exec' && 
-             String(call.args.command).includes('mkdir');
-    }
-    
-    // 文件创建/编写
-    if (desc.includes('创建') || desc.includes('编写') || desc.includes('实现')) {
-      // 如果步骤提到特定文件，检查是否匹配
-      const fileMatch = stepDescription.match(/(\w+\.(ts|js|py|go|java|md|json|yaml|yml|sh))/i);
-      if (fileMatch) {
-        const targetFile = fileMatch[1];
-        return call.tool === 'write' && 
-               String(call.args.path).includes(targetFile);
+      // 允许 mkdir 相关命令
+      if (call.tool === 'exec' && String(call.args.command).includes('mkdir')) {
+        return true;
       }
-      return call.tool === 'write';
+      // 也允许 ls 查看目录
+      if (call.tool === 'exec' && String(call.args.command).includes('ls')) {
+        return true;
+      }
+      return false;
     }
     
+    // ═══════════════════════════════════════════
+    // 文件创建/编写
+    // ═══════════════════════════════════════════
+    if (desc.includes('创建') || desc.includes('编写') || desc.includes('实现')) {
+      // 提取步骤中提到的文件名
+      const fileMatch = stepDescription.match(/(\w+\.(ts|js|py|go|java|md|json|yaml|yml|sh))/i);
+      
+      // 主要工具：write
+      if (call.tool === 'write') {
+        // 如果步骤提到特定文件，检查是否匹配
+        if (fileMatch) {
+          const targetFile = fileMatch[1].toLowerCase();
+          const writePath = String(call.args.path || '').toLowerCase();
+          return writePath.includes(targetFile);
+        }
+        // 没有特定文件，任何 write 都算相关
+        return true;
+      }
+      
+      // ✅ 新增：允许前置依赖工具
+      // 如果有 write 调用（无论成功失败），允许 exec 作为前置依赖
+      if (call.tool === 'exec' && hasWrite) {
+        const cmd = String(call.args.command);
+        // 允许创建目录、查看目录结构等前置操作
+        if (cmd.includes('mkdir') || cmd.includes('ls') || cmd.includes('pwd')) {
+          return true;
+        }
+        // 允许删除重建（修复行为）
+        if (cmd.includes('rm') && cmd.includes('mkdir')) {
+          return true;
+        }
+      }
+      
+      return false;
+    }
+    
+    // ═══════════════════════════════════════════
     // 测试
+    // ═══════════════════════════════════════════
     if (desc.includes('测试')) {
-      return call.tool === 'exec' || call.tool === 'write';
+      // 允许执行测试、编写测试文件
+      if (call.tool === 'exec' || call.tool === 'write') {
+        return true;
+      }
+      // 允许读取源文件（编写测试前需要了解源代码）
+      if (call.tool === 'read' && hasWrite) {
+        return true;
+      }
+      return false;
     }
     
+    // ═══════════════════════════════════════════
     // 安装/配置
+    // ═══════════════════════════════════════════
     if (desc.includes('安装') || desc.includes('配置')) {
       return call.tool === 'exec';
     }
     
-    // 读取/查看
+    // ═══════════════════════════════════════════
+    // 读取/查看/检查
+    // ═══════════════════════════════════════════
     if (desc.includes('读取') || desc.includes('查看') || desc.includes('检查')) {
-      return call.tool === 'read';
+      // 主要工具：read
+      if (call.tool === 'read') {
+        return true;
+      }
+      // 允许用 exec 查看目录结构
+      if (call.tool === 'exec') {
+        const cmd = String(call.args.command);
+        if (cmd.includes('ls') || cmd.includes('find') || cmd.includes('tree')) {
+          return true;
+        }
+      }
+      return false;
     }
     
+    // ═══════════════════════════════════════════
     // 默认：任何工具调用都算相关
+    // ═══════════════════════════════════════════
     return true;
   });
 }
@@ -1607,10 +1673,32 @@ function buildGuidance(
         lines.push(`- ${fail.tool}: ${errorMsg}`);
       }
       lines.push('');
-      lines.push('**建议**:');
-      lines.push('- 检查参数是否正确');
-      lines.push('- 尝试不同的方法');
-      lines.push('- 如果无法解决，可以说"跳过此步骤"');
+      
+      // ✅ 新增：根据失败类型给出具体建议
+      const hasEnoent = ctx.failedTools.some(f => f.error?.includes('ENOENT'));
+      const hasWriteFail = ctx.failedTools.some(f => f.tool === 'write');
+      
+      if (hasEnoent && hasWriteFail) {
+        lines.push('**诊断**: 文件路径不存在。');
+        lines.push('');
+        lines.push('**解决方案**:');
+        lines.push('1. 先用 `exec` 创建必要的目录：`mkdir -p <目录路径>`');
+        lines.push('2. 然后重新调用 `write` 写入文件');
+        lines.push('');
+        lines.push('**示例**:');
+        lines.push('```');
+        lines.push('// 步骤 1: 创建目录');
+        lines.push('exec: mkdir -p hello_world/src');
+        lines.push('');
+        lines.push('// 步骤 2: 重新尝试写入');
+        lines.push('write: hello_world/src/hello.py');
+        lines.push('```');
+      } else {
+        lines.push('**建议**:');
+        lines.push('- 检查参数是否正确');
+        lines.push('- 尝试不同的方法');
+        lines.push('- 如果无法解决，可以说"跳过此步骤"');
+      }
       break;
     }
   }
