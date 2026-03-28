@@ -1002,6 +1002,9 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
   const MAX_PLAN_ATTEMPTS = 3;
   const MAX_NO_PROGRESS = 5;  // 连续 5 轮无进展则提示用户
   
+  // ✅ 新增：记录每个步骤的等待提示次数（避免无限循环）
+  const waitHintCounts = new Map<string, number>();
+  
   // 跟踪是否有已完成的计划（用于判断新阶段）
   let previousPlanCompleted = false;
   if (session.plan && session.plan.steps.every(s => s.status === 'completed' || s.status === 'skipped')) {
@@ -1952,6 +1955,9 @@ ${errorMsg}
           
           if (checkResult.complete) {
             // 验证通过，推进步骤
+            // ✅ 清除下一步的等待计数
+            waitHintCounts.delete(currentStep.id);
+            
             let advanceResult: { advanced: boolean; nextStep?: { id: string; description: string } };
             
             if (ctx.stepManager) {
@@ -1969,6 +1975,9 @@ ${errorMsg}
             }
             
             if (advanceResult.advanced && advanceResult.nextStep) {
+              // ✅ 初始化新步骤的等待计数
+              waitHintCounts.set(advanceResult.nextStep.id, 0);
+              
               console.log();
               if (ctx.executionState) {
                 console.log(showTaskProgress(currentPlan, ctx.executionState));
@@ -2050,7 +2059,22 @@ ${errorMsg}
             savePlanToSession(session, currentPlan);
           }
           // 当 complete === false 且 errorType === undefined 时
-          // 工具调用正确，等待模型确认完成，不做任何处理，继续下一轮循环
+          // 工具调用正确，等待模型确认完成
+          // 每隔几次给模型一个温和提示，避免无限循环
+          else {
+            // 记录等待提示次数
+            const waitCount = (waitHintCounts.get(currentStep.id) || 0) + 1;
+            waitHintCounts.set(currentStep.id, waitCount);
+            
+            // 每 3 次成功工具调用后给提示（避免频繁打扰）
+            if (waitCount % 3 === 0 && waitCount <= 9) {
+              console.log(chalk.gray(`[DEBUG] 已执行 ${Math.floor(waitCount/3)*3} 次成功工具调用，等待确认完成`));
+              addAssistantMessage(session, result.content);
+              addUserMessage(session, checkResult.guidance);
+            }
+            
+            savePlanToSession(session, currentPlan);
+          }
         }
       }
     }
