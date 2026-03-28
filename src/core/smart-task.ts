@@ -1412,7 +1412,8 @@ export function checkStepCompletion(
   // ═══════════════════════════════════════════
   // 错误类型 2：工具调用不相关
   // ═══════════════════════════════════════════
-  const relevantCalls = filterRelevantCalls(step.description, successCalls);
+  const failedCalls = toolCalls?.filter(c => c.result === 'failed') ?? [];
+  const relevantCalls = filterRelevantCalls(step.description, successCalls, failedCalls);
   
   if (relevantCalls.length === 0) {
     return {
@@ -1489,18 +1490,24 @@ function isSimilarDescription(a: string, b: string): boolean {
 
 /**
  * 过滤与步骤相关的工具调用
+ * @param stepDescription 步骤描述
+ * @param calls 成功的工具调用
+ * @param failedCalls 失败的工具调用（可选，用于判断修复性操作）
  */
 function filterRelevantCalls(
   stepDescription: string,
-  calls: ToolCallRecord[]
+  calls: ToolCallRecord[],
+  failedCalls?: ToolCallRecord[]
 ): ToolCallRecord[] {
   const desc = stepDescription.toLowerCase();
   
-  // ✅ 改进：分析所有调用的工具类型
-  const toolTypes = new Set(calls.map(c => c.tool));
+  // ✅ 改进：分析所有调用的工具类型（包括失败的）
+  const allCalls = [...calls, ...(failedCalls ?? [])];
+  const toolTypes = new Set(allCalls.map(c => c.tool));
   const hasWrite = toolTypes.has('write');
-  const hasExec = toolTypes.has('exec');
-  const hasRead = toolTypes.has('read');
+  
+  // ✅ 新增：检查是否有失败的 write（需要修复）
+  const hasFailedWrite = (failedCalls ?? []).some(c => c.tool === 'write');
   
   return calls.filter(call => {
     // ═══════════════════════════════════════════
@@ -1537,9 +1544,10 @@ function filterRelevantCalls(
         return true;
       }
       
-      // ✅ 新增：允许前置依赖工具
-      // 如果有 write 调用（无论成功失败），允许 exec 作为前置依赖
-      if (call.tool === 'exec' && hasWrite) {
+      // ✅ 改进：允许前置依赖工具和修复操作
+      // 场景1：有 write 调用（成功或失败），exec 作为前置依赖
+      // 场景2：write 失败后，exec 用于修复（如创建缺失的目录）
+      if (call.tool === 'exec' && (hasWrite || hasFailedWrite)) {
         const cmd = String(call.args.command);
         // 允许创建目录、查看目录结构等前置操作
         if (cmd.includes('mkdir') || cmd.includes('ls') || cmd.includes('pwd')) {
