@@ -402,18 +402,29 @@ export class DelegationManager {
 
   /**
    * 获取委派深度
+   * 
+   * 追踪从 agentId 开始的委派链：delegator -> delegatee
+   * 例如：A 委派给 B，B 委派给 C，则 A 的委派深度为 2
    */
   private async getDelegationDepth(agentId: string): Promise<number> {
     let depth = 0;
     let current = agentId;
+    const visited = new Set<string>(); // 防止循环委派
 
-    // 追溯委派链
-    for (const delegation of this.delegations.values()) {
-      if (delegation.delegatee === current) {
-        depth++;
-        current = delegation.delegator;
-        if (depth >= this.config.maxDelegationDepth) break;
+    // 追溯委派链：从当前 agent (delegator) 向被委派者 (delegatee) 追踪
+    while (depth < this.config.maxDelegationDepth) {
+      // 找到 current 作为 delegator 的委派记录
+      let found = false;
+      for (const delegation of this.delegations.values()) {
+        if (delegation.delegator === current && !visited.has(delegation.id)) {
+          visited.add(delegation.id);
+          current = delegation.delegatee;
+          depth++;
+          found = true;
+          break;
+        }
       }
+      if (!found) break;
     }
 
     return depth;

@@ -348,6 +348,10 @@ export class ConfirmationManager {
 
   /**
    * 加载记住的决策
+   * 
+   * 支持两种格式：
+   * - [{key, confirmed}, ...] 对象格式（当前保存格式）
+   * - [[key, confirmed], ...] 数组格式（兼容旧版本）
    */
   private loadRememberedDecisions(): void {
     const filePath = join(this.dataDir, 'remembered-decisions.json');
@@ -356,8 +360,18 @@ export class ConfirmationManager {
         const data = JSON.parse(readFileSync(filePath, 'utf-8'));
         if (Array.isArray(data)) {
           for (const item of data) {
-            if (item.key && typeof item.confirmed === 'boolean') {
-              this.rememberedDecisions.set(item.key, item.confirmed);
+            // 格式1: [[key, value], ...] 数组格式
+            if (Array.isArray(item) && item.length === 2) {
+              const [key, confirmed] = item;
+              if (typeof key === 'string' && typeof confirmed === 'boolean') {
+                this.rememberedDecisions.set(key, confirmed);
+              }
+            }
+            // 格式2: [{key, confirmed}, ...] 对象格式
+            else if (item && typeof item === 'object' && 'key' in item && 'confirmed' in item) {
+              if (typeof item.key === 'string' && typeof item.confirmed === 'boolean') {
+                this.rememberedDecisions.set(item.key, item.confirmed);
+              }
             }
           }
         }

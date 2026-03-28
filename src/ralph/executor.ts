@@ -1063,19 +1063,23 @@ ${iterationResult.output?.slice(0, 3000) || '无输出'}
 
       const content = response.content || '';
       
-      // 解析 JSON
-      const jsonMatch = content.match(/```json\s*(\{[\s\S]*?\})\s*```/) || 
-                        content.match(/\{[\s\S]*\}/);
+      // 解析 JSON - 优先从代码块提取，其次尝试直接匹配
+      const codeBlockMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
+      const jsonContent = codeBlockMatch?.[1]?.trim() || content.match(/\{[\s\S]*\}/)?.[0];
       
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[1] || jsonMatch[0]);
-        return {
-          passed: parsed.passed ?? false,
-          issues: parsed.issues || [],
-        };
+      if (jsonContent) {
+        try {
+          const parsed = JSON.parse(jsonContent);
+          return {
+            passed: parsed.passed ?? false,
+            issues: parsed.issues || [],
+          };
+        } catch {
+          // JSON 解析失败，继续尝试其他方式
+        }
       }
       
-      // 无法解析，检查是否包含 "passed": true
+      // 无法解析 JSON，检查是否包含 "passed": true 关键词
       if (content.includes('"passed": true') || content.includes('"passed":true')) {
         return { passed: true, issues: [] };
       }
