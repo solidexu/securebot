@@ -1567,8 +1567,16 @@ let globalMemoryConfig: Partial<MemoryConfig> | null = null;
 /**
  * 获取记忆管理器
  * @param configOrRootDir 可选：Config 对象、MemoryConfig 或 memory 目录路径
+ * 
+ * 注意：如果不传参数，将返回已存在的实例（如果有），或使用默认路径创建新实例。
+ * 传入参数时，如果与现有配置不同，会发出警告。
  */
 export function getMemoryManager(configOrRootDir?: Partial<MemoryConfig> | Config | string): MemoryManager {
+  // 如果没有传参数，直接返回已存在的实例
+  if (!configOrRootDir && globalMemoryManager) {
+    return globalMemoryManager;
+  }
+  
   let memoryConfig: Partial<MemoryConfig> = {};
   
   if (typeof configOrRootDir === 'string') {
@@ -1585,8 +1593,8 @@ export function getMemoryManager(configOrRootDir?: Partial<MemoryConfig> | Confi
   if (!globalMemoryManager) {
     globalMemoryManager = new MemoryManager(memoryConfig);
     globalMemoryConfig = memoryConfig;
-  } else if (globalMemoryConfig && memoryConfig.rootDir && globalMemoryConfig.rootDir !== memoryConfig.rootDir) {
-    // 配置变化检测：rootDir 不同时发出警告
+  } else if (configOrRootDir && globalMemoryConfig && memoryConfig.rootDir && globalMemoryConfig.rootDir !== memoryConfig.rootDir) {
+    // 只有传了参数且配置不同时才发出警告
     console.warn(`[MemoryManager] 配置已变化: ${globalMemoryConfig.rootDir} -> ${memoryConfig.rootDir}`);
     console.warn('[MemoryManager] 如需使用新配置，请调用 reconfigureMemoryManager() 或 resetMemoryManager()');
   }

@@ -11,7 +11,7 @@ import { loadConfig, createDefaultConfig } from '../core/config.js';
 import { createAgents, parseAgentPrefix, getDefaultAgent, getOrCreateMainSession } from '../core/agent.js';
 import { OllamaAdapter } from '../model/ollama.js';
 import { getSessionStorage } from '../core/session-storage.js';
-import { getMemoryManager } from '../core/memory.js';
+import { reconfigureMemoryManager } from '../core/memory.js';
 import { ragManager } from '../rag/tools.js';
 import { getSkillManager } from '../core/skills.js';
 import { initializeEventHandlers } from '../core/handlers/index.js';
@@ -70,8 +70,8 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
   const sessionStorage = getSessionStorage();
   await sessionStorage.initialize();
 
-  // 初始化记忆系统
-  const memoryManager = getMemoryManager(config);
+  // 初始化记忆系统（使用 reconfigure 确保使用正确的配置路径）
+  const memoryManager = reconfigureMemoryManager(config);
   await memoryManager.initialize();
   const memoryStats = memoryManager.getStats();
   console.log(chalk.green(`✓ 记忆系统就绪 (${memoryStats.totalEntries} 条记忆)`));
