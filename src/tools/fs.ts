@@ -6,8 +6,8 @@
  * edit - 编辑文件
  */
 
-import { readFile, writeFile } from 'node:fs/promises';
-import { resolve, relative } from 'node:path';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { resolve, relative, dirname } from 'node:path';
 import { existsSync } from 'node:fs';
 import type { Tool, ToolContext, ToolResult } from '../core/types.js';
 
@@ -193,6 +193,10 @@ export const writeTool: Tool = {
     }
     
     try {
+      // ✅ 自动创建父目录（解决 ENOENT 问题）
+      const parentDir = dirname(validation.resolved);
+      await mkdir(parentDir, { recursive: true });
+      
       await writeFile(validation.resolved, content, 'utf-8');
       
       return {
