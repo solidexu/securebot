@@ -705,10 +705,17 @@ const ACTION_VERBS = [
   '调试', '分析', '扩展', '增强', '集成', '封装', '提取', '定义', '初始化', '加载',
   '保存', '导出', '导入', '生成', '处理', '计算', '验证', '检查', '修复', '调整',
   '设置', '建立', '连接', '注册', '绑定', '解绑', '启动', '停止', '重启', '监控',
+  // ✅ 新增：常见操作动词
+  '查看', '识别', '清理', '整理', '输出', '读取', '写入', '获取', '搜索', '查找',
+  '定位', '解决', '确认', '记录', '打印', '显示', '隐藏', '转换', '解析', '格式化',
+  '备份', '恢复', '迁移', '升级', '降级', '回滚', '发布', '撤销', '重做', '跳过',
   // 英文动词
   'create', 'implement', 'write', 'develop', 'design', 'configure', 'test', 'deploy',
   'install', 'update', 'modify', 'delete', 'add', 'build', 'run', 'execute', 'complete',
   'organize', 'optimize', 'refactor', 'debug', 'analyze', 'extend', 'enhance', 'integrate',
+  // ✅ 新增：英文常见操作动词
+  'view', 'identify', 'clean', 'read', 'write', 'get', 'fetch', 'search', 'find',
+  'locate', 'solve', 'confirm', 'log', 'print', 'show', 'hide', 'convert', 'parse',
 ];
 
 /**
