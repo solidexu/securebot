@@ -1297,12 +1297,28 @@ export function removeStep(plan: TaskPlan, stepId: string): boolean {
 }
 
 /**
- * 检查计划是否完成
+ * 检查计划是否完成（所有步骤成功或被跳过）
  */
 export function isPlanCompleted(plan: TaskPlan): boolean {
   return plan.steps.every(s => 
+    s.status === 'completed' || s.status === 'skipped'
+  );
+}
+
+/**
+ * 检查计划是否结束（完成、跳过或失败）
+ */
+export function isPlanFinished(plan: TaskPlan): boolean {
+  return plan.steps.every(s => 
     s.status === 'completed' || s.status === 'skipped' || s.status === 'failed'
   );
+}
+
+/**
+ * 检查计划是否有失败步骤
+ */
+export function hasPlanFailed(plan: TaskPlan): boolean {
+  return plan.steps.some(s => s.status === 'failed');
 }
 
 /**
@@ -1535,7 +1551,7 @@ function filterRelevantCalls(
       // 主要工具：write
       if (call.tool === 'write') {
         // 如果步骤提到特定文件，检查是否匹配
-        if (fileMatch) {
+        if (fileMatch && fileMatch[1]) {
           const targetFile = fileMatch[1].toLowerCase();
           const writePath = String(call.args.path || '').toLowerCase();
           return writePath.includes(targetFile);

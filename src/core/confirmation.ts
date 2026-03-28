@@ -688,6 +688,7 @@ export function createConfirmableTool(
 // ============ 全局实例 ============
 
 let globalConfirmationManager: ConfirmationManager | null = null;
+let globalConfirmationPolicy: Partial<ConfirmationPolicy> | null = null;
 
 /**
  * 获取全局确认管理器
@@ -697,6 +698,16 @@ export function getConfirmationManager(
 ): ConfirmationManager {
   if (!globalConfirmationManager) {
     globalConfirmationManager = new ConfirmationManager(policy);
+    globalConfirmationPolicy = policy ?? null;
+  } else if (policy && globalConfirmationPolicy) {
+    // 检测关键配置变化
+    const keysToCheck: (keyof ConfirmationPolicy)[] = ['mode', 'minLevel', 'skipTools', 'alwaysConfirm'];
+    for (const key of keysToCheck) {
+      if (policy[key] !== undefined && globalConfirmationPolicy[key] !== policy[key]) {
+        console.warn(`[ConfirmationManager] 配置 ${key} 已变化，请调用 reconfigureConfirmationManager() 应用新配置`);
+        break;
+      }
+    }
   }
   return globalConfirmationManager;
 }
@@ -706,4 +717,13 @@ export function getConfirmationManager(
  */
 export function resetConfirmationManager(): void {
   globalConfirmationManager = null;
+  globalConfirmationPolicy = null;
+}
+
+/**
+ * 重新配置全局确认管理器
+ */
+export function reconfigureConfirmationManager(policy?: Partial<ConfirmationPolicy>): ConfirmationManager {
+  resetConfirmationManager();
+  return getConfirmationManager(policy);
 }

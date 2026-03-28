@@ -492,22 +492,41 @@ export class TaskManager {
     this.startTime = checkpoint.context.startTime;
     this.failureCount = options.retryFailed ? 0 : checkpoint.context.failureCount;
     this.recentCalls = [...checkpoint.context.recentCalls];
-    this.currentStepId = checkpoint.context.currentStepId;
     this.executionLog = [...checkpoint.executionLog];
     
     // 恢复 TODO 列表
     const todos = checkpoint.todos.map(item => {
       let status = item.status;
+      const updatedItem = { ...item };
       
       // 可选：重试失败的任务
       if (options.retryFailed && status === 'failed') {
         status = 'pending';
+        // 重置相关状态和时间戳，确保状态一致性
+        updatedItem.startedAt = undefined;
+        updatedItem.completedAt = undefined;
+        updatedItem.error = undefined;
+        if ('result' in updatedItem) {
+          updatedItem.result = undefined;
+        }
       }
       
-      return { ...item, status };
+      return { ...updatedItem, status };
     });
     
     this.setTodos(todos);
+    
+    // 重试失败任务时，重置当前步骤ID
+    if (options.retryFailed && checkpoint.context.currentStepId) {
+      const currentStep = todos.find(t => t.id === checkpoint.context.currentStepId);
+      if (currentStep && currentStep.status === 'failed') {
+        this.currentStepId = null;
+      } else {
+        this.currentStepId = checkpoint.context.currentStepId;
+      }
+    } else {
+      this.currentStepId = checkpoint.context.currentStepId;
+    }
 
     this.logExecution('resume', { checkpointId: checkpoint.id, options });
 
@@ -726,14 +745,31 @@ export class TaskManager {
 // ============ 导出单例 ============
 
 let globalManager: TaskManager | null = null;
+let globalTaskConfig: Partial<TaskControlConfig> | null = null;
 
 export function getTaskManager(config?: Partial<TaskControlConfig>): TaskManager {
   if (!globalManager) {
     globalManager = new TaskManager(config);
+    globalTaskConfig = config ?? null;
+  } else if (config && globalTaskConfig) {
+    // 检测关键配置变化
+    const keysToCheck: (keyof TaskControlConfig)[] = ['maxTimeoutMs', 'maxConsecutiveFailures', 'enableCheckpoint'];
+    for (const key of keysToCheck) {
+      if (config[key] !== undefined && globalTaskConfig[key] !== config[key]) {
+        console.warn(`[TaskManager] 配置 ${key} 已变化，请调用 reconfigureTaskManager() 应用新配置`);
+        break;
+      }
+    }
   }
   return globalManager;
 }
 
 export function resetTaskManager(): void {
   globalManager = null;
+  globalTaskConfig = null;
+}
+
+export function reconfigureTaskManager(config?: Partial<TaskControlConfig>): TaskManager {
+  resetTaskManager();
+  return getTaskManager(config);
 }
