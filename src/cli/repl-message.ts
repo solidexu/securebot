@@ -1992,8 +1992,8 @@ ${errorMsg}
               await recordTaskEnd(ctx, 'completed', { summary: '任务完成' });
               return;
             }
-          } else {
-            // ★ 有问题，添加引导消息
+          } else if (checkResult.errorType) {
+            // ★ 有错误，需要引导纠正
             const guidanceCount = (currentStep.guidanceCount || 0) + 1;
             currentStep.guidanceCount = guidanceCount;
             currentStep.lastGuidance = checkResult.guidance;
@@ -2034,7 +2034,6 @@ ${errorMsg}
                     return;
                   }
                 }
-                savePlanToSession(session, currentPlan);
               } else if (answer === 'q') {
                 return;
               } else {
@@ -2050,6 +2049,8 @@ ${errorMsg}
             
             savePlanToSession(session, currentPlan);
           }
+          // 当 complete === false 且 errorType === undefined 时
+          // 工具调用正确，等待模型确认完成，不做任何处理，继续下一轮循环
         }
       }
     }
