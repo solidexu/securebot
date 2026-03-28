@@ -59,6 +59,60 @@ export const DEFAULT_SESSION_STORAGE_CONFIG: SessionStorageConfig = {
 /** 当前版本 */
 const SESSION_VERSION = 1;
 
+// ============ 版本迁移 ============
+
+/**
+ * 会话迁移函数类型
+ */
+type SessionMigrator = (session: PersistedSession) => PersistedSession;
+
+/**
+ * 版本迁移映射表
+ * key: 源版本, value: 迁移函数
+ */
+const SESSION_MIGRATORS: Map<number, SessionMigrator> = new Map([
+  // 从版本 0 迁移到版本 1
+  [0, (session: PersistedSession): PersistedSession => {
+    // 版本 0 可能没有 version 字段或 version 为 undefined
+    return {
+      ...session,
+      version: 1,
+      // 版本 1 和版本 0 的消息结构相同，无需迁移
+    };
+  }],
+]);
+
+/**
+ * 迁移会话到当前版本
+ */
+function migrateSession(session: PersistedSession): PersistedSession {
+  let migrated = { ...session };
+  
+  // 如果没有版本号，视为版本 0
+  const startVersion = migrated.version ?? 0;
+  
+  if (startVersion === SESSION_VERSION) {
+    return migrated;
+  }
+  
+  // 依次应用迁移
+  for (let v = startVersion; v < SESSION_VERSION; v++) {
+    const migrator = SESSION_MIGRATORS.get(v);
+    if (migrator) {
+      try {
+        migrated = migrator(migrated);
+        console.log(`[SessionStorage] 会话已从版本 ${v} 迁移到 ${v + 1}`);
+      } catch (error) {
+        console.error(`[SessionStorage] 迁移失败 (版本 ${v} -> ${v + 1}):`, error);
+        // 迁移失败，返回原始数据
+        return session;
+      }
+    }
+  }
+  
+  return migrated;
+}
+
 // ============ 会话存储类 ============
 
 /**
@@ -189,16 +243,18 @@ export class SessionStorage {
       const content = readFileSync(filePath, 'utf-8');
       const persisted = JSON.parse(content) as PersistedSession;
       
-      // 验证版本
-      if (persisted.version !== SESSION_VERSION) {
-        console.warn(`会话版本不匹配: ${persisted.version} vs ${SESSION_VERSION}`);
-        // 尝试迁移
+      // 迁移到当前版本（如果需要）
+      const migrated = migrateSession(persisted);
+      
+      // 如果发生了迁移，更新缓存和文件
+      if (migrated.version !== persisted.version) {
+        this.cache.set(sessionKey, migrated);
+        this.dirty.add(sessionKey);
+      } else {
+        this.cache.set(sessionKey, migrated);
       }
 
-      // 更新缓存
-      this.cache.set(sessionKey, persisted);
-      
-      return this.toSession(persisted);
+      return this.toSession(migrated);
     } catch (error) {
       console.error(`加载会话失败: ${sessionKey}`, error);
       return null;

@@ -366,6 +366,10 @@ export class MemoryManager {
   private initialized: boolean = false;
   private summaryHistory: Map<string, SummaryRecord[]> = new Map();
   private ragStore: AdvancedRAGStore | null = null;
+  // 内存清理配置
+  private maxAgentProfiles: number = 100;
+  private lastCleanupTime: number = 0;
+  private cleanupIntervalMs: number = 60 * 60 * 1000; // 1小时清理一次
 
   constructor(config: Partial<MemoryConfig> = {}) {
     this.config = { ...DEFAULT_MEMORY_CONFIG, ...config };
@@ -375,6 +379,40 @@ export class MemoryManager {
     this.searchCache = new SearchCache(30, 30000);
     // 上下文摘要缓存
     this.contextSummaryCache = new LRUCache(10);
+  }
+
+  /**
+   * 定期清理内存，防止内存泄漏
+   */
+  private maybeCleanup(): void {
+    const now = Date.now();
+    if (now - this.lastCleanupTime < this.cleanupIntervalMs) return;
+    
+    this.lastCleanupTime = now;
+    
+    // 清理 agentProfiles（保留最近使用的）
+    if (this.agentProfiles.size > this.maxAgentProfiles) {
+      const entries = Array.from(this.agentProfiles.entries())
+        .sort((a, b) => {
+          const aTime = a[1].stats?.lastUsed ? new Date(a[1].stats.lastUsed).getTime() : 0;
+          const bTime = b[1].stats?.lastUsed ? new Date(b[1].stats.lastUsed).getTime() : 0;
+          return bTime - aTime;
+        });
+      
+      // 保留前 maxAgentProfiles 个
+      this.agentProfiles = new Map(entries.slice(0, this.maxAgentProfiles));
+    }
+    
+    // 清理 summaryHistory（保留最近 30 天）
+    const cutoffDate = new Date(now - 30 * 24 * 60 * 60 * 1000);
+    for (const [key, records] of this.summaryHistory) {
+      const filtered = records.filter(r => new Date(r.createdAt) > cutoffDate);
+      if (filtered.length === 0) {
+        this.summaryHistory.delete(key);
+      } else if (filtered.length < records.length) {
+        this.summaryHistory.set(key, filtered);
+      }
+    }
   }
 
   /**
@@ -452,6 +490,9 @@ export class MemoryManager {
     tags?: string[]
   ): Promise<void> {
     if (!this.initialized) await this.initialize();
+    
+    // 定期清理内存
+    this.maybeCleanup();
 
     // 智能评估重要性（如果未指定）
     const finalImportance = importance ?? assessImportance(content, type);

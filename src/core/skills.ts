@@ -12,8 +12,7 @@
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { getSkillsDir, getRootDir } from './config.js';
-import { homedir } from 'node:os';
+import { getRootDir } from './config.js';
 
 // ============ 类型定义 ============
 
@@ -594,6 +593,14 @@ export function resetSkillManager(): void {
 // ============ 技能检测器 ============
 
 /**
+ * 缓存的嵌入数据
+ */
+interface CachedEmbedding {
+  embedding: number[];
+  timestamp: number;
+}
+
+/**
  * 技能检测器
  * 
  * 支持关键词匹配和语义匹配
@@ -603,14 +610,57 @@ export class SkillDetector {
   private semanticThreshold: number;
   /** 技能使用统计缓存 */
   private usageStats: Map<string, { usageCount: number; successRate: number; lastUsedAt?: string }>;
-  /** 嵌入缓存 */
-  private embeddingCache: Map<string, number[]>;
+  /** 嵌入缓存（带时间戳） */
+  private embeddingCache: Map<string, CachedEmbedding>;
+  /** 嵌入缓存最大数量 */
+  private maxEmbeddingCacheSize: number = 100;
+  /** 嵌入缓存过期时间（毫秒） */
+  private embeddingCacheTTL: number = 24 * 60 * 60 * 1000; // 24小时
 
   constructor(skillManager: SkillManager, options?: { semanticThreshold?: number }) {
     this.skillManager = skillManager;
     this.semanticThreshold = options?.semanticThreshold ?? 0.6;
     this.usageStats = new Map();
     this.embeddingCache = new Map();
+  }
+
+  /**
+   * 清理过期的嵌入缓存
+   */
+  private cleanupEmbeddingCache(): void {
+    const now = Date.now();
+    for (const [key, value] of this.embeddingCache) {
+      if (now - value.timestamp > this.embeddingCacheTTL) {
+        this.embeddingCache.delete(key);
+      }
+    }
+  }
+
+  /**
+   * 设置嵌入缓存
+   */
+  private setEmbeddingCache(key: string, embedding: number[]): void {
+    // 清理过期缓存
+    if (this.embeddingCache.size >= this.maxEmbeddingCacheSize) {
+      this.cleanupEmbeddingCache();
+    }
+    
+    // 如果还是超过限制，删除最旧的
+    if (this.embeddingCache.size >= this.maxEmbeddingCacheSize) {
+      let oldestKey: string | null = null;
+      let oldestTime = Infinity;
+      for (const [k, v] of this.embeddingCache) {
+        if (v.timestamp < oldestTime) {
+          oldestTime = v.timestamp;
+          oldestKey = k;
+        }
+      }
+      if (oldestKey) {
+        this.embeddingCache.delete(oldestKey);
+      }
+    }
+    
+    this.embeddingCache.set(key, { embedding, timestamp: Date.now() });
   }
 
   /**
@@ -745,28 +795,28 @@ export class SkillDetector {
         return null;
       }
       
+      // 定期清理过期缓存
+      this.cleanupEmbeddingCache();
+      
       // 获取消息嵌入
       let messageEmbedding = this.embeddingCache.get(`msg:${message}`);
       if (!messageEmbedding) {
-        messageEmbedding = await embedder.embed(message);
-        // 缓存消息嵌入（限制缓存大小）
-        if (this.embeddingCache.size < 100) {
-          this.embeddingCache.set(`msg:${message}`, messageEmbedding);
-        }
+        const embedding = await embedder.embed(message);
+        this.setEmbeddingCache(`msg:${message}`, embedding);
+        messageEmbedding = { embedding, timestamp: Date.now() };
       }
       
       // 获取技能描述嵌入
       const skillText = `${skill.name} ${skill.description} ${(skill.keywords || []).join(' ')}`;
       let skillEmbedding = this.embeddingCache.get(`skill:${skill.id}`);
       if (!skillEmbedding) {
-        skillEmbedding = await embedder.embed(skillText);
-        if (this.embeddingCache.size < 100) {
-          this.embeddingCache.set(`skill:${skill.id}`, skillEmbedding);
-        }
+        const embedding = await embedder.embed(skillText);
+        this.setEmbeddingCache(`skill:${skill.id}`, embedding);
+        skillEmbedding = { embedding, timestamp: Date.now() };
       }
       
       // 计算余弦相似度
-      const similarity = this.cosineSimilarity(messageEmbedding, skillEmbedding);
+      const similarity = this.cosineSimilarity(messageEmbedding.embedding, skillEmbedding.embedding);
       return similarity;
     } catch {
       // RAG 不可用，返回 null 表示降级

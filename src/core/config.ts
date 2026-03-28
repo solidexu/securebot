@@ -305,15 +305,13 @@ export function createDefaultConfig(): void {
   const configPath = findConfigPath();
   const configDir = dirname(configPath);
   
-  // 创建配置目录（如果不是直接在当前目录下的 config.json）
-  if (!configPath.endsWith(join(process.cwd(), DEFAULT_CONFIG_FILE))) {
-    if (!existsSync(configDir)) {
-      mkdirSync(configDir, { recursive: true });
-    }
+  // 简化逻辑：始终确保配置目录存在
+  if (!existsSync(configDir)) {
+    mkdirSync(configDir, { recursive: true });
   }
   
   // 创建带有 rootDir 的默认配置
-  // 如果配置文件直接在当前目录下，设置 rootDir 为当前目录
+  // rootDir 设置为配置文件所在目录
   const configWithRootDir: Config = {
     ...DEFAULT_CONFIG,
     rootDir: configDir,

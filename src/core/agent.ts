@@ -181,34 +181,46 @@ export function matchToolPattern(toolName: string, pattern: string): boolean {
 
 /**
  * 检查工具是否被允许
+ * 
+ * 检查优先级：
+ * 1. deny - 拒绝列表（最高优先级）
+ * 2. profile - 工具预设
+ *    - 'full': 无限制
+ *    - 其他: 只允许预设中的工具
+ * 3. allow - 允许列表
  */
 export function isToolAllowed(
   toolName: string,
   policy: ToolPolicy
 ): boolean {
-  // 先检查 deny (优先级最高)
+  // 1. 先检查 deny (优先级最高)
   for (const pattern of policy.deny ?? []) {
     if (matchToolPattern(toolName, pattern)) {
       return false;
     }
   }
   
-  // 检查 profile
+  // 2. 检查 profile
   if (policy.profile) {
-    const profileTools = TOOL_PROFILES[policy.profile];
-    // full profile 不限制
-    if (profileTools && profileTools.length > 0) {
-      const inProfile = profileTools.some(t => matchToolPattern(toolName, t));
-      if (!inProfile) {
-        return false;
+    // 'full' profile 表示无限制，跳过检查
+    if (policy.profile === 'full') {
+      // 继续检查 allow 列表
+    } else {
+      const profileTools = TOOL_PROFILES[policy.profile];
+      if (profileTools && profileTools.length > 0) {
+        const inProfile = profileTools.some(t => matchToolPattern(toolName, t));
+        if (!inProfile) {
+          return false;
+        }
       }
     }
   }
   
-  // 检查 allow
+  // 3. 检查 allow
   const allowList = policy.allow ?? [];
   if (allowList.length === 0) {
     // 没有配置 allow，根据 profile 决定
+    // 如果 profile 是 'full' 或没有 profile，默认允许
     return true;
   }
   
