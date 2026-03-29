@@ -47,6 +47,7 @@ import {
   type ExecutionState,
 } from './task-executor.js';
 import { getSandbox, type PathFilterSandbox } from '../core/sandbox/index.js';
+import { shouldSaveKnowledge, autoGenerateTaskSummary } from '../rag/auto-save.js';
 
 // ============ 常量 ============
 
@@ -1777,6 +1778,33 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         }
       }
       
+      // ★ 检测关键词，自动保存知识
+      const { should: shouldSave, keyword } = shouldSaveKnowledge(message);
+      if (shouldSave && result.content) {
+        try {
+          const { ragGenerateDocumentTool } = await import('../rag/tools.js');
+          const knowledgeContent = `## 用户问题\n\n${message}\n\n## 解答\n\n${result.content}`;
+          
+          await ragGenerateDocumentTool.execute!(
+            {
+              topic: message.slice(0, 40),
+              content: knowledgeContent,
+              type: 'guide',
+            },
+            {
+              agent,
+              session,
+              workspace: agent.workspace,
+              logger: console,
+            }
+          );
+          
+          console.log(chalk.gray(`📚 已自动保存知识（触发词: "${keyword}"）`));
+        } catch {
+          // 忽略错误
+        }
+      }
+      
       // ★ 新增：检测是否是正常对话结束（简单问候/介绍等）
       // 如果是，直接结束，不触发无进展警告
       if (isNormalConversationEnd(result, complexity)) {
@@ -1817,6 +1845,18 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
             console.log();
             console.log(chalk.green('✓ 任务完成'));
             console.log(getPlanSummary(currentPlan));
+            
+            // ★ 自动生成任务总结文档
+            if (currentPlan.steps.filter(s => s.status === 'completed').length >= 2) {
+              await autoGenerateTaskSummary(
+                currentPlan,
+                message,
+                session.history,
+                agent,
+                session
+              );
+            }
+            
             clearPlanFromSession(session);
           }
           
@@ -1825,6 +1865,33 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
           
           // ★ 自动触发技能优化检查
           await checkAndOptimizeSkills(agent.id);
+          
+          // ★ 检测关键词，自动保存知识
+          const { should: shouldSave, keyword } = shouldSaveKnowledge(message);
+          if (shouldSave && result.content) {
+            try {
+              const { ragGenerateDocumentTool } = await import('../rag/tools.js');
+              const knowledgeContent = `## 用户问题\n\n${message}\n\n## 解答\n\n${result.content}`;
+              
+              await ragGenerateDocumentTool.execute!(
+                {
+                  topic: message.slice(0, 40),
+                  content: knowledgeContent,
+                  type: 'guide',
+                },
+                {
+                  agent,
+                  session,
+                  workspace: agent.workspace,
+                  logger: console,
+                }
+              );
+              
+              console.log(chalk.gray(`📚 已自动保存知识（触发词: "${keyword}"）`));
+            } catch {
+              // 忽略错误
+            }
+          }
           
           if (sessionStorage) {
             await sessionStorage.saveSession(session);
