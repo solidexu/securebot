@@ -24,6 +24,16 @@ export async function showSandboxStatus(agentId?: string): Promise<void> {
   
   if (dockerAvailable) {
     console.log(chalk.green('✓ Docker 可用'));
+    
+    // 检查增强版镜像是否存在
+    const { execSync } = await import('node:child_process');
+    try {
+      execSync('docker image inspect securebot-sandbox:latest', { stdio: 'ignore' });
+      console.log(chalk.green('✓ 增强版沙箱镜像: securebot-sandbox:latest'));
+    } catch {
+      console.log(chalk.gray('  默认镜像: python:3.11-slim (公开镜像，自动拉取)'));
+      console.log(chalk.gray('  增强版镜像未构建，运行 `securebot sandbox init` 构建增强版'));
+    }
   } else {
     console.log(chalk.yellow('✗ Docker 不可用'));
     console.log(chalk.gray('  当前使用路径过滤沙箱'));

@@ -19,12 +19,17 @@ import { PathFilterSandbox } from './path-filter.js';
 // ============ Docker 镜像配置 ============
 
 /**
- * 默认沙箱镜像
+ * 默认沙箱镜像（使用公开镜像，无需构建）
  */
-const SANDBOX_IMAGE = 'securebot-sandbox:latest';
+const SANDBOX_IMAGE = 'python:3.11-slim';
 
 /**
- * 基础镜像（用于构建沙箱镜像）
+ * 增强版沙箱镜像（需要用户构建，包含更多工具）
+ */
+const ENHANCED_SANDBOX_IMAGE = 'securebot-sandbox:latest';
+
+/**
+ * 基础镜像（用于构建增强版沙箱镜像）
  */
 const BASE_IMAGE = 'python:3.11-slim';
 
@@ -73,7 +78,7 @@ CMD ["/bin/bash"]
 export class DockerSandbox extends PathFilterSandbox {
   private containerId: string | null = null;
   private containerName: string;
-  private imageName: string;
+  protected imageName: string;
   private resources: ResourceLimits;
   private networkEnabled: boolean;
   private envVars: Record<string, string>;
@@ -83,10 +88,17 @@ export class DockerSandbox extends PathFilterSandbox {
     super(agentId, config);
     
     this.containerName = `securebot-${agentId}`;
-    this.imageName = SANDBOX_IMAGE;
+    this.imageName = SANDBOX_IMAGE;  // 默认使用公开镜像
     this.resources = config.resources || {};
     this.networkEnabled = config.network?.enabled ?? true;
     this.envVars = config.env || {};
+  }
+  
+  /**
+   * 设置镜像名称
+   */
+  setImageName(name: string): void {
+    this.imageName = name;
   }
 
   /**
@@ -102,22 +114,23 @@ export class DockerSandbox extends PathFilterSandbox {
   }
 
   /**
-   * 构建沙箱镜像
+   * 构建沙箱镜像（增强版）
    */
   static async buildImage(force: boolean = false): Promise<boolean> {
     try {
       // 检查镜像是否已存在
       if (!force) {
         try {
-          execSync(`docker image inspect ${SANDBOX_IMAGE}`, { stdio: 'ignore' });
-          console.log(chalk.gray(`沙箱镜像已存在: ${SANDBOX_IMAGE}`));
+          execSync(`docker image inspect ${ENHANCED_SANDBOX_IMAGE}`, { stdio: 'ignore' });
+          console.log(chalk.gray(`增强版沙箱镜像已存在: ${ENHANCED_SANDBOX_IMAGE}`));
           return true;
         } catch {
           // 镜像不存在，需要构建
         }
       }
 
-      console.log(chalk.cyan('构建沙箱镜像...'));
+      console.log(chalk.cyan('构建增强版沙箱镜像...'));
+      console.log(chalk.gray('包含: Python 3.11, Node.js 20, uv, git, curl, wget, vim'));
       
       // 创建临时目录
       const tmpDir = join(homedir(), '.securebot', 'sandbox-image');
@@ -130,11 +143,11 @@ export class DockerSandbox extends PathFilterSandbox {
       writeFileSync(dockerfilePath, DOCKERFILE_TEMPLATE, 'utf-8');
       
       // 构建镜像
-      execSync(`docker build -t ${SANDBOX_IMAGE} ${tmpDir}`, {
+      execSync(`docker build -t ${ENHANCED_SANDBOX_IMAGE} ${tmpDir}`, {
         stdio: 'inherit',
       });
       
-      console.log(chalk.green(`✓ 沙箱镜像构建成功: ${SANDBOX_IMAGE}`));
+      console.log(chalk.green(`✓ 增强版沙箱镜像构建成功: ${ENHANCED_SANDBOX_IMAGE}`));
       return true;
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -366,11 +379,11 @@ export class DockerSandbox extends PathFilterSandbox {
 // ============ Docker 沙箱管理器 ============
 
 /**
- * 检查沙箱镜像是否存在
+ * 检查增强版沙箱镜像是否存在
  */
-async function isImageAvailable(): Promise<boolean> {
+async function isEnhancedImageAvailable(): Promise<boolean> {
   try {
-    execSync(`docker image inspect ${SANDBOX_IMAGE}`, { stdio: 'ignore' });
+    execSync(`docker image inspect ${ENHANCED_SANDBOX_IMAGE}`, { stdio: 'ignore' });
     return true;
   } catch {
     return false;
@@ -396,11 +409,11 @@ export async function getDockerSandbox(
     return null;
   }
   
-  // 检查沙箱镜像是否存在
-  const imageAvailable = await isImageAvailable();
-  if (!imageAvailable) {
-    // 镜像不存在，静默返回 null（回退到路径过滤沙箱）
-    return null;
+  // 选择镜像：优先使用增强版，否则使用公开镜像
+  let imageName = SANDBOX_IMAGE;
+  const enhancedAvailable = await isEnhancedImageAvailable();
+  if (enhancedAvailable) {
+    imageName = ENHANCED_SANDBOX_IMAGE;
   }
   
   let sandbox = dockerSandboxInstances.get(agentId);
@@ -410,6 +423,8 @@ export async function getDockerSandbox(
       ...config,
       workspace,
     });
+    // 设置镜像名称：优先使用增强版
+    sandbox.setImageName(imageName);
     dockerSandboxInstances.set(agentId, sandbox);
   }
   
