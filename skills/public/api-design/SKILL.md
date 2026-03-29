@@ -1,6 +1,15 @@
 ---
 name: api-design
 description: 当用户需要设计 API、定义接口规范或创建 API 架构时使用。提供 RESTful API、GraphQL API 的设计最佳实践和模式。
+keywords:
+  - API
+  - REST
+  - GraphQL
+  - 接口
+  - 端点
+  - endpoint
+  - API设计
+  - 接口设计
 ---
 
 # API 设计技能

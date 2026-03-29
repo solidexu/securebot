@@ -1,6 +1,17 @@
 ---
 name: testing-helper
 description: 当用户需要编写测试、设计测试用例或改进测试覆盖率时使用。提供单元测试、集成测试、E2E 测试的编写指导和最佳实践。
+keywords:
+  - 测试
+  - 单元测试
+  - 集成测试
+  - E2E测试
+  - 测试用例
+  - pytest
+  - jest
+  - test
+  - testing
+  - 测试覆盖率
 ---
 
 # 测试助手技能

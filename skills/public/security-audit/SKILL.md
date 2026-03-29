@@ -1,6 +1,17 @@
 ---
 name: security-audit
 description: 当用户需要进行安全审计、检查代码安全漏洞或评估系统安全性时使用。提供常见安全问题的检查清单和修复建议。
+keywords:
+  - 安全
+  - 漏洞
+  - 审计
+  - SQL注入
+  - XSS
+  - CSRF
+  - security
+  - vulnerability
+  - 安全检查
+  - 安全审计
 ---
 
 # 安全审计技能

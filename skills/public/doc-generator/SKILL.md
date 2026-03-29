@@ -1,6 +1,15 @@
 ---
 name: doc-generator
 description: 当用户需要生成文档、API 文档、README、CHANGELOG 或其他技术文档时使用。提供各种文档类型的模板和最佳实践。
+keywords:
+  - 文档
+  - README
+  - API文档
+  - CHANGELOG
+  - 使用说明
+  - documentation
+  - doc
+  - 文档生成
 ---
 
 # 文档生成技能

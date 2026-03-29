@@ -603,11 +603,15 @@ interface CachedEmbedding {
 /**
  * 技能检测器
  * 
- * 支持关键词匹配和语义匹配
+ * 支持：
+ * 1. 意图识别（优先）
+ * 2. 关键词匹配
+ * 3. 语义匹配
  */
 export class SkillDetector {
   private skillManager: SkillManager;
   private semanticThreshold: number;
+  private intentThreshold: number;
   /** 技能使用统计缓存 */
   private usageStats: Map<string, { usageCount: number; successRate: number; lastUsedAt?: string }>;
   /** 嵌入缓存（带时间戳） */
@@ -616,10 +620,26 @@ export class SkillDetector {
   private maxEmbeddingCacheSize: number = 100;
   /** 嵌入缓存过期时间（毫秒） */
   private embeddingCacheTTL: number = 24 * 60 * 60 * 1000; // 24小时
+  /** 意图到技能的映射 */
+  private intentToSkillMap: Map<string, string[]> = new Map([
+    ['research', ['deep-research']],
+    ['analysis', ['data-analysis']],
+    ['code_review', ['code-review', 'security-audit']],
+    ['testing', ['testing-helper']],
+    ['documentation', ['doc-generator', 'doc-writer']],
+    ['debugging', ['debugger', 'code-review']],
+    ['git', ['git-workflow']],
+    ['api_design', ['api-design', 'api-designer']],
+    ['security', ['security-audit', 'code-review']],
+    ['deployment', ['git-workflow']],
+    ['refactoring', ['code-review']],
+    ['learning', ['deep-research', 'doc-writer']],
+  ]);
 
-  constructor(skillManager: SkillManager, options?: { semanticThreshold?: number }) {
+  constructor(skillManager: SkillManager, options?: { semanticThreshold?: number; intentThreshold?: number }) {
     this.skillManager = skillManager;
     this.semanticThreshold = options?.semanticThreshold ?? 0.6;
+    this.intentThreshold = options?.intentThreshold ?? 0.4;
     this.usageStats = new Map();
     this.embeddingCache = new Map();
   }
@@ -674,8 +694,35 @@ export class SkillDetector {
     const skills = await this.skillManager.getAgentSkills(agentId);
     const results: SkillMatchResult[] = [];
 
+    // ★ 步骤1：意图识别
+    const intentResult = this.recognizeIntent(message);
+    
+    // 如果意图识别置信度高，优先匹配对应技能
+    if (intentResult.confidence >= this.intentThreshold) {
+      const skillIds = this.intentToSkillMap.get(intentResult.intent) || [];
+      
+      for (const skill of skills) {
+        if (skillIds.includes(skill.id)) {
+          results.push({
+            skill,
+            score: 0.85 + intentResult.confidence * 0.15, // 0.85-1.0
+            method: 'keyword',
+          });
+        }
+      }
+      
+      // 如果找到意图匹配的技能，直接返回
+      if (results.length > 0) {
+        results.sort((a, b) => b.score - a.score);
+        return results;
+      }
+    }
+
+    // ★ 步骤2：关键词匹配
     for (const skill of skills) {
-      // 1. 先尝试关键词匹配
+      // 跳过已匹配的
+      if (results.some(r => r.skill.id === skill.id)) continue;
+      
       const keywordScore = this.matchByKeywords(message, skill);
       if (keywordScore > 0) {
         // ★ P1优化：结合使用频率调整分数
@@ -685,25 +732,187 @@ export class SkillDetector {
           score: adjustedScore,
           method: 'keyword',
         });
-        continue;
       }
+    }
 
-      // 2. 再尝试语义匹配
-      const semanticScore = await this.matchBySemantic(message, skill, agentId);
-      if (semanticScore >= this.semanticThreshold) {
-        // ★ P1优化：结合使用频率调整分数
-        const adjustedScore = this.adjustScoreByUsage(skill.id, semanticScore);
-        results.push({
-          skill,
-          score: adjustedScore,
-          method: 'semantic',
-        });
+    // ★ 步骤3：语义匹配（如果关键词匹配不足）
+    if (results.length < 2) {
+      for (const skill of skills) {
+        // 跳过已匹配的
+        if (results.some(r => r.skill.id === skill.id)) continue;
+        
+        const semanticScore = await this.matchBySemantic(message, skill, agentId);
+        if (semanticScore >= this.semanticThreshold) {
+          // ★ P1优化：结合使用频率调整分数
+          const adjustedScore = this.adjustScoreByUsage(skill.id, semanticScore);
+          results.push({
+            skill,
+            score: adjustedScore,
+            method: 'semantic',
+          });
+        }
       }
     }
 
     // 按分数排序
     results.sort((a, b) => b.score - a.score);
     return results;
+  }
+
+  /**
+   * 识别用户意图
+   */
+  private recognizeIntent(message: string): { intent: string; confidence: number; keywords: string[] } {
+    const lowerMessage = message.toLowerCase();
+    
+    // 意图规则
+    const intentRules: Array<{
+      intent: string;
+      patterns: RegExp[];
+      keywords: Array<{ word: string; weight: number }>;
+    }> = [
+      {
+        intent: 'research',
+        patterns: [/研究|调查|什么是|解释|了解|学习|深度研究/i],
+        keywords: [
+          { word: '研究', weight: 0.9 },
+          { word: '调查', weight: 0.85 },
+          { word: '什么是', weight: 0.9 },
+          { word: '研究', weight: 0.9 },
+          { word: 'research', weight: 0.9 },
+        ],
+      },
+      {
+        intent: 'analysis',
+        patterns: [/分析.*数据|数据.*分析|统计|Excel|CSV|数据透视/i],
+        keywords: [
+          { word: '数据分析', weight: 0.95 },
+          { word: 'Excel', weight: 0.9 },
+          { word: 'CSV', weight: 0.9 },
+          { word: '统计', weight: 0.8 },
+          { word: '分析', weight: 0.7 },
+        ],
+      },
+      {
+        intent: 'code_review',
+        patterns: [/审查.*代码|代码.*审查|review|检查.*代码|代码质量/i],
+        keywords: [
+          { word: '代码审查', weight: 0.95 },
+          { word: 'review', weight: 0.9 },
+          { word: '代码检查', weight: 0.9 },
+          { word: '审查', weight: 0.85 },
+        ],
+      },
+      {
+        intent: 'testing',
+        patterns: [/写.*测试|测试.*用例|单元测试|集成测试|测试/i],
+        keywords: [
+          { word: '测试', weight: 0.8 },
+          { word: '单元测试', weight: 0.95 },
+          { word: '测试用例', weight: 0.9 },
+          { word: 'test', weight: 0.85 },
+        ],
+      },
+      {
+        intent: 'documentation',
+        patterns: [/写.*文档|文档|README|API文档|使用说明/i],
+        keywords: [
+          { word: '文档', weight: 0.8 },
+          { word: 'README', weight: 0.95 },
+          { word: 'API文档', weight: 0.95 },
+          { word: 'documentation', weight: 0.9 },
+        ],
+      },
+      {
+        intent: 'debugging',
+        patterns: [/调试|debug|修复.*bug|排查.*问题|报错|错误/i],
+        keywords: [
+          { word: '调试', weight: 0.9 },
+          { word: 'debug', weight: 0.95 },
+          { word: 'bug', weight: 0.85 },
+          { word: '修复', weight: 0.8 },
+          { word: '报错', weight: 0.85 },
+        ],
+      },
+      {
+        intent: 'git',
+        patterns: [/git|提交|推送|拉取|分支|合并|rebase|冲突/i],
+        keywords: [
+          { word: 'git', weight: 0.95 },
+          { word: 'commit', weight: 0.9 },
+          { word: 'branch', weight: 0.9 },
+          { word: 'merge', weight: 0.9 },
+          { word: '分支', weight: 0.85 },
+        ],
+      },
+      {
+        intent: 'api_design',
+        patterns: [/设计.*API|API.*设计|REST.*API|接口.*设计/i],
+        keywords: [
+          { word: 'API', weight: 0.85 },
+          { word: 'REST', weight: 0.9 },
+          { word: '接口', weight: 0.8 },
+          { word: 'endpoint', weight: 0.9 },
+        ],
+      },
+      {
+        intent: 'security',
+        patterns: [/安全.*审计|漏洞|SQL注入|XSS|CSRF|安全/i],
+        keywords: [
+          { word: '安全', weight: 0.8 },
+          { word: '漏洞', weight: 0.9 },
+          { word: 'SQL注入', weight: 0.95 },
+          { word: 'XSS', weight: 0.95 },
+          { word: 'security', weight: 0.9 },
+        ],
+      },
+      {
+        intent: 'deployment',
+        patterns: [/部署|deploy|Docker|Kubernetes|容器|发布/i],
+        keywords: [
+          { word: '部署', weight: 0.9 },
+          { word: 'deploy', weight: 0.95 },
+          { word: 'Docker', weight: 0.95 },
+          { word: 'Kubernetes', weight: 0.95 },
+        ],
+      },
+    ];
+
+    let bestIntent = 'general';
+    let bestScore = 0;
+    let bestKeywords: string[] = [];
+
+    for (const rule of intentRules) {
+      let score = 0;
+      const matchedKeywords: string[] = [];
+
+      // 模式匹配
+      for (const pattern of rule.patterns) {
+        if (pattern.test(message)) {
+          score += 0.5;
+          break;
+        }
+      }
+
+      // 关键词匹配
+      for (const { word, weight } of rule.keywords) {
+        if (lowerMessage.includes(word.toLowerCase())) {
+          score += weight;
+          matchedKeywords.push(word);
+        }
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestIntent = rule.intent;
+        bestKeywords = matchedKeywords;
+      }
+    }
+
+    // 归一化分数
+    const confidence = Math.min(1, bestScore / 2);
+
+    return { intent: bestIntent, confidence, keywords: bestKeywords };
   }
 
   /**
@@ -721,15 +930,51 @@ export class SkillDetector {
    */
   private matchByKeywords(message: string, skill: Skill): number {
     if (!skill.keywords || skill.keywords.length === 0) {
+      // 如果没有关键词，尝试匹配技能名称和描述
+      const nameMatch = skill.name.toLowerCase();
+      const descMatch = skill.description.toLowerCase();
+      const lowerMessage = message.toLowerCase();
+      
+      if (lowerMessage.includes(nameMatch)) {
+        return 0.7;
+      }
+      if (lowerMessage.includes(descMatch.slice(0, 20))) {
+        return 0.5;
+      }
       return 0;
     }
 
     const lowerMessage = message.toLowerCase();
     let matchCount = 0;
+    let weightedScore = 0;
+
+    // 加权关键词
+    const weightedKeywords: Record<string, number> = {
+      'research': 1.0,
+      '研究': 1.0,
+      'analysis': 1.0,
+      '分析': 0.9,
+      'review': 1.0,
+      '审查': 1.0,
+      'test': 0.9,
+      '测试': 0.9,
+      'debug': 1.0,
+      '调试': 1.0,
+      'git': 0.95,
+      'api': 0.9,
+      'security': 1.0,
+      '安全': 1.0,
+      'deploy': 0.95,
+      '部署': 0.95,
+      '文档': 0.85,
+      'doc': 0.9,
+    };
 
     for (const keyword of skill.keywords) {
-      if (lowerMessage.includes(keyword.toLowerCase())) {
+      const lowerKeyword = keyword.toLowerCase();
+      if (lowerMessage.includes(lowerKeyword)) {
         matchCount++;
+        weightedScore += weightedKeywords[lowerKeyword] || 0.7;
       }
     }
 
@@ -737,12 +982,11 @@ export class SkillDetector {
       return 0;
     }
 
-    // 分数计算：只要匹配到关键词就给较高分数
-    // 匹配 1 个 = 0.6，匹配 2+ 个 = 0.8-1.0
-    if (matchCount === 1) {
-      return 0.6;
-    }
-    return Math.min(1, 0.6 + matchCount * 0.15);
+    // 分数计算：基础分数 + 加权分数
+    const baseScore = Math.min(0.6, matchCount * 0.3);
+    const totalScore = baseScore + weightedScore * 0.15;
+
+    return Math.min(1, totalScore);
   }
 
   /**

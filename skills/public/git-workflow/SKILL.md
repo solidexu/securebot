@@ -1,6 +1,18 @@
 ---
 name: git-workflow
 description: 当用户需要 Git 操作帮助时使用，包括提交、分支管理、合并、解决冲突、变基等。提供 Git 最佳实践和工作流程指导。
+keywords:
+  - git
+  - commit
+  - branch
+  - merge
+  - rebase
+  - 分支
+  - 合并
+  - 提交
+  - 推送
+  - 拉取
+  - 冲突
 ---
 
 # Git 工作流技能

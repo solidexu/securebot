@@ -1,6 +1,16 @@
 ---
 name: data-analysis
 description: 当用户上传 Excel (.xlsx/.xls) 或 CSV 文件并希望进行数据分析、生成统计、创建摘要、数据透视表、SQL 查询或任何形式的结构化数据探索时使用此技能。支持多工作表 Excel 工作簿、聚合、过滤、连接和导出结果到 CSV/JSON/Markdown。
+keywords:
+  - 数据分析
+  - 分析
+  - Excel
+  - CSV
+  - 统计
+  - 数据
+  - analysis
+  - spreadsheet
+  - 数据透视
 ---
 
 # 数据分析技能
