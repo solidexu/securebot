@@ -1722,15 +1722,35 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
             const completedMatch = content.match(/已完成[：:]\s*(.+?)(?:\n|$)/);
             const completedDesc = completedMatch?.[1]?.trim();
             
-            // 检查是否匹配当前步骤
-            const matchesCurrentStep = completedDesc && (
-              completedDesc === currentStep.description ||
-              completedDesc.includes(currentStep.description) ||
-              currentStep.description.includes(completedDesc)
-            );
-            
             console.log(chalk.gray(`[DEBUG] 当前步骤: ${currentStep.description}`));
             console.log(chalk.gray(`[DEBUG] 已完成描述: ${completedDesc || '(未匹配)'}`));
+            
+            // ★ 检查步骤是否已经完成过（防止重复推进）
+            if (currentStep.status === 'completed') {
+              console.log(chalk.yellow('[DEBUG] 步骤已完成，忽略重复完成声明'));
+              addAssistantMessage(session, result.content);
+              // 找到下一个待执行步骤
+              const nextPending = currentPlan.steps.find(s => s.status === 'pending');
+              if (nextPending) {
+                addUserMessage(session, 
+                  `这个步骤已经完成了。请继续执行下一步：${nextPending.description}\n\n` +
+                  `完成后说"已完成：${nextPending.description}"。`
+                );
+              }
+              continue;
+            }
+            
+            // ★ 改进匹配逻辑：要求更精确的匹配
+            // 1. 完全匹配
+            // 2. 或者完成描述包含步骤的关键词（但步骤不能已包含在完成描述中）
+            const stepKeywords = currentStep.description.split(/[，,、\s]+/).filter(w => w.length >= 2);
+            const matchesCurrentStep = completedDesc && (
+              completedDesc === currentStep.description ||
+              // 完成描述包含步骤的关键词
+              (stepKeywords.some(kw => completedDesc.includes(kw)) && 
+               !currentStep.description.includes(completedDesc))
+            );
+            
             console.log(chalk.gray(`[DEBUG] 匹配结果: ${matchesCurrentStep}`));
             
             if (matchesCurrentStep) {
