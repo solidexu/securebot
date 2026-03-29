@@ -68,7 +68,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \\
     # 数据库客户端
     sqlite3 \\
     postgresql-client \\
-    mysql-client \\
+    mariadb-client \\
     redis-tools \\
     && rm -rf /var/lib/apt/lists/*
 
