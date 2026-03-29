@@ -210,16 +210,15 @@ export class DockerSandbox extends PathFilterSandbox {
       // 启动容器
       const output = execSync(`docker ${args.join(' ')}`, {
         encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],  // 忽略错误输出
       }).trim();
       
       this.containerId = output;
       this.startedAt = new Date().toISOString();
       
-      console.log(chalk.green(`✓ 沙箱容器已启动: ${this.containerName}`));
       return true;
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      console.error(chalk.red(`启动沙箱容器失败: ${msg}`));
+    } catch {
+      // 启动失败，静默返回 false
       return false;
     }
   }
@@ -367,6 +366,18 @@ export class DockerSandbox extends PathFilterSandbox {
 // ============ Docker 沙箱管理器 ============
 
 /**
+ * 检查沙箱镜像是否存在
+ */
+async function isImageAvailable(): Promise<boolean> {
+  try {
+    execSync(`docker image inspect ${SANDBOX_IMAGE}`, { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Docker 沙箱实例缓存
  */
 const dockerSandboxInstances = new Map<string, DockerSandbox>();
@@ -382,7 +393,13 @@ export async function getDockerSandbox(
   // 检查 Docker 是否可用
   const available = await DockerSandbox.isDockerAvailable();
   if (!available) {
-    console.warn(chalk.yellow('Docker 不可用，回退到路径过滤沙箱'));
+    return null;
+  }
+  
+  // 检查沙箱镜像是否存在
+  const imageAvailable = await isImageAvailable();
+  if (!imageAvailable) {
+    // 镜像不存在，静默返回 null（回退到路径过滤沙箱）
     return null;
   }
   
