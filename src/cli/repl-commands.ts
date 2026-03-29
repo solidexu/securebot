@@ -85,7 +85,7 @@ export async function handleCommand(
       break;
 
     case 'rag':
-      await handleRagCommand(state, arg, parts.slice(2));
+      await handleRagCommand(state, _rl, arg, parts.slice(2));
       break;
 
     case 'model':
@@ -538,7 +538,7 @@ async function handleRememberCommand(state: ReplState, content: string): Promise
   }
 }
 
-async function handleRagCommand(state: ReplState, action?: string, args?: string[]): Promise<void> {
+async function handleRagCommand(state: ReplState, rl: readlinePromises.Interface, action?: string, args?: string[]): Promise<void> {
   const { ragManager } = await import('../rag/tools.js');
   const { getMemoryManager } = await import('../core/memory.js');
   const agent = state.agents.get(state.currentAgentId);
@@ -633,13 +633,32 @@ async function handleRagCommand(state: ReplState, action?: string, args?: string
         return;
       }
       
-      const { resolve } = await import('node:path');
+      const { resolve, join } = await import('node:path');
       const { existsSync, statSync, readFileSync } = await import('node:fs');
       const { basename } = await import('node:path');
-      const fullPath = resolve(agent.workspace, path);
+      const { getRootDir } = await import('../core/config.js');
+      
+      // ★ 处理知识库目录的特殊映射
+      let fullPath: string;
+      
+      if (path === 'knowledge' || path === '/workspace/knowledge') {
+        // 映射到知识库目录: {rootDir}/knowledge/{agent.id}
+        const rootDir = getRootDir(state.config);
+        fullPath = join(rootDir, 'knowledge', agent.id);
+      } else if (path.startsWith('/workspace/')) {
+        // 容器内路径 -> 主机路径
+        const relativePath = path.slice('/workspace/'.length);
+        fullPath = resolve(agent.workspace, relativePath);
+      } else {
+        // 相对路径
+        fullPath = resolve(agent.workspace, path);
+      }
+      
+      console.log(chalk.gray(`解析路径: ${fullPath}`));
       
       if (!existsSync(fullPath)) {
         console.log(chalk.red(`路径不存在: ${path}`));
+        console.log(chalk.gray(`主机路径: ${fullPath}`));
         return;
       }
       
@@ -676,7 +695,7 @@ async function handleRagCommand(state: ReplState, action?: string, args?: string
       console.log();
       
       // ★ 使用已有的 rl 接口
-      const answer = await _rl.question(chalk.cyan('确认清空？(yes/no): '));
+      const answer = await rl.question(chalk.cyan('确认清空？(yes/no): '));
       
       if (answer.toLowerCase() === 'yes') {
         await ragManager.clearAgent(agent.id);
@@ -688,7 +707,7 @@ async function handleRagCommand(state: ReplState, action?: string, args?: string
         const { join } = await import('node:path');
         
         const rootDir = getRootDir(state.config);
-        const knowledgeDir = join(rootDir, '..', 'knowledge', agent.id);
+        const knowledgeDir = join(rootDir, 'knowledge', agent.id);
         
         if (existsSync(knowledgeDir)) {
           rmSync(knowledgeDir, { recursive: true, force: true });

@@ -1658,7 +1658,7 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
               return;
             }
             
-            if (answer.toLowerCase() !== 'y') {
+            if (answer.toLowerCase() !== 'y' && answer.toLowerCase() !== 'yes') {
               console.log(chalk.gray('已取消任务'));
               await recordTaskEnd(ctx, 'cancelled', { error: '用户取消规划' });
               return;

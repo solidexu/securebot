@@ -160,11 +160,17 @@ export async function runConfigWizard(): Promise<void> {
           }
         }
         
-        // 为每个 Agent 创建工作空间
+        // 为每个 Agent 创建工作空间和知识库目录
         for (const agent of config.agents) {
           const workspace = join(rootDir, 'agents', agent.id);
           if (!existsSync(workspace)) {
             mkdirSync(workspace, { recursive: true });
+          }
+          
+          // ★ 创建知识库目录
+          const knowledgeDir = join(rootDir, 'knowledge', agent.id);
+          if (!existsSync(knowledgeDir)) {
+            mkdirSync(knowledgeDir, { recursive: true });
           }
         }
         
@@ -177,6 +183,10 @@ export async function runConfigWizard(): Promise<void> {
         console.log(chalk.gray('  ├── agents/'));
         for (const agent of config.agents) {
           console.log(chalk.gray(`  │   └── ${agent.id}/ (${agent.name})`));
+        }
+        console.log(chalk.gray('  ├── knowledge/'));
+        for (const agent of config.agents) {
+          console.log(chalk.gray(`  │   └── ${agent.id}/`));
         }
         console.log(chalk.gray('  ├── memory/'));
         console.log(chalk.gray('  ├── skills/'));

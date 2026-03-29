@@ -23,6 +23,28 @@ import { loadPersistedSessions, saveAllSessions, showConfirmationDialog } from '
 import { ContextualHints, MessageFormatter } from './message-formatter.js';
 import { RalphExecutor } from '../ralph/index.js';
 import { DockerSandbox } from '../core/sandbox/index.js';
+import { getRootDir } from '../core/config.js';
+import { existsSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import type { Config, Agent } from '../core/types.js';
+
+// ============ 初始化函数 ============
+
+/**
+ * 初始化所有 Agent 的知识库目录
+ */
+async function initializeKnowledgeDirs(config: Config, agents: Map<string, Agent>): Promise<void> {
+  const rootDir = getRootDir(config);
+  
+  for (const agent of agents.values()) {
+    const knowledgeDir = join(rootDir, 'knowledge', agent.id);
+    
+    if (!existsSync(knowledgeDir)) {
+      mkdirSync(knowledgeDir, { recursive: true });
+      console.log(chalk.gray(`创建知识库目录: ${knowledgeDir}`));
+    }
+  }
+}
 
 // ============ REPL 启动 ============
 
@@ -46,6 +68,9 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
 
   // 创建 Agent
   const agents = createAgents(config);
+  
+  // ★ 初始化知识库目录
+  await initializeKnowledgeDirs(config, agents);
   
   // 创建模型适配器
   const modelAdapter = new OllamaAdapter({
@@ -100,10 +125,19 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
   // 初始化 RAG 并连接到记忆系统
   for (const agent of agents.values()) {
     if (agent.rag?.enabled) {
+      // ★ 确保 knowledgeDirs 存在
+      const knowledgeDirs = agent.rag.knowledgeDirs || [];
+      for (const dir of knowledgeDirs) {
+        if (!existsSync(dir)) {
+          mkdirSync(dir, { recursive: true });
+          console.log(chalk.gray(`创建知识库目录: ${dir}`));
+        }
+      }
+      
       // 先设置配置
       ragManager.setAgentConfig(agent.id, {
         enabled: true,
-        knowledgeDirs: agent.rag.knowledgeDirs || [],
+        knowledgeDirs: knowledgeDirs,
         embeddingModel: agent.rag.embeddingModel || 'all-minilm',
         chunkSize: agent.rag.chunkSize,
         chunkOverlap: agent.rag.chunkOverlap,

@@ -5,7 +5,7 @@
  */
 
 import type { Session, Message, AgentConfig, Config } from './types.js';
-import { getAgentsDir, getMemoryDir, getSkillsDir, getSessionsDir } from './config.js';
+import { getAgentsDir, getMemoryDir, getSkillsDir, getSessionsDir, getRootDir } from './config.js';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -558,7 +558,22 @@ ${loadMemoryContext(memoryDir, agent.id)}
 
 用户说"记住 xxx"时，信息会存入档案。
 
-## 会话持久化
+${agent.rag?.enabled ? `## 知识库使用
+
+你有知识库可用，已索引相关文档。**请在以下情况自动使用 rag_search 工具：**
+
+1. 用户询问技术问题时（如"如何实现..."、"怎么解决..."）
+2. 需要参考之前学习到的知识时
+3. 处理类似任务时，先检索相关经验
+
+**使用方法：**
+- 调用 \`rag_search\` 工具，传入查询关键词
+- 示例：\`rag_search(query="动态规划算法")\`
+- 返回的知识内容可以作为参考来回答问题或完成任务
+
+知识库目录：\`${usingDockerSandbox ? '/workspace/knowledge' : `${getRootDir(config)}/knowledge/${agent.id}`}\`
+
+` : ''}## 会话持久化
 会话历史自动保存，支持恢复。
 
 ## 可用工具

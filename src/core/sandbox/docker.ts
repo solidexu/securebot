@@ -335,6 +335,15 @@ export class DockerSandbox extends PathFilterSandbox {
       // 挂载工作区
       args.push('-v', `${this.getWorkspace()}:/workspace`);
       
+      // ★ 挂载知识库目录：{rootDir}/knowledge/{agentId} -> /workspace/knowledge
+      const { getRootDir, loadConfig } = await import('../config.js');
+      const config = loadConfig();
+      const knowledgeDir = join(getRootDir(config), 'knowledge', this.agentId);
+      if (!existsSync(knowledgeDir)) {
+        mkdirSync(knowledgeDir, { recursive: true });
+      }
+      args.push('-v', `${knowledgeDir}:/workspace/knowledge`);
+      
       // 挂载允许的目录（跳过已挂载的 /workspace）
       for (const dir of this.getAllowedDirs()) {
         // 跳过 /workspace，已经挂载过了

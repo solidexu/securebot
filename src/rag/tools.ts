@@ -192,8 +192,25 @@ export const ragIndexTool: Tool = {
 
   async execute(params, context: ToolContext): Promise<ToolResult> {
     const { path } = params as { path: string };
-    const { resolve } = await import('node:path');
-    const fullPath = resolve(context.workspace, path);
+    const { resolve, join } = await import('node:path');
+    const { getRootDir, loadConfig } = await import('../core/config.js');
+    
+    // ★ 处理知识库目录的特殊映射
+    let fullPath: string;
+    
+    if (path === 'knowledge' || path === '/workspace/knowledge') {
+      // 映射到知识库目录: {rootDir}/knowledge/{agent.id}
+      const config = loadConfig();
+      const rootDir = getRootDir(config);
+      fullPath = join(rootDir, 'knowledge', context.agent.id);
+    } else if (path.startsWith('/workspace/')) {
+      // 容器内路径 -> 主机路径
+      const relativePath = path.slice('/workspace/'.length);
+      fullPath = resolve(context.workspace, relativePath);
+    } else {
+      // 相对路径
+      fullPath = resolve(context.workspace, path);
+    }
 
     try {
       const store = await ragManager.getStore(context.agent);
@@ -354,8 +371,22 @@ export const ragRemoveTool: Tool = {
 
   async execute(params, context: ToolContext): Promise<ToolResult> {
     const { path } = params as { path: string };
-    const { resolve } = await import('node:path');
-    const fullPath = resolve(context.workspace, path);
+    const { resolve, join } = await import('node:path');
+    const { getRootDir, loadConfig } = await import('../core/config.js');
+    
+    // ★ 处理知识库目录的特殊映射
+    let fullPath: string;
+    
+    if (path === 'knowledge' || path === '/workspace/knowledge') {
+      const config = loadConfig();
+      const rootDir = getRootDir(config);
+      fullPath = join(rootDir, 'knowledge', context.agent.id);
+    } else if (path.startsWith('/workspace/')) {
+      const relativePath = path.slice('/workspace/'.length);
+      fullPath = resolve(context.workspace, relativePath);
+    } else {
+      fullPath = resolve(context.workspace, path);
+    }
 
     try {
       const store = await ragManager.getStore(context.agent);
@@ -535,13 +566,33 @@ export const ragRememberTool: Tool = {
 };
 
 /**
- * 获取知识库存储路径
- * 统一存放在 data/knowledge/{agent_id}/ 目录下
+ * 获取知识库存储路径（主机路径）
+ * 主机: {rootDir}/knowledge/{agent_id}/type
+ * Docker 容器内映射为: /workspace/knowledge/type
+ * 自动创建目录（如果不存在）
  */
-function getKnowledgeDir(agentId: string): string {
-  const { getRootDir } = require('../core/config.js');
-  const rootDir = getRootDir({}); // 获取 ~/.securebot 目录
-  return join(rootDir, '..', 'knowledge', agentId);
+async function getKnowledgeDir(context: ToolContext, type?: string): Promise<string> {
+  const { join } = await import('node:path');
+  const { existsSync, mkdirSync } = await import('node:fs');
+  const { getRootDir, loadConfig } = await import('../core/config.js');
+  const config = loadConfig();
+  const rootDir = getRootDir(config);
+  const baseDir = join(rootDir, 'knowledge', context.agent.id);
+  
+  // 确保目录存在
+  if (!existsSync(baseDir)) {
+    mkdirSync(baseDir, { recursive: true });
+  }
+  
+  if (type) {
+    const typeDir = join(baseDir, type);
+    if (!existsSync(typeDir)) {
+      mkdirSync(typeDir, { recursive: true });
+    }
+    return typeDir;
+  }
+  
+  return baseDir;
 }
 
 /**
@@ -603,11 +654,9 @@ export const ragSaveDocumentTool: Tool = {
     try {
       const { join } = await import('node:path');
       const { writeFileSync, mkdirSync, existsSync } = await import('node:fs');
-      const { getRootDir } = await import('../core/config.js');
       
-      // ★ 使用全局知识库目录
-      const rootDir = getRootDir({});
-      const knowledgeDir = join(rootDir, '..', 'knowledge', context.agent.id, type);
+      // ★ 使用全局知识库目录 data/knowledge/{agent_id}/type
+      const knowledgeDir = await getKnowledgeDir(context, type);
       const fileName = generateUniqueFilename(topic, type);
       const filePath = join(knowledgeDir, fileName);
       
@@ -656,7 +705,8 @@ agent: ${context.agent.id}
 
 **主题**: ${docTitle}
 **类型**: ${type}
-**文件**: knowledge/${context.agent.id}/${type}/${fileName}
+**文件**: knowledge/${type}/${fileName}
+**路径**: ${filePath}
 **标签**: ${tagList.join(', ')}
 **索引**: ${indexed ? '已索引到知识库' : '未启用 RAG'}
 
@@ -689,7 +739,7 @@ export const ragTools = [ragSearchTool, ragIndexTool, ragStatusTool, ragRemember
  */
 export const ragGenerateDocumentTool: Tool = {
   name: 'rag_generate_document',
-  description: '根据对话内容生成知识文档并保存。文档保存到全局知识库目录，自动生成唯一文件名。',
+  description: '根据对话内容生成知识文档并保存。文档保存到 workspace/knowledge 目录，自动生成唯一文件名。',
   parameters: {
     type: 'object',
     properties: {
@@ -725,11 +775,9 @@ export const ragGenerateDocumentTool: Tool = {
     try {
       const { join } = await import('node:path');
       const { writeFileSync, mkdirSync, existsSync } = await import('node:fs');
-      const { getRootDir } = await import('../core/config.js');
       
-      // ★ 使用全局知识库目录
-      const rootDir = getRootDir({});
-      const knowledgeDir = join(rootDir, '..', 'knowledge', context.agent.id, type);
+      // ★ 使用全局知识库目录 data/knowledge/{agent_id}/type
+      const knowledgeDir = await getKnowledgeDir(context, type);
       const fileName = generateUniqueFilename(topic, type);
       const filePath = join(knowledgeDir, fileName);
       
@@ -789,7 +837,8 @@ ${content}
 
 **主题**: ${topic}
 **类型**: ${typeLabels[type] || type}
-**文件**: knowledge/${context.agent.id}/${type}/${fileName}
+**文件**: knowledge/${type}/${fileName}
+**路径**: ${filePath}
 **标签**: ${tagList.join(', ')}
 **索引**: ${indexed ? '已索引到知识库' : '未启用 RAG'}
 
