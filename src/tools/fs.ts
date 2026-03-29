@@ -88,8 +88,22 @@ async function validatePath(
     if (sandboxStatus?.type === 'docker') {
       const { DockerSandbox } = await import('../core/sandbox/docker.js');
       const dockerSandbox = sandbox as unknown as typeof DockerSandbox.prototype;
-      const containerPath = dockerSandbox.mapToContainer(resolved);
-      return { valid: true, resolved: containerPath, hostPath: resolved };
+      
+      // ★ 判断 resolved 是容器内路径还是外部路径
+      let containerPath: string;
+      let hostPath: string;
+      
+      if (resolved.startsWith('/workspace')) {
+        // resolved 已经是容器内路径，转换回外部路径
+        containerPath = resolved;
+        hostPath = dockerSandbox.mapFromContainer(resolved);
+      } else {
+        // resolved 是外部路径，转换为容器内路径
+        containerPath = dockerSandbox.mapToContainer(resolved);
+        hostPath = resolved;
+      }
+      
+      return { valid: true, resolved: containerPath, hostPath };
     }
   }
   
@@ -148,31 +162,26 @@ export const readTool: Tool = {
   async execute(params, context: ToolContext): Promise<ToolResult> {
     const { path, offset = 1, limit = 100 } = params as { path: string; offset?: number; limit?: number };
     
-    // 检查 workspace 是否存在
-    if (!existsSync(context.workspace)) {
-      return { 
-        success: false, 
-        error: `Workspace 不存在: ${context.workspace}\n请确保 Agent 的 workspace 目录已创建。` 
-      };
-    }
-    
     // 验证路径（支持沙箱）
     const validation = await validatePath(path, context, 'read');
     if (!validation.valid) {
       return { success: false, error: validation.error };
     }
     
+    // ★ Docker 沙箱：使用外部路径操作
+    const actualPath = validation.hostPath || validation.resolved;
+    
     // 检查文件是否存在
-    if (!existsSync(validation.resolved)) {
+    if (!existsSync(actualPath)) {
       return { 
         success: false, 
-        error: `文件不存在: ${path}\n完整路径: ${validation.resolved}\n当前 workspace: ${context.workspace}` 
+        error: `文件不存在: ${path}\n完整路径: ${validation.resolved}` 
       };
     }
     
     try {
       // 读取文件
-      const content = await readFile(validation.resolved, 'utf-8');
+      const content = await readFile(actualPath, 'utf-8');
       const lines = content.split('\n');
       
       // 应用 offset 和 limit
@@ -233,18 +242,22 @@ export const writeTool: Tool = {
       return { success: false, error: validation.error };
     }
     
+    // ★ Docker 沙箱：使用外部路径操作（目录已挂载）
+    const actualPath = validation.hostPath || validation.resolved;
+    
     try {
       // ✅ 自动创建父目录（解决 ENOENT 问题）
-      const parentDir = dirname(validation.resolved);
+      const parentDir = dirname(actualPath);
       await mkdir(parentDir, { recursive: true });
       
-      await writeFile(validation.resolved, content, 'utf-8');
+      await writeFile(actualPath, content, 'utf-8');
       
       return {
         success: true,
         content: `文件已写入: ${path}`,
         metadata: {
           path: validation.resolved,
+          hostPath: validation.hostPath,
           size: content.length,
         },
       };
@@ -293,14 +306,17 @@ export const editTool: Tool = {
       return { success: false, error: validation.error };
     }
     
+    // ★ Docker 沙箱：使用外部路径操作
+    const actualPath = validation.hostPath || validation.resolved;
+    
     // 检查文件是否存在
-    if (!existsSync(validation.resolved)) {
+    if (!existsSync(actualPath)) {
       return { success: false, error: `文件不存在: ${path}` };
     }
     
     try {
       // 读取文件
-      const content = await readFile(validation.resolved, 'utf-8');
+      const content = await readFile(actualPath, 'utf-8');
       
       // 检查 oldText 是否存在
       if (!content.includes(oldText)) {
@@ -349,7 +365,7 @@ export const editTool: Tool = {
       const newContent = content.split(oldText).join(newText);
       
       // 写入文件
-      await writeFile(validation.resolved, newContent, 'utf-8');
+      await writeFile(actualPath, newContent, 'utf-8');
       
       let resultMsg = `文件已编辑: ${path}`;
       if (matchCount > 1) {

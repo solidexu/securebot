@@ -102,6 +102,22 @@ export class DockerSandbox extends PathFilterSandbox {
   }
 
   /**
+   * ★ Override checkAccess：容器内路径先转换为外部路径再检查
+   */
+  checkAccess(request: import('./types.js').AccessRequest): import('./types.js').AccessResult {
+    const { path, operation } = request;
+    
+    // ★ 如果路径是容器内路径，先转换为外部路径
+    let hostPath = path;
+    if (path.startsWith('/workspace')) {
+      hostPath = this.mapFromContainer(path);
+    }
+    
+    // 使用外部路径进行权限检查
+    return super.checkAccess({ path: hostPath, operation });
+  }
+
+  /**
    * ★ 路径映射：将外部路径映射到容器内路径
    * 
    * 工作区 /disk0/.../py/ -> /workspace/
