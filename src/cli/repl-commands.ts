@@ -553,6 +553,7 @@ async function handleRagCommand(state: ReplState, action?: string, args?: string
     console.log('  /rag status       查看知识库状态');
     console.log('  /rag search <查询> 搜索知识库');
     console.log('  /rag index <路径>  添加文档到知识库');
+    console.log('  /rag clear        清空知识库（不可恢复）');
     console.log();
     console.log(chalk.gray('提示: 需要在 Agent 配置中启用 rag.enabled = true'));
     return;
@@ -663,9 +664,47 @@ async function handleRagCommand(state: ReplState, action?: string, args?: string
       break;
     }
     
+    case 'clear':
+    case 'reset': {
+      const stats = await store.getStats();
+      
+      console.log(chalk.yellow('\n⚠️  清空知识库'));
+      console.log(chalk.gray(`当前文档数: ${stats.documentCount}`));
+      console.log(chalk.gray(`当前分块数: ${stats.chunkCount}`));
+      console.log();
+      console.log(chalk.red('此操作将删除所有已索引的文档，不可恢复！'));
+      console.log();
+      
+      const answer = await import('node:readline/promises').then(rl => 
+        rl.createInterface({ input: process.stdin, output: process.stdout })
+          .question(chalk.cyan('确认清空？(yes/no): '))
+      );
+      
+      if (answer.toLowerCase() === 'yes') {
+        await ragManager.clearAgent(agent.id);
+        console.log(chalk.green('\n✓ 知识库已清空'));
+        
+        // 同时删除知识库文件
+        const { getRootDir } = await import('../core/config.js');
+        const { rmSync, existsSync } = await import('node:fs');
+        const { join } = await import('node:path');
+        
+        const rootDir = getRootDir(state.config);
+        const knowledgeDir = join(rootDir, '..', 'knowledge', agent.id);
+        
+        if (existsSync(knowledgeDir)) {
+          rmSync(knowledgeDir, { recursive: true, force: true });
+          console.log(chalk.gray(`已删除知识库目录: ${knowledgeDir}`));
+        }
+      } else {
+        console.log(chalk.gray('已取消'));
+      }
+      break;
+    }
+    
     default:
       console.log(chalk.yellow(`未知操作: ${action}`));
-      console.log(chalk.gray('可用操作: status, search, index'));
+      console.log(chalk.gray('可用操作: status, search, index, clear'));
   }
 }
 
@@ -2130,6 +2169,7 @@ function printHelp(): void {
   console.log('  /rag status               查看知识库状态');
   console.log('  /rag search <查询>        搜索知识库');
   console.log('  /rag index <路径>         添加文档到知识库');
+  console.log('  /rag clear                清空知识库');
   console.log(chalk.gray('  提示: 需要配置 agent.rag.enabled = true'));
   console.log();
   console.log(chalk.cyan('诊断工具:'));
