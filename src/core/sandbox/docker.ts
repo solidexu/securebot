@@ -416,7 +416,8 @@ export class DockerSandbox extends PathFilterSandbox {
     }
     
     return new Promise((resolve) => {
-      const args = ['exec', this.containerId!, 'sh', '-c', command];
+      // ★ 使用 bash 执行，支持 source 等 bash 内置命令
+      const args = ['exec', this.containerId!, 'bash', '-c', command];
       const proc = spawn('docker', args);
       
       let stdout = '';
@@ -544,10 +545,19 @@ export async function getDockerSandbox(
     return null;
   }
   
-  // 选择镜像：优先使用增强版，否则使用公开镜像
+  // 选择镜像：优先使用增强版
   let imageName = SANDBOX_IMAGE;
   const enhancedAvailable = await isEnhancedImageAvailable();
-  if (enhancedAvailable) {
+  
+  if (!enhancedAvailable) {
+    // ★ 增强版镜像不存在，自动构建（首次运行）
+    console.log(chalk.cyan('首次运行，正在构建增强版沙箱镜像...'));
+    console.log(chalk.gray('包含: Python 3.11, Node.js 20, uv, git, curl, wget'));
+    const built = await DockerSandbox.buildImage(false);
+    if (built) {
+      imageName = ENHANCED_SANDBOX_IMAGE;
+    }
+  } else {
     imageName = ENHANCED_SANDBOX_IMAGE;
   }
   
@@ -558,7 +568,6 @@ export async function getDockerSandbox(
       ...config,
       workspace,
     });
-    // 设置镜像名称：优先使用增强版
     sandbox.setImageName(imageName);
     dockerSandboxInstances.set(agentId, sandbox);
   }
