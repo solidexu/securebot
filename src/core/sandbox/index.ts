@@ -354,3 +354,42 @@ export function checkPathAccess(
 
 // 导出类型
 export * from './types.js';
+
+// 导出 Docker 沙箱
+export { 
+  DockerSandbox, 
+  getDockerSandbox, 
+  initDockerSandboxEnvironment,
+  listRunningContainers,
+  stopAllContainers,
+} from './docker.js';
+
+// ============ 沙箱工厂 ============
+
+/**
+ * 创建沙箱实例（根据配置选择类型）
+ */
+export async function createSandbox(
+  agentId: string,
+  workspace: string,
+  config?: Partial<SandboxConfig>
+): Promise<PathFilterSandbox> {
+  const sandboxType = config?.type ?? 'path-filter';
+  
+  if (sandboxType === 'docker') {
+    const { getDockerSandbox } = await import('./docker.js');
+    const dockerSandbox = await getDockerSandbox(agentId, workspace, config);
+    
+    if (dockerSandbox) {
+      // 启动容器
+      await dockerSandbox.start();
+      return dockerSandbox;
+    }
+    
+    // Docker 不可用，回退到路径过滤
+    console.warn(chalk.yellow('Docker 不可用，使用路径过滤沙箱'));
+  }
+  
+  // 默认使用路径过滤沙箱
+  return getSandbox(agentId, workspace, config);
+}

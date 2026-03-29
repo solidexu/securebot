@@ -220,5 +220,76 @@ kbCmd
     await searchKnowledgeBases(query);
   });
 
+// sandbox 命令
+const sandboxCmd = program
+  .command('sandbox')
+  .description('沙箱管理');
+
+sandboxCmd
+  .command('status [agentId]')
+  .description('显示沙箱状态')
+  .action(async (agentId?: string) => {
+    const { showSandboxStatus } = await import('./commands/sandbox.js');
+    await showSandboxStatus(agentId);
+  });
+
+sandboxCmd
+  .command('init')
+  .description('初始化沙箱环境（构建 Docker 镜像）')
+  .option('-f, --force', '强制重新构建镜像')
+  .action(async (options: { force?: boolean }) => {
+    const { initSandbox } = await import('./commands/sandbox.js');
+    await initSandbox(options.force);
+  });
+
+sandboxCmd
+  .command('list <agentId>')
+  .description('列出 Agent 允许访问的目录')
+  .action(async (agentId: string) => {
+    const { listAllowedDirs } = await import('./commands/sandbox.js');
+    await listAllowedDirs(agentId);
+  });
+
+sandboxCmd
+  .command('allow <agentId> <path>')
+  .description('授权 Agent 访问目录')
+  .option('-r, --readonly', '只读模式')
+  .action(async (agentId: string, path: string, options: { readonly?: boolean }) => {
+    const { allowDir } = await import('./commands/sandbox.js');
+    await allowDir(agentId, path, options.readonly);
+  });
+
+sandboxCmd
+  .command('deny <agentId> <path>')
+  .description('移除 Agent 的目录访问权限')
+  .action(async (agentId: string, path: string) => {
+    const { denyDir } = await import('./commands/sandbox.js');
+    await denyDir(agentId, path);
+  });
+
+sandboxCmd
+  .command('reset <agentId>')
+  .description('重置沙箱配置')
+  .action(async (agentId: string) => {
+    const { resetSandboxCmd } = await import('./commands/sandbox.js');
+    await resetSandboxCmd(agentId);
+  });
+
+sandboxCmd
+  .command('stop-all')
+  .description('停止所有沙箱容器')
+  .action(async () => {
+    const { stopAllSandoxContainers } = await import('./commands/sandbox.js');
+    await stopAllSandoxContainers();
+  });
+
+sandboxCmd
+  .command('shell <agentId>')
+  .description('进入沙箱容器 shell')
+  .action(async (agentId: string) => {
+    const { enterSandboxShell } = await import('./commands/sandbox.js');
+    await enterSandboxShell(agentId);
+  });
+
 // 解析参数
 program.parse();
