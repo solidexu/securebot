@@ -304,8 +304,12 @@ export class DockerSandbox extends PathFilterSandbox {
       // 挂载工作区
       args.push('-v', `${this.getWorkspace()}:/workspace`);
       
-      // 挂载允许的目录
+      // 挂载允许的目录（跳过已挂载的 /workspace）
       for (const dir of this.getAllowedDirs()) {
+        // 跳过 /workspace，已经挂载过了
+        if (dir.path === '/workspace' || dir.path === this.getWorkspace()) {
+          continue;
+        }
         const dest = dir.path.startsWith('/') ? dir.path : `/mnt${dir.path}`;
         const mountMode = dir.mode === 'readonly' ? ':ro' : '';
         args.push('-v', `${dir.path}:${dest}${mountMode}`);
