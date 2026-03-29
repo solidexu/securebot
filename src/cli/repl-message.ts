@@ -622,6 +622,26 @@ export async function processMessage(
   const lowerMessage = trimmedMessage.toLowerCase();
   const simpleCmd = simpleCommands[lowerMessage] || simpleCommands[trimmedMessage];
   
+  // ★ 提前检测 Docker 沙箱可用性（用于快速命令）
+  type DockerSandboxType = import('../core/sandbox/docker.js').DockerSandbox;
+  let dockerSandboxAvailable = false;
+  let dockerSandboxInstance: DockerSandboxType | null = null;
+  
+  try {
+    const { DockerSandbox, getDockerSandbox } = await import('../core/sandbox/index.js');
+    const dockerAvailable = await DockerSandbox.isDockerAvailable();
+    
+    if (dockerAvailable) {
+      const sandbox = await getDockerSandbox(agent.id, agent.workspace);
+      if (sandbox) {
+        dockerSandboxInstance = sandbox as DockerSandboxType;
+        dockerSandboxAvailable = true;
+      }
+    }
+  } catch {
+    // 忽略
+  }
+  
   if (simpleCmd) {
     // 简单命令直接执行，不调用大模型
     console.log(chalk.gray(`⚡ 快速执行: ${simpleCmd.desc}`));
@@ -629,22 +649,44 @@ export async function processMessage(
     
     try {
       const { execSync } = await import('node:child_process');
-      const workspace = agent.workspace || process.cwd();
       
-      if (simpleCmd.showOutput) {
-        console.log(chalk.gray(`📁 工作区: ${workspace}`));
-        console.log();
-      }
-      
-      const output = execSync(simpleCmd.cmd, {
-        cwd: workspace,
-        encoding: 'utf-8',
-        timeout: 10000,
-        stdio: simpleCmd.showOutput ? ['pipe', 'pipe', 'pipe'] : 'ignore',
-      });
-      
-      if (simpleCmd.showOutput && output) {
-        console.log(output);
+      // ★ Docker 沙箱：在容器内执行
+      if (dockerSandboxAvailable && dockerSandboxInstance) {
+        // 确保容器运行
+        await dockerSandboxInstance.start();
+        
+        // 在容器内执行命令
+        const result = await dockerSandboxInstance.exec(`cd /workspace && ${simpleCmd.cmd}`);
+        
+        if (simpleCmd.showOutput) {
+          console.log(chalk.gray(`📁 工作区: /workspace (容器内)`));
+          console.log();
+          if (result.stdout) {
+            console.log(result.stdout);
+          }
+          if (result.stderr && result.exitCode !== 0) {
+            console.log(chalk.red(result.stderr));
+          }
+        }
+      } else {
+        // 主机执行
+        const workspace = agent.workspace || process.cwd();
+        
+        if (simpleCmd.showOutput) {
+          console.log(chalk.gray(`📁 工作区: ${workspace}`));
+          console.log();
+        }
+        
+        const output = execSync(simpleCmd.cmd, {
+          cwd: workspace,
+          encoding: 'utf-8',
+          timeout: 10000,
+          stdio: simpleCmd.showOutput ? ['pipe', 'pipe', 'pipe'] : 'ignore',
+        });
+        
+        if (simpleCmd.showOutput && output) {
+          console.log(output);
+        }
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -678,20 +720,42 @@ export async function processMessage(
       console.log();
       
       try {
-        const { execSync } = await import('node:child_process');
-        const workspace = agent.workspace || process.cwd();
-        
-        console.log(chalk.gray(`📁 工作区: ${workspace}`));
-        console.log();
-        
-        const output = execSync(trimmedMessage, {
-          cwd: workspace,
-          encoding: 'utf-8',
-          timeout: 30000,
-        });
-        
-        if (output) {
-          console.log(output);
+        // ★ Docker 沙箱：在容器内执行
+        if (dockerSandboxAvailable && dockerSandboxInstance) {
+          // 确保容器运行
+          await dockerSandboxInstance.start();
+          
+          // 转换命令中的路径
+          const translatedCommand = dockerSandboxInstance.translateCommand(trimmedMessage);
+          
+          console.log(chalk.gray(`📁 工作区: /workspace (容器内)`));
+          console.log();
+          
+          const result = await dockerSandboxInstance.exec(`cd /workspace && ${translatedCommand}`);
+          
+          if (result.stdout) {
+            console.log(result.stdout);
+          }
+          if (result.stderr && result.exitCode !== 0) {
+            console.log(chalk.red(result.stderr));
+          }
+        } else {
+          // 主机执行
+          const { execSync } = await import('node:child_process');
+          const workspace = agent.workspace || process.cwd();
+          
+          console.log(chalk.gray(`📁 工作区: ${workspace}`));
+          console.log();
+          
+          const output = execSync(trimmedMessage, {
+            cwd: workspace,
+            encoding: 'utf-8',
+            timeout: 30000,
+          });
+          
+          if (output) {
+            console.log(output);
+          }
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);

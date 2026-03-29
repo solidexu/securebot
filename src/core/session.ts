@@ -290,9 +290,26 @@ export async function buildSystemPrompt(
   const skillsDir = getSkillsDir(config);
   const sessionsDir = getSessionsDir(config);
   
-  const workspaceDir = agent.workspace.startsWith('/')
+  // 检查是否使用 Docker 沙箱
+  let usingDockerSandbox = false;
+  let workspaceDir = agent.workspace.startsWith('/')
     ? agent.workspace
     : `${agentsDir}/${agent.workspace}`;
+  let actualWorkspace = workspaceDir; // 实际外部路径
+  
+  // 如果配置了 Docker 沙箱，检查是否可用
+  if (agent.sandbox?.enabled && agent.sandbox?.type === 'docker') {
+    try {
+      const { DockerSandbox } = await import('./sandbox/index.js');
+      const dockerAvailable = await DockerSandbox.isDockerAvailable();
+      if (dockerAvailable) {
+        usingDockerSandbox = true;
+        workspaceDir = '/workspace'; // 容器内路径
+      }
+    } catch {
+      // Docker 不可用，使用路径过滤
+    }
+  }
 
   let prompt = `你是 ${agent.name}，一个 AI 助手。
 
@@ -461,7 +478,10 @@ ${agent.systemPrompt ? `- **角色**: ${agent.systemPrompt}` : ''}
 
 ## 工作空间
 你的工作空间位于：\`${workspaceDir}\`
-- 所有文件读写操作都在此目录或其子目录下进行
+${usingDockerSandbox ? `- **重要**：你正在 Docker 容器内运行，所有路径都应该使用容器内路径
+- 容器内路径 \`/workspace\` 映射到外部路径 \`${actualWorkspace}\`
+- 执行命令时使用 \`/workspace\` 路径
+- 文件读写操作都在 \`/workspace\` 目录或其子目录下进行` : `- 所有文件读写操作都在此目录或其子目录下进行`}
 - 不要尝试访问此目录之外的文件
 ${loadMemoryContext(memoryDir, agent.id)}
 ## 记忆系统
