@@ -160,6 +160,23 @@ export class DockerSandbox extends PathFilterSandbox {
    * 启动容器
    */
   async start(): Promise<boolean> {
+    // ★ 如果 containerId 为空，先尝试通过容器名获取已存在的容器
+    if (!this.containerId) {
+      try {
+        const existingId = execSync(
+          `docker ps -aq --filter "name=^${this.containerName}$" --no-trunc`,
+          { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }
+        ).trim();
+        
+        if (existingId) {
+          this.containerId = existingId;
+          console.log(chalk.gray(`发现已存在的容器: ${this.containerName}`));
+        }
+      } catch {
+        // 忽略错误
+      }
+    }
+    
     if (this.containerId) {
       // 容器已存在，检查是否运行中
       try {
