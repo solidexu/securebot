@@ -40,23 +40,51 @@ const DOCKERFILE_TEMPLATE = `FROM ${BASE_IMAGE}
 
 # 安装常用工具和开发环境
 RUN apt-get update && apt-get install -y --no-install-recommends \\
+    # 基础工具
     git \\
     curl \\
     wget \\
     vim \\
+    jq \\
+    tree \\
+    htop \\
+    netcat-openbsd \\
+    openssh-client \\
+    openssl \\
+    # C/C++ 开发
     build-essential \\
     g++ \\
+    gcc \\
     make \\
     cmake \\
+    # Java 开发
+    default-jdk \\
+    maven \\
+    # Go 开发
+    golang-go \\
+    # Rust 开发
+    rustc \\
+    cargo \\
+    # 数据库客户端
+    sqlite3 \\
+    postgresql-client \\
+    mysql-client \\
+    redis-tools \\
     && rm -rf /var/lib/apt/lists/*
 
-# 安装 Node.js (用于前端项目)
+# 安装 Node.js 20 (用于前端项目)
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \\
     && apt-get install -y nodejs \\
     && rm -rf /var/lib/apt/lists/*
 
+# 安装 pnpm 和 yarn
+RUN npm install -g pnpm yarn
+
 # 安装 uv (Python 包管理器)
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 设置 PATH 包含 uv
+ENV PATH="/root/.local/bin:$PATH"
 
 # 创建非 root 用户
 RUN useradd -m -s /bin/bash securebot
@@ -578,7 +606,7 @@ export async function getDockerSandbox(
   if (!enhancedAvailable) {
     // ★ 增强版镜像不存在，自动构建（首次运行）
     console.log(chalk.cyan('首次运行，正在构建增强版沙箱镜像...'));
-    console.log(chalk.gray('包含: Python 3.11, Node.js 20, uv, git, curl, wget'));
+    console.log(chalk.gray('包含: Python, Node.js, Java, Go, Rust, C++, 数据库客户端等'));
     const built = await DockerSandbox.buildImage(false);
     if (built) {
       imageName = ENHANCED_SANDBOX_IMAGE;
