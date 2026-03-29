@@ -1388,14 +1388,18 @@ export function checkStepCompletion(
   toolCalls: TaskStep['toolCalls']
 ): StepCheckResult {
   const successCalls = toolCalls?.filter(c => c.result === 'success') ?? [];
+  const failedCalls = toolCalls?.filter(c => c.result === 'failed') ?? [];
   
   // ═══════════════════════════════════════════
-  // 错误类型 1：没有工具调用
+  // 关键修复：如果当前有成功的调用，忽略之前的失败
+  // 场景：exec 失败 -> edit 成功修复 -> 应该继续，不应该报错
+  // ═══════════════════════════════════════════
+  
+  // ═══════════════════════════════════════════
+  // 错误类型 1：没有成功的工具调用
   // ═══════════════════════════════════════════
   if (successCalls.length === 0) {
-    // 检查是否有失败的工具调用
-    const failedCalls = toolCalls?.filter(c => c.result === 'failed') ?? [];
-    
+    // 只有当没有任何成功调用时，才报告失败
     if (failedCalls.length > 0) {
       return {
         complete: false,
@@ -1427,9 +1431,8 @@ export function checkStepCompletion(
   }
   
   // ═══════════════════════════════════════════
-  // 错误类型 2：工具调用不相关
+  // 有成功的工具调用，检查相关性
   // ═══════════════════════════════════════════
-  const failedCalls = toolCalls?.filter(c => c.result === 'failed') ?? [];
   const relevantCalls = filterRelevantCalls(step.description, successCalls, failedCalls);
   
   if (relevantCalls.length === 0) {
@@ -1541,6 +1544,17 @@ function filterRelevantCalls(
       }
       // ★ 放宽限制：允许 read/write 在目录中操作
       if (call.tool === 'read' || call.tool === 'write' || call.tool === 'edit') {
+        return true;
+      }
+      return false;
+    }
+    
+    // ═══════════════════════════════════════════
+    // 演示/脚本/可视化（在 "创建" 之前匹配，更具体）
+    // ═══════════════════════════════════════════
+    if (desc.includes('演示') || desc.includes('脚本') || desc.includes('可视化') || desc.includes('demo')) {
+      // 允许所有常用工具
+      if (['write', 'edit', 'read', 'exec'].includes(call.tool)) {
         return true;
       }
       return false;
