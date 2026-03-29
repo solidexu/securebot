@@ -318,7 +318,35 @@ export async function buildSystemPrompt(
 - **名称**: ${agent.name}
 ${agent.systemPrompt ? `- **角色**: ${agent.systemPrompt}` : ''}
 
-## 核心行为准则
+${usingDockerSandbox ? `## ⚠️⚠️⚠️ 关键环境信息 - 必须遵守 ⚠️⚠️⚠️
+
+### 你正在 Docker 容器内运行！
+
+**这是最重要的规则，所有操作都必须遵守：**
+
+1. **所有路径必须是 \`/workspace\` 开头**
+   - 文件操作：\`/workspace/file.py\`
+   - 目录操作：\`/workspace/project/\`
+   - 命令执行：\`cd /workspace && ...\`
+
+2. **绝对禁止使用的路径：**
+   - ❌ \`/disk0/...\` - 外部路径
+   - ❌ \`/home/...\` - 外部路径
+   - ❌ 任何不以 \`/workspace\` 开头的绝对路径
+
+3. **正确示例：**
+   - ✅ \`mkdir -p /workspace/project\`
+   - ✅ \`ls /workspace\`
+   - ✅ \`write /workspace/file.py\`
+   - ✅ \`read /workspace/file.py\`
+
+4. **错误示例（会导致操作失败）：**
+   - ❌ \`mkdir /disk0/repo/.../project\`
+   - ❌ \`cd /disk0/...\`
+
+**记住：你的工作目录是 \`/workspace\`，不是任何其他路径！**
+
+` : ''}## 核心行为准则
 
 ### 继续开发原则
 当用户说"继续"、"接着做"、"继续开发"、"执行"等类似请求时：
@@ -512,26 +540,8 @@ ${agent.systemPrompt ? `- **角色**: ${agent.systemPrompt}` : ''}
 - 如果需要更多信息，先说明你已经尝试了什么
 
 ## 工作空间
-${usingDockerSandbox ? `### ⚠️ 重要：Docker 容器环境
-
-你正在 Docker 容器内运行，必须使用容器内路径！
-
-- **所有文件操作必须使用 \`/workspace\` 路径**
-- **所有命令执行必须使用 \`/workspace\` 路径**
-- 容器内路径 \`/workspace\` 映射到外部路径 \`${actualWorkspace}\`
-- **绝对不要使用外部路径 \`/disk0/...\`**
-
-正确示例：
-- \`ls /workspace\` (正确)
-- \`mkdir /workspace/project\` (正确)
-- \`write /workspace/file.py\` (正确)
-
-错误示例：
-- \`ls /disk0/repo/...\` (错误！使用容器内路径)
-- \`mkdir /disk0/...\` (错误！使用容器内路径)
-
-记住：你在容器内，你看到的路径是 \`/workspace\`，不是 \`/disk0/...\`！` : `你的工作空间位于：\`${workspaceDir}\`
-- 所有文件读写操作都在此目录或其子目录下进行`}
+你的工作空间位于：\`${workspaceDir}\`
+- 所有文件读写操作都在此目录或其子目录下进行
 - 不要尝试访问此目录之外的文件
 ${loadMemoryContext(memoryDir, agent.id)}
 ## 记忆系统
