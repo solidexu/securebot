@@ -638,8 +638,15 @@ export async function processMessage(
       
       // 检测用户是否在描述新任务（包含动词和任务关键词）
       const newTaskIndicators = [
+        // 开发类
         '实现', '创建', '开发', '编写', '设计', '构建', '添加', '修改', '重构',
         '帮我', '请', '使用', '做一个', '写一个', '生成',
+        // 操作类
+        '清空', '清理', '删除', '移除', '重置', '清除',
+        // 查询类
+        '查看', '读取', '显示', '列出', '查找', '搜索', '检查',
+        // 分析类
+        '分析', '评估', '比较', '测试', '运行', '执行',
       ];
       const isNewTaskRequest = newTaskIndicators.some(kw => message.includes(kw)) && 
                                 message.length > 5; // 排除太短的消息
