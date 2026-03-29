@@ -46,6 +46,7 @@ import {
   updateExecutionState,
   type ExecutionState,
 } from './task-executor.js';
+import { getSandbox, type PathFilterSandbox } from '../core/sandbox/index.js';
 
 // ============ 常量 ============
 
@@ -829,6 +830,51 @@ export async function processMessage(
       await sessionStorage.saveSession(session);
     }
     
+    // ★ 创建沙箱实例
+    const sandbox = getSandbox(agent.id, agent.workspace);
+    
+    // ★ 沙箱授权请求回调
+    const requestSandboxAuth = async (path: string, operation: 'read' | 'write'): Promise<boolean> => {
+      console.log();
+      console.log(chalk.yellow('⚠️ 沙箱安全提示'));
+      console.log();
+      console.log(chalk.gray(`Agent "${agent.id}" 请求访问工作区以外的目录：`));
+      console.log(chalk.cyan(`  📁 ${path}`));
+      console.log();
+      console.log(chalk.gray(`操作类型: ${operation === 'write' ? '读写' : '只读'}`));
+      console.log();
+      console.log(chalk.gray('请选择：'));
+      console.log(chalk.gray('  [a] 允许（读写）'));
+      console.log(chalk.gray('  [r] 允许（只读）'));
+      console.log(chalk.gray('  [d] 拒绝'));
+      console.log(chalk.gray('  [A] 总是允许（记住此选择）'));
+      console.log();
+      
+      const answer = await rl.question(chalk.cyan('您的选择: '));
+      
+      switch (answer.toLowerCase()) {
+        case 'a':
+          sandbox.allowDir(path, 'readwrite', '用户授权');
+          console.log(chalk.green(`✓ 已授权访问: ${path} (读写)`));
+          return true;
+        case 'r':
+          sandbox.allowDir(path, 'readonly', '用户授权');
+          console.log(chalk.green(`✓ 已授权访问: ${path} (只读)`));
+          return true;
+        case 'd':
+          console.log(chalk.red('✗ 拒绝访问'));
+          return false;
+        case 'always':
+        case 'a+':
+          sandbox.allowDir(path, 'readwrite', '用户永久授权');
+          console.log(chalk.green(`✓ 已永久授权访问: ${path}`));
+          return true;
+        default:
+          console.log(chalk.red('✗ 拒绝访问'));
+          return false;
+      }
+    };
+    
     // 获取可用工具
     const availableTools = getAvailableTools(agent, state.config.tools);
     
@@ -960,6 +1006,8 @@ export async function processMessage(
       abortController,
       taskTracker,
       activeSkills,  // ★ P1优化：传递激活的技能列表
+      sandbox,
+      requestSandboxAuth,
     });
     
   } finally {
@@ -1083,10 +1131,14 @@ interface ToolCallLoopContext {
   activeSkills?: string[];
   /** ★ 新增：步骤失败次数追踪 */
   stepFailures?: Map<string, number>;
+  /** 沙箱实例 */
+  sandbox?: import('../core/sandbox/index.js').PathFilterSandbox;
+  /** 沙箱授权请求回调 */
+  requestSandboxAuth?: (path: string, operation: 'read' | 'write') => Promise<boolean>;
 }
 
 async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
-  const { state, agent, session, message, systemPrompt, availableTools, sessionStorage } = ctx;
+  const { state, agent, session, message, systemPrompt, availableTools, sessionStorage, sandbox, requestSandboxAuth } = ctx;
   let { currentPlan, lastPlanRender, shouldExecutePlan, complexity } = ctx;
   
   // 初始化步骤失败追踪
@@ -1891,6 +1943,8 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         state,
         currentPlan,
         sessionStorage,
+        sandbox,
+        requestSandboxAuth,
       });
       
       // ★ 记录工具调用
@@ -2244,6 +2298,10 @@ interface ToolCallExecuteContext {
   state: ReplState;
   currentPlan: TaskPlan | null;
   sessionStorage?: ReturnType<typeof import('../core/session-storage.js').getSessionStorage>;
+  /** 沙箱实例 */
+  sandbox?: import('../core/sandbox/index.js').PathFilterSandbox;
+  /** 沙箱授权请求回调 */
+  requestSandboxAuth?: (path: string, operation: 'read' | 'write') => Promise<boolean>;
 }
 
 /** 工具执行结果（扩展版） */
@@ -2260,7 +2318,7 @@ interface ToolCallResult {
 }
 
 async function executeToolCall(ctx: ToolCallExecuteContext): Promise<ToolCallResult> {
-  const { toolCall, agent, session, state, currentPlan } = ctx;
+  const { toolCall, agent, session, state, currentPlan, sandbox, requestSandboxAuth } = ctx;
   
   console.log(chalk.blue(`\n调用工具: ${toolCall.name}`));
   
@@ -2353,6 +2411,8 @@ async function executeToolCall(ctx: ToolCallExecuteContext): Promise<ToolCallRes
         `${rootDir}/knowledges`,
         `${rootDir}/skills`,
       ],
+      sandbox,
+      requestSandboxAuth,
     });
     const toolDuration = ((Date.now() - toolStartTime) / 1000).toFixed(1);
     

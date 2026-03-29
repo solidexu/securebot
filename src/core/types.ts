@@ -40,6 +40,10 @@ export interface ToolContext {
   logger: Logger;
   /** 额外允许访问的路径列表 */
   allowedPaths?: string[];
+  /** 沙箱实例 */
+  sandbox?: import('./sandbox/index.js').PathFilterSandbox;
+  /** 沙箱授权请求回调 */
+  requestSandboxAuth?: (path: string, operation: 'read' | 'write') => Promise<boolean>;
 }
 
 /**

@@ -18,6 +18,29 @@ interface ExecResult {
   signal: string | null;
 }
 
+// ============ 危险命令检测 ============
+
+/**
+ * 危险命令模式
+ */
+const DANGEROUS_PATTERNS = [
+  /rm\s+-rf\s+\//,           // rm -rf /
+  /rm\s+-rf\s+~/,           // rm -rf ~
+  /:\(\)\s*\{\s*:\|:&\s*\}/, // fork bomb
+  /mkfs/,                    // 格式化
+  /dd\s+if=.*of=\/dev/,      // dd 写设备
+  />\s*\/dev\/sd/,           // 写磁盘
+  /chmod\s+000/,             // 私有化
+  /chown\s+.*:.*\//,         // 修改所有者
+];
+
+/**
+ * 检查是否是危险命令
+ */
+function isDangerousCommand(command: string): boolean {
+  return DANGEROUS_PATTERNS.some(pattern => pattern.test(command));
+}
+
 // ============ 命令执行 ============
 
 /**
@@ -109,6 +132,14 @@ export const execTool: Tool = {
     const timeout = (args['timeout'] as number | undefined) ?? 30000;
     const cwd = args['cwd'] as string | undefined;
     
+    // ★ 危险命令检测
+    if (isDangerousCommand(command)) {
+      return { 
+        success: false, 
+        error: `🚨 检测到危险命令，已被沙箱拒绝:\n${command}\n\n此命令可能对系统造成不可逆的损害。` 
+      };
+    }
+    
     // 获取执行策略
     const policy = context.agent.tools?.exec as ExecPolicy | undefined;
     const profile = context.agent.tools?.profile;
@@ -148,6 +179,32 @@ export const execTool: Tool = {
     const workDir = cwd 
       ? resolve(context.workspace, cwd)
       : context.workspace;
+    
+    // ★ 沙箱检查工作目录
+    if (context.sandbox) {
+      const sandboxResult = context.sandbox.checkAccess({ 
+        path: workDir, 
+        operation: 'execute' 
+      });
+      
+      if (!sandboxResult.allowed && !sandboxResult.requiresConfirmation) {
+        return {
+          success: false,
+          error: `沙箱拒绝访问工作目录: ${workDir}\n原因: ${sandboxResult.reason}`,
+        };
+      }
+      
+      if (sandboxResult.requiresConfirmation && context.requestSandboxAuth) {
+        const granted = await context.requestSandboxAuth(workDir, 'write');
+        if (!granted) {
+          return {
+            success: false,
+            error: `沙箱拒绝访问: 用户拒绝授权 ${workDir}`,
+          };
+        }
+        context.sandbox.allowDir(workDir, 'readwrite', '用户授权');
+      }
+    }
     
     // 执行命令
     context.logger.info(`执行命令: ${command}`);

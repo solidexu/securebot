@@ -10,30 +10,31 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { resolve, relative, dirname } from 'node:path';
 import { existsSync } from 'node:fs';
 import type { Tool, ToolContext, ToolResult } from '../core/types.js';
+import type { AccessResult } from '../core/sandbox/index.js';
 
 // ============ 安全检查 ============
 
 /**
  * 验证路径是否在 workspace 或允许的路径内
+ * 支持沙箱检查
  */
-function validatePath(
+async function validatePath(
   path: string, 
-  workspace: string, 
-  allowedPaths?: string[]
-): { valid: boolean; resolved: string; error?: string } {
+  context: ToolContext,
+  operation: 'read' | 'write' = 'read'
+): Promise<{ valid: boolean; resolved: string; error?: string; sandboxResult?: AccessResult }> {
+  const workspace = context.workspace;
+  const allowedPaths = context.allowedPaths;
+  const sandbox = context.sandbox;
+  
   // 判断是否为绝对路径
-  // 1. 以 / 开头（Unix 绝对路径）
-  // 2. 以 ~ 开头（用户目录）
-  // 3. Windows 驱动器路径（C:\ 等）
   let normalizedPath = path;
   const isAbsolute = path.startsWith('/') || 
                      path.startsWith('~') ||
                      /^[A-Za-z]:[/\\]/.test(path);
   
   // 如果不是绝对路径，检查是否"看起来像"绝对路径
-  // 例如：disk0/repo/... 应该是 /disk0/repo/...
   if (!isAbsolute && !path.startsWith('.')) {
-    // 尝试添加 / 前缀
     const withSlash = '/' + path;
     if (existsSync(withSlash) || existsSync(resolve(withSlash))) {
       normalizedPath = withSlash;
@@ -43,16 +44,41 @@ function validatePath(
   // 解析路径
   let resolved: string;
   if (normalizedPath.startsWith('/') || normalizedPath.startsWith('~') || /^[A-Za-z]:[/\\]/.test(normalizedPath)) {
-    // 绝对路径直接解析
     resolved = normalizedPath.startsWith('~') 
       ? resolve(normalizedPath.replace('~', process.env.HOME || ''))
       : resolve(normalizedPath);
   } else {
-    // 相对路径：拼接 workspace
     resolved = resolve(workspace, normalizedPath);
   }
   
-  // 检查是否在 workspace 内
+  // ★ 沙箱检查
+  if (sandbox) {
+    const sandboxResult = sandbox.checkAccess({ path: resolved, operation });
+    
+    if (sandboxResult.requiresConfirmation && context.requestSandboxAuth) {
+      // 需要用户确认
+      const granted = await context.requestSandboxAuth(resolved, operation);
+      if (!granted) {
+        return {
+          valid: false,
+          resolved,
+          error: `沙箱拒绝访问: ${resolved}\n原因: 用户拒绝授权`,
+          sandboxResult,
+        };
+      }
+      // 用户授权后，添加到白名单
+      sandbox.allowDir(resolved, operation === 'write' ? 'readwrite' : 'readonly', '用户授权');
+    } else if (!sandboxResult.allowed) {
+      return {
+        valid: false,
+        resolved,
+        error: `沙箱拒绝访问: ${resolved}\n原因: ${sandboxResult.reason}`,
+        sandboxResult,
+      };
+    }
+  }
+  
+  // 传统路径检查（兼容无沙箱情况）
   const relativePath = relative(workspace, resolved);
   const isWithinWorkspace = !relativePath.startsWith('..') && !relativePath.startsWith('/');
   
@@ -115,8 +141,8 @@ export const readTool: Tool = {
       };
     }
     
-    // 验证路径
-    const validation = validatePath(path, context.workspace, context.allowedPaths);
+    // 验证路径（支持沙箱）
+    const validation = await validatePath(path, context, 'read');
     if (!validation.valid) {
       return { success: false, error: validation.error };
     }
@@ -186,8 +212,8 @@ export const writeTool: Tool = {
   async execute(params, context: ToolContext): Promise<ToolResult> {
     const { path, content } = params as { path: string; content: string };
     
-    // 验证路径
-    const validation = validatePath(path, context.workspace, context.allowedPaths);
+    // 验证路径（支持沙箱）
+    const validation = await validatePath(path, context, 'write');
     if (!validation.valid) {
       return { success: false, error: validation.error };
     }
@@ -246,8 +272,8 @@ export const editTool: Tool = {
   async execute(params, context: ToolContext): Promise<ToolResult> {
     const { path, oldText, newText } = params as { path: string; oldText: string; newText: string };
     
-    // 验证路径
-    const validation = validatePath(path, context.workspace, context.allowedPaths);
+    // 验证路径（支持沙箱）
+    const validation = await validatePath(path, context, 'write');
     if (!validation.valid) {
       return { success: false, error: validation.error };
     }
