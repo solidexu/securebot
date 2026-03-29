@@ -1539,6 +1539,10 @@ function filterRelevantCalls(
       if (call.tool === 'exec' && String(call.args.command).includes('ls')) {
         return true;
       }
+      // ★ 放宽限制：允许 read/write 在目录中操作
+      if (call.tool === 'read' || call.tool === 'write' || call.tool === 'edit') {
+        return true;
+      }
       return false;
     }
     
@@ -1559,6 +1563,26 @@ function filterRelevantCalls(
         }
         // 没有特定文件，任何 write 都算相关
         return true;
+      }
+      
+      // ★ 放宽限制：允许 edit 修改代码
+      if (call.tool === 'edit') {
+        return true;
+      }
+      
+      // ★ 放宽限制：允许 read 读取代码了解结构
+      if (call.tool === 'read') {
+        return true;
+      }
+      
+      // ★ 放宽限制：允许 exec 运行测试/验证
+      if (call.tool === 'exec') {
+        const cmd = String(call.args.command);
+        // 允许运行测试、查看目录结构等
+        if (cmd.includes('pytest') || cmd.includes('test') || cmd.includes('npm') ||
+            cmd.includes('mkdir') || cmd.includes('ls') || cmd.includes('pwd')) {
+          return true;
+        }
       }
       
       // ✅ 改进：允许前置依赖工具和修复操作
@@ -1587,8 +1611,12 @@ function filterRelevantCalls(
       if (call.tool === 'exec' || call.tool === 'write') {
         return true;
       }
-      // 允许读取源文件（编写测试前需要了解源代码）
-      if (call.tool === 'read' && hasWrite) {
+      // ★ 放宽限制：允许读取源文件和测试文件
+      if (call.tool === 'read') {
+        return true;
+      }
+      // ★ 放宽限制：允许编辑测试文件
+      if (call.tool === 'edit') {
         return true;
       }
       return false;
@@ -1598,7 +1626,19 @@ function filterRelevantCalls(
     // 安装/配置
     // ═══════════════════════════════════════════
     if (desc.includes('安装') || desc.includes('配置')) {
-      return call.tool === 'exec';
+      // 允许 exec 执行安装命令
+      if (call.tool === 'exec') {
+        return true;
+      }
+      // ★ 放宽限制：允许 read 查看配置文件
+      if (call.tool === 'read') {
+        return true;
+      }
+      // ★ 放宽限制：允许 write/edit 创建/修改配置文件
+      if (call.tool === 'write' || call.tool === 'edit') {
+        return true;
+      }
+      return false;
     }
     
     // ═══════════════════════════════════════════
@@ -1615,6 +1655,10 @@ function filterRelevantCalls(
         if (cmd.includes('ls') || cmd.includes('find') || cmd.includes('tree')) {
           return true;
         }
+      }
+      // ★ 放宽限制：允许 edit 修改检查结果
+      if (call.tool === 'edit' || call.tool === 'write') {
+        return true;
       }
       return false;
     }
