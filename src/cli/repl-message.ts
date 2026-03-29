@@ -48,6 +48,7 @@ import {
 } from './task-executor.js';
 import { getSandbox, type PathFilterSandbox } from '../core/sandbox/index.js';
 import { shouldSaveKnowledge, autoGenerateTaskSummary } from '../rag/auto-save.js';
+import { createPlanStateMachine, TaskPlanStateMachine } from '../core/plan-state-machine.js';
 
 // ============ 常量 ============
 
@@ -1274,6 +1275,8 @@ interface ToolCallLoopContext {
   executionState?: ExecutionState;
   /** 步骤管理器（修复：统一步骤管理） */
   stepManager?: StepManager;
+  /** ★ 状态机：管理计划状态流转 */
+  stateMachine?: TaskPlanStateMachine;
   /** ★ P1优化：激活的技能列表 */
   activeSkills?: string[];
   /** ★ 新增：步骤失败次数追踪 */
@@ -1303,6 +1306,12 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
   // 修复：初始化步骤管理器，统一管理步骤状态
   if (currentPlan && !ctx.stepManager) {
     ctx.stepManager = createStepManager(currentPlan, session);
+  }
+  
+  // ★ 初始化状态机（恢复时）
+  if (currentPlan && !ctx.stateMachine) {
+    ctx.stateMachine = createPlanStateMachine(session);
+    // 状态机会自动从 session 恢复状态
   }
   
   // ★ 监听器管理器
@@ -1612,6 +1621,14 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
           currentPlan = parsedPlan;
           savePlanToSession(session, currentPlan, message);
           
+          // ★ 创建状态机
+          ctx.stateMachine = createPlanStateMachine(session);
+          const planResult = ctx.stateMachine.createPlan(currentPlan);
+          
+          if (!planResult.success) {
+            console.log(chalk.yellow(`[DEBUG] 状态机创建计划失败: ${planResult.error}`));
+          }
+          
           // 初始化执行状态
           if (!ctx.executionState) {
             ctx.executionState = createExecutionState(currentPlan, 'guided');
@@ -1652,10 +1669,23 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
             console.log(chalk.green('✓ 计划已确认，开始执行：'));
             console.log();
             
-            // 标记第一个步骤为 in_progress
-            if (currentPlan && currentPlan.steps.length > 0 && currentPlan.steps[0]) {
-              currentPlan.steps[0].status = 'in_progress';
-              savePlanToSession(session, currentPlan, message);
+            // ★ 使用状态机确认计划
+            if (ctx.stateMachine) {
+              const confirmResult = ctx.stateMachine.confirmPlan();
+              if (!confirmResult.success) {
+                console.log(chalk.yellow(`[DEBUG] 状态机确认失败: ${confirmResult.error}`));
+              }
+              // 同步 plan 状态
+              const updatedPlan = ctx.stateMachine.getPlan();
+              if (updatedPlan) {
+                currentPlan = updatedPlan;
+              }
+            } else {
+              // 回退：手动标记第一个步骤为 in_progress
+              if (currentPlan && currentPlan.steps.length > 0 && currentPlan.steps[0]) {
+                currentPlan.steps[0].status = 'in_progress';
+                savePlanToSession(session, currentPlan, message);
+              }
             }
             
             // 显示带进度条的计划
@@ -1754,11 +1784,30 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
             console.log(chalk.gray(`[DEBUG] 匹配结果: ${matchesCurrentStep}`));
             
             if (matchesCurrentStep) {
-              // 匹配当前步骤，推进
+              // 匹配当前步骤，使用状态机推进
               console.log(chalk.gray('[DEBUG] 检测到匹配的步骤完成，推进'));
-              const advanceResult = advanceToNextStep(currentPlan, session);
               
-              if (advanceResult.advanced && advanceResult.nextStep) {
+              // ★ 使用状态机完成步骤
+              if (ctx.stateMachine) {
+                const completeResult = ctx.stateMachine.completeStep();
+                const updatedPlan = ctx.stateMachine.getPlan();
+                if (updatedPlan) {
+                  currentPlan = updatedPlan;
+                }
+                
+                if (!completeResult.success) {
+                  console.log(chalk.yellow(`[DEBUG] 状态机完成步骤失败: ${completeResult.error}`));
+                }
+              } else {
+                // 回退：手动推进
+                advanceToNextStep(currentPlan, session);
+              }
+              
+              // 检查状态机状态
+              const nextStep = ctx.stateMachine?.getCurrentStep();
+              const isCompleted = ctx.stateMachine?.getState() === 'completed';
+              
+              if (!isCompleted && nextStep) {
                 // ★ 显示进度条
                 console.log();
                 if (ctx.executionState) {
@@ -1766,14 +1815,14 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
                 } else {
                   console.log(renderTaskProgress(currentPlan));
                 }
-                console.log(chalk.cyan('\n📍 下一步: ') + advanceResult.nextStep.description);
+                console.log(chalk.cyan('\n📍 下一步: ') + nextStep.description);
                 
                 addAssistantMessage(session, result.content);
-                const stepIndex = currentPlan.steps.findIndex(s => s.id === advanceResult.nextStep!.id) + 1;
+                const stepIndex = currentPlan.steps.findIndex(s => s.id === nextStep.id) + 1;
                 const totalSteps = currentPlan.steps.length;
                 addUserMessage(session, 
-                  `步骤已完成。现在执行第 ${stepIndex}/${totalSteps} 步：${advanceResult.nextStep.description}\n\n` +
-                  `直接调用工具完成这一步。完成后说"已完成：${advanceResult.nextStep.description}"。`
+                  `步骤已完成。现在执行第 ${stepIndex}/${totalSteps} 步：${nextStep.description}\n\n` +
+                  `直接调用工具完成这一步。完成后说"已完成：${nextStep.description}"。`
                 );
                 continue;
               } else {
