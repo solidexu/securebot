@@ -95,7 +95,7 @@ export class TaskPlanStateMachine {
    * 事件触发的状态转换
    */
   private eventTransitions: Record<StateEvent, { from: PlanState[]; to: PlanState }> = {
-    create_plan: { from: ['idle'], to: 'planning' },
+    create_plan: { from: ['idle', 'planning', 'completed', 'cancelled', 'failed'], to: 'planning' },
     confirm_plan: { from: ['planning'], to: 'ready' },
     start_step: { from: ['ready', 'executing', 'paused'], to: 'executing' },
     complete_step: { from: ['executing'], to: 'executing' }, // 步骤完成可能还在执行
@@ -108,11 +108,11 @@ export class TaskPlanStateMachine {
     complete_all: { from: ['executing'], to: 'completed' },
   };
   
-  constructor(session: Session) {
+  constructor(session: Session, skipRestore: boolean = false) {
     this.session = session;
     
-    // 从 session 恢复状态
-    if (session.plan) {
+    // 从 session 恢复状态（可跳过）
+    if (!skipRestore && session.plan) {
       this.restoreFromSession();
     }
   }
@@ -251,14 +251,21 @@ export class TaskPlanStateMachine {
    * 创建计划
    */
   createPlan(plan: TaskPlan): TransitionResult {
+    // ★ 先设置 plan，即使转换失败也要有 plan
+    this.plan = plan;
+    this.currentStepIndex = -1;
+    
+    // 尝试状态转换
     const result = this.transition('create_plan', { plan });
     
-    if (result.success) {
-      this.plan = plan;
-      this.currentStepIndex = -1;
-      this.saveToSession();
+    // 如果转换失败，强制设置为 planning 状态
+    if (!result.success) {
+      console.log(chalk.yellow(`[StateMachine] create_plan 转换失败，强制设置状态为 planning`));
+      this.state = 'planning';
+      this.recordStateChange(result.fromState, 'planning', 'create_plan');
     }
     
+    this.saveToSession();
     return result;
   }
   
@@ -266,15 +273,31 @@ export class TaskPlanStateMachine {
    * 确认计划
    */
   confirmPlan(): TransitionResult {
-    const result = this.transition('confirm_plan');
-    
-    if (result.success && this.plan && this.plan.steps.length > 0) {
-      // 将第一个步骤标记为 in_progress
-      this.currentStepIndex = 0;
-      updateStepStatus(this.plan, this.plan.steps[0]!.id, 'in_progress');
-      this.saveToSession();
+    if (!this.plan) {
+      return {
+        success: false,
+        fromState: this.state,
+        toState: this.state,
+        error: '没有计划可确认',
+      };
     }
     
+    const result = this.transition('confirm_plan');
+    
+    // 如果转换失败，强制设置状态
+    if (!result.success) {
+      console.log(chalk.yellow(`[StateMachine] confirm_plan 转换失败，强制设置状态为 ready`));
+      this.state = 'ready';
+      this.recordStateChange(result.fromState, 'ready', 'confirm_plan');
+    }
+    
+    // 将第一个步骤标记为 in_progress
+    if (this.plan.steps.length > 0) {
+      this.currentStepIndex = 0;
+      updateStepStatus(this.plan, this.plan.steps[0]!.id, 'in_progress');
+    }
+    
+    this.saveToSession();
     return result;
   }
   
@@ -646,21 +669,40 @@ export class TaskPlanStateMachine {
   private restoreFromSession(): void {
     if (!this.session.plan) return;
     
+    // ★ 从 session 恢复 plan
+    this.plan = {
+      title: this.session.plan.title,
+      steps: this.session.plan.steps.map(s => ({
+        id: s.id,
+        description: s.description,
+        status: s.status,
+        result: s.result,
+        toolCalls: [],
+      })),
+      createdAt: new Date(this.session.plan.createdAt),
+      updatedAt: new Date(this.session.plan.updatedAt),
+    };
+    
     // 恢复状态
-    const hasPending = this.session.plan.steps.some(s => 
-      s.status === 'pending' || s.status === 'in_progress'
-    );
+    const hasInProgress = this.session.plan.steps.some(s => s.status === 'in_progress');
+    const hasPending = this.session.plan.steps.some(s => s.status === 'pending');
     const hasFailed = this.session.plan.steps.some(s => s.status === 'failed');
     const allCompleted = this.session.plan.steps.every(s => 
       s.status === 'completed' || s.status === 'skipped'
     );
     
+    // ★ 关键：只有当有 in_progress 步骤时才是 executing 状态
+    // 如果只有 pending 步骤，说明是新建计划，还未确认
     if (allCompleted) {
       this.state = 'completed';
     } else if (hasFailed) {
       this.state = 'failed';
-    } else if (hasPending) {
+    } else if (hasInProgress) {
+      // 有正在执行的步骤
       this.state = 'executing';
+    } else if (hasPending) {
+      // 只有 pending 步骤，说明计划未确认
+      this.state = 'planning';
     }
     
     // 找到当前步骤
