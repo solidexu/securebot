@@ -47,6 +47,10 @@ export async function showSandboxStatus(agentId?: string): Promise<void> {
     
     if (containers.length === 0) {
       console.log(chalk.gray('没有运行中的沙箱容器'));
+      console.log();
+      console.log(chalk.gray('启动沙箱容器:'));
+      console.log(chalk.gray('  securebot sandbox start <agent-id>'));
+      console.log(chalk.gray('  或者在 chat 中自动启动'));
     } else {
       console.log(chalk.cyan('运行中的沙箱容器:'));
       console.log();
@@ -187,6 +191,47 @@ export async function stopAllSandoxContainers(): Promise<void> {
   console.log();
   
   await stopAllContainers();
+}
+
+/**
+ * 启动沙箱容器
+ */
+export async function startSandboxContainer(
+  agentId: string, 
+  workspace: string
+): Promise<void> {
+  console.log();
+  console.log(chalk.cyan(`🚀 启动 Agent "${agentId}" 的沙箱容器`));
+  console.log();
+  
+  // 检查 Docker
+  const dockerAvailable = await DockerSandbox.isDockerAvailable();
+  
+  if (!dockerAvailable) {
+    console.log(chalk.red('Docker 不可用，无法启动容器'));
+    return;
+  }
+  
+  const { getDockerSandbox } = await import('../../core/sandbox/index.js');
+  const sandbox = await getDockerSandbox(agentId, workspace);
+  
+  if (!sandbox) {
+    console.log(chalk.red('无法创建 Docker 沙箱'));
+    return;
+  }
+  
+  const started = await sandbox.start();
+  
+  if (started) {
+    console.log(chalk.green(`✓ 沙箱容器已启动`));
+    console.log(chalk.gray(`  Agent: ${agentId}`));
+    console.log(chalk.gray(`  工作区: ${workspace}`));
+    console.log(chalk.gray(`  容器内路径: /workspace`));
+    console.log();
+    console.log(chalk.gray('提示: 运行 `securebot sandbox shell <agent-id>` 进入容器'));
+  } else {
+    console.log(chalk.red('✗ 沙箱容器启动失败'));
+  }
 }
 
 /**

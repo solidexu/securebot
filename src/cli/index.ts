@@ -243,6 +243,19 @@ sandboxCmd
   });
 
 sandboxCmd
+  .command('start <agentId>')
+  .description('启动 Agent 的沙箱容器')
+  .option('-w, --workspace <path>', '工作区路径')
+  .action(async (agentId: string, options: { workspace?: string }) => {
+    const { startSandboxContainer } = await import('./commands/sandbox.js');
+    const { getAgentsDir, loadConfig } = await import('../core/config.js');
+    const config = loadConfig();
+    const agentsDir = getAgentsDir(config);
+    const workspace = options.workspace || `${agentsDir}/${agentId}`;
+    await startSandboxContainer(agentId, workspace);
+  });
+
+sandboxCmd
   .command('list <agentId>')
   .description('列出 Agent 允许访问的目录')
   .action(async (agentId: string) => {
