@@ -165,6 +165,7 @@ export class DockerSandbox extends PathFilterSandbox {
       try {
         const status = execSync(`docker inspect --format='{{.State.Status}}' ${this.containerId}`, {
           encoding: 'utf-8',
+          stdio: ['ignore', 'pipe', 'ignore'],
         }).trim();
         
         if (status === 'running') {
@@ -182,6 +183,15 @@ export class DockerSandbox extends PathFilterSandbox {
     }
 
     try {
+      // ★ 先检查镜像是否存在，不存在则拉取
+      try {
+        execSync(`docker image inspect ${this.imageName}`, { stdio: 'ignore' });
+      } catch {
+        // 镜像不存在，拉取
+        console.log(chalk.gray(`拉取镜像: ${this.imageName}`));
+        execSync(`docker pull ${this.imageName}`, { stdio: 'inherit' });
+      }
+      
       // 构建启动命令
       const args = ['run', '-d', '--name', this.containerName];
       
@@ -220,21 +230,20 @@ export class DockerSandbox extends PathFilterSandbox {
       // 镜像名称
       args.push(this.imageName);
       
-      // ★ 保持容器运行的命令（关键！）
-      // 使用 tail -f /dev/null 让容器在后台保持运行
-      args.push('tail', '-f', '/dev/null');
+      // ★ 保持容器运行的命令（使用 sleep infinity，slim 镜像都有）
+      args.push('sleep', 'infinity');
       
       // 启动容器
       const output = execSync(`docker ${args.join(' ')}`, {
         encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'ignore'],  // 忽略错误输出
+        stdio: ['ignore', 'pipe', 'ignore'],
       }).trim();
       
       this.containerId = output;
       this.startedAt = new Date().toISOString();
       
       return true;
-    } catch {
+    } catch (error) {
       // 启动失败，静默返回 false
       return false;
     }
