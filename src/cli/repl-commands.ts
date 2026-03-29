@@ -196,6 +196,11 @@ export async function handleCommand(
       await handleOllamaCommand(state, arg);
       break;
 
+    case 'delete':
+    case 'del':
+      await handleDeleteCommand(state, arg);
+      break;
+
     default:
       console.log(chalk.yellow(`未知命令: ${cmd}`));
       console.log(chalk.gray('输入 /help 查看帮助'));
@@ -251,6 +256,75 @@ async function handleResetCommand(
     await sessionStorage.deleteSession(session.sessionKey);
     console.log(chalk.green('✓ 已清除当前会话历史'));
   }
+}
+
+/**
+ * 处理 /delete 命令 - 清除工作空间（保留 .rag）
+ */
+async function handleDeleteCommand(state: ReplState, arg?: string): Promise<void> {
+  const agent = state.agents.get(state.currentAgentId);
+  if (!agent) {
+    console.log(chalk.red('无法获取当前 Agent'));
+    return;
+  }
+  
+  const { getAgentsDir } = await import('../core/config.js');
+  const { existsSync, readdirSync, statSync, rmSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  
+  const agentsDir = getAgentsDir(state.config);
+  const workspace = agent.workspace.startsWith('/')
+    ? agent.workspace
+    : `${agentsDir}/${agent.workspace}`;
+  
+  if (!existsSync(workspace)) {
+    console.log(chalk.yellow('工作空间不存在'));
+    return;
+  }
+  
+  // 列出将要删除的内容
+  const items = readdirSync(workspace);
+  const toDelete = items.filter(item => item !== '.rag');
+  
+  if (toDelete.length === 0) {
+    console.log(chalk.gray('工作空间为空（.rag 目录已保留）'));
+    return;
+  }
+  
+  // 确认
+  if (arg !== 'force' && arg !== '-f') {
+    console.log();
+    console.log(chalk.yellow('⚠️ 即将删除工作空间中的以下内容：'));
+    console.log();
+    for (const item of toDelete.slice(0, 10)) {
+      const itemPath = join(workspace, item);
+      const isDir = statSync(itemPath).isDirectory();
+      console.log(chalk.gray(`  ${isDir ? '📁' : '📄'} ${item}`));
+    }
+    if (toDelete.length > 10) {
+      console.log(chalk.gray(`  ... 以及 ${toDelete.length - 10} 个其他项目`));
+    }
+    console.log();
+    console.log(chalk.cyan('.rag 目录将被保留'));
+    console.log();
+    console.log(chalk.gray('确认删除？输入 /delete force 或 /delete -f 确认'));
+    return;
+  }
+  
+  // 执行删除
+  let deleted = 0;
+  for (const item of toDelete) {
+    const itemPath = join(workspace, item);
+    try {
+      rmSync(itemPath, { recursive: true, force: true });
+      deleted++;
+    } catch (error) {
+      console.log(chalk.red(`删除失败: ${item}`));
+    }
+  }
+  
+  console.log(chalk.green(`✓ 已删除 ${deleted} 个项目`));
+  console.log(chalk.gray('已保留: .rag 目录'));
 }
 
 function handleHistoryCommand(state: ReplState): void {
@@ -1991,6 +2065,7 @@ function printHelp(): void {
   console.log('  /memory [stats|search <词>]  记忆系统');
   console.log('  /reload          重新加载配置文件');
   console.log('  /reset           清除当前会话历史');
+  console.log('  /delete [force]  清除工作空间（保留 .rag）');
   console.log('  /save            手动保存所有会话');
   console.log('  /sessions        列出已保存的会话');
   console.log('  /export [format] 导出会话 (markdown/json/txt)');
