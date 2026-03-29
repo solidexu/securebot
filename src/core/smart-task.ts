@@ -428,7 +428,8 @@ export function assessComplexityAdvanced(
     complexity = 'complex';
     reasons.push(`包含 ${actionCount} 个动作`);
     confidence += 0.15;
-  } else if (actionCount === 2) {
+  } else if (actionCount === 2 && complexity !== 'complex') {
+    // 只有当还没被判定为复杂任务时才设为 moderate
     complexity = 'moderate';
     reasons.push('包含 2 个动作');
     confidence += 0.1;
