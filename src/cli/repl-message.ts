@@ -141,7 +141,7 @@ interface ModelResult {
  * 
  * P1优化：明确定义"实质进展"的判断标准
  */
-function hasSubstantialProgress(result: ModelResult): boolean {
+function hasSubstantialProgress(result: ModelResult, lastRoundHadToolCall = false): boolean {
   // 1. 有工具调用 = 实质进展
   if (result.toolCalls && result.toolCalls.length > 0) {
     return true;
@@ -175,10 +175,12 @@ function hasSubstantialProgress(result: ModelResult): boolean {
   
   // 5. 输出步骤完成标记 = 实质进展
   // 例如: "✓ 已完成" 或 "步骤1完成"
-  // ★ 修复：不能只看关键词，必须有成功的工具调用
-  // 以前：模型说"成功"就算完成（即使工具调用失败）
-  // 现在：必须检查是否有工具调用，且工具调用成功
-  if (/(✓|✅|✔|完成|成功)/.test(content)) {
+  // ★ 修复：如果上一轮有工具调用，当前轮的确认消息应该被认为是实质进展
+  if (/(✓|✅|✔|完成|成功|已编辑|已创建|已修改|已更新)/.test(content)) {
+    // 上一轮有工具调用，当前轮是确认消息，认为是实质进展
+    if (lastRoundHadToolCall) {
+      return true;
+    }
     // 如果有工具调用，需要验证工具调用是否成功
     if (result.toolCalls && result.toolCalls.length > 0) {
       // 有工具调用，暂时不算完成，等下一轮验证结果
@@ -196,7 +198,7 @@ function hasSubstantialProgress(result: ModelResult): boolean {
   
   // 7. 输出创建/修改的内容 = 实质进展
   const actionPatterns = [
-    /已(创建|生成|编写|实现|添加|修改|更新)/,
+    /已(创建|生成|编写|实现|添加|修改|更新|编辑)/,
     /正在(创建|生成|编写|实现|添加|修改|更新)/,
     /成功(创建|生成|编写|实现|添加|修改|更新)/,
   ];
@@ -272,6 +274,11 @@ function isNormalConversationEnd(result: ModelResult, complexity: 'simple' | 'mo
 function analyzeNoProgressReason(result: ModelResult): string {
   const content = result.content?.trim() ?? '';
   
+  // 如果有工具调用，不应该认为是"无进展"
+  if (result.toolCalls && result.toolCalls.length > 0) {
+    return '模型正在执行操作';
+  }
+  
   // 检查是否在等待用户输入
   if (/\?|？$/.test(content) || /请问|需要确认|是否/.test(content)) {
     return '模型在等待您的回复或确认';
@@ -282,7 +289,7 @@ function analyzeNoProgressReason(result: ModelResult): string {
     return '模型可能在解释而非执行操作';
   }
   
-  // 检查是否输出过短
+  // 检查是否输出过短（但如果有成功的工具执行历史，不应该警告）
   if (content.length < 100) {
     return '模型输出过短，可能没有实质性操作';
   }
@@ -999,6 +1006,7 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
   let planAttempts = 0;
   let noToolCallRounds = 0;
   let consecutiveNoProgress = 0;  // 连续无进展轮数
+  let lastRoundHadToolCall = false;  // 上一轮是否有工具调用
   const MAX_PLAN_ATTEMPTS = 3;
   const MAX_NO_PROGRESS = 5;  // 连续 5 轮无进展则提示用户
   
@@ -1443,7 +1451,12 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       }
       
       // P1优化：使用统一的实质进展检测函数
-      const hasSubstantialContent = hasSubstantialProgress(result);
+      const hasSubstantialContent = hasSubstantialProgress(result, lastRoundHadToolCall);
+      
+      // 重置 lastRoundHadToolCall 标志（已经使用过了）
+      if (lastRoundHadToolCall) {
+        lastRoundHadToolCall = false;
+      }
       
       if (complexity === 'complex') {
         if (isTaskCompleted) {
@@ -1615,8 +1628,16 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         }
       } else {
         // 无实质性内容，计数
-        noToolCallRounds++;
-        consecutiveNoProgress++;  // 无实质内容，增加
+        // 但如果上一轮有工具调用，给模型一个宽限期，不增加计数
+        if (lastRoundHadToolCall) {
+          // 上一轮有工具调用，当前轮可能是确认消息，不认为是"无进展"
+          lastRoundHadToolCall = false;
+          noToolCallRounds = 0;
+          // 不增加 consecutiveNoProgress
+        } else {
+          noToolCallRounds++;
+          consecutiveNoProgress++;  // 无实质内容，增加
+        }
       }
       
       // 检查任务是否真的完成了
@@ -1736,6 +1757,7 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
     addAssistantMessage(session, result.content, result.toolCalls);
     noToolCallRounds = 0;
     consecutiveNoProgress = 0;  // 有工具调用，重置无进展计数
+    lastRoundHadToolCall = true;  // 标记这一轮有工具调用
     
     for (const toolCall of result.toolCalls) {
       const toolResult = await executeToolCall({
