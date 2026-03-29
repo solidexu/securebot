@@ -18,6 +18,8 @@ export interface ToolCallRecord {
   args: Record<string, unknown>;
   result: 'success' | 'failed';
   error?: string;
+  /** 输出内容（用于失败检测） */
+  output?: string;
   timestamp: string;
 }
 
@@ -1345,7 +1347,8 @@ export function recordToolCall(
   tool: string,
   args: Record<string, unknown>,
   result: 'success' | 'failed',
-  error?: string
+  error?: string,
+  output?: string
 ): void {
   const step = plan.steps.find(s => s.id === stepId);
   if (!step) return;
@@ -1359,6 +1362,7 @@ export function recordToolCall(
     args,
     result,
     error,
+    output, // ★ 保存输出内容用于失败检测
     timestamp: new Date().toISOString(),
   });
   
@@ -1461,9 +1465,24 @@ export function checkStepCompletion(
   }
   
   // ═══════════════════════════════════════════
-  // 验证通过
+  // 验证通过前，检查工具输出是否有问题
   // ═══════════════════════════════════════════
   if (/已完成[：:]/.test(modelOutput)) {
+    // ★ 检查工具输出是否有明显的失败信号
+    const failureSignals = detectFailureInToolCalls(successCalls);
+    if (failureSignals.length > 0) {
+      return {
+        complete: false,
+        errorType: 'tool_failed',
+        diagnosis: `工具输出显示问题: ${failureSignals.join(', ')}`,
+        guidance: buildGuidance('tool_failed', step, { 
+          failedTools: successCalls
+            .filter(c => detectFailureInToolCalls([c]).length > 0)
+            .map(c => ({ tool: c.tool, error: detectFailureInToolCalls([c]).join('; ') }))
+        }),
+      };
+    }
+    
     return {
       complete: true,
       diagnosis: '验证通过',
@@ -1486,6 +1505,45 @@ export function checkStepCompletion(
 function extractMentionedStep(modelOutput: string): string | null {
   const match = modelOutput.match(/已完成[：:]\s*(.+?)(?:\n|$)/);
   return match?.[1]?.trim() ?? null;
+}
+
+/**
+ * 检测工具输出中的失败信号
+ * 即使 exitCode 为 0，输出内容可能显示实际失败
+ */
+function detectFailureInToolCalls(calls: Array<{ tool: string; args?: Record<string, unknown>; result?: string; error?: string; output?: string }>): string[] {
+  const failures: string[] = [];
+  
+  for (const call of calls) {
+    // 合并所有输出内容
+    const output = [
+      call.output || '',
+      call.error || '',
+      JSON.stringify(call.args || {}),
+    ].join(' ');
+    
+    // 常见失败信号
+    const failurePatterns = [
+      { pattern: /JSON.*解析.*失败|JSON.*parse.*error|Expecting.*JSON/i, signal: 'JSON解析失败' },
+      { pattern: /共找到\s*0\s*(张|个|条)|找到\s*0\s*(张|个|条)|0\s*results?/i, signal: '未找到结果' },
+      { pattern: /未找到图片|未找到文件|未找到.*请检查/i, signal: '未找到目标' },
+      { pattern: /失败|failed|error:|错误|异常/i, signal: '执行失败' },
+      { pattern: /Exception|Traceback|SyntaxError|ModuleNotFoundError|ImportError/i, signal: '程序异常' },
+    ];
+    
+    for (const { pattern, signal } of failurePatterns) {
+      if (pattern.test(output)) {
+        // 排除误报：一些正常的输出可能包含这些词
+        // 例如 "测试失败" 可能是测试结果描述，而不是真正的失败
+        const isFalsePositive = /测试.*失败|预期.*失败|should.*fail/i.test(output);
+        if (!isFalsePositive) {
+          failures.push(signal);
+        }
+      }
+    }
+  }
+  
+  return [...new Set(failures)]; // 去重
 }
 
 /**

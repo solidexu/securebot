@@ -2114,13 +2114,16 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       if (currentPlan) {
         const currentStep = currentPlan.steps.find(s => s.status === 'in_progress');
         if (currentStep) {
+          // ★ 收集输出内容用于失败检测
+          const output = toolResult.content || toolResult.error || '';
           recordToolCall(
             currentPlan,
             currentStep.id,
             toolCall.name,
             toolCall.arguments,
             toolResult.success ? 'success' : 'failed',
-            toolResult.error
+            toolResult.error,
+            output
           );
           savePlanToSession(session, currentPlan);
         }
