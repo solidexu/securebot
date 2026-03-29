@@ -38,12 +38,16 @@ const BASE_IMAGE = 'python:3.11-slim';
  */
 const DOCKERFILE_TEMPLATE = `FROM ${BASE_IMAGE}
 
-# 安装常用工具
+# 安装常用工具和开发环境
 RUN apt-get update && apt-get install -y --no-install-recommends \\
     git \\
     curl \\
     wget \\
     vim \\
+    build-essential \\
+    g++ \\
+    make \\
+    cmake \\
     && rm -rf /var/lib/apt/lists/*
 
 # 安装 Node.js (用于前端项目)
