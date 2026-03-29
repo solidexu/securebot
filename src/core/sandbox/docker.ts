@@ -14,8 +14,7 @@ import type {
   SandboxStatus, 
   ResourceLimits 
 } from './types.js';
-import { DEFAULT_SANDBOX_CONFIG } from './types.js';
-import { PathFilterSandbox } from './index.js';
+import { PathFilterSandbox } from './path-filter.js';
 
 // ============ Docker 镜像配置 ============
 

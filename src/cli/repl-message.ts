@@ -865,6 +865,11 @@ export async function processMessage(
     
     // ★ 沙箱授权请求回调
     const requestSandboxAuth = async (path: string, operation: 'read' | 'write'): Promise<boolean> => {
+      // 如果沙箱不存在，默认允许
+      if (!sandbox) {
+        return true;
+      }
+      
       console.log();
       console.log(chalk.yellow('⚠️ 沙箱安全提示'));
       console.log();
