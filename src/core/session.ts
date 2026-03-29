@@ -283,7 +283,8 @@ export async function buildSystemPrompt(
   agent: AgentConfig,
   config: Config,
   availableTools: string[],
-  skillsPrompt?: string
+  skillsPrompt?: string,
+  sandboxInfo?: { type: 'docker' | 'path-filter' | 'none'; running: boolean }
 ): Promise<string> {
   const agentsDir = getAgentsDir(config);
   const memoryDir = getMemoryDir(config);
@@ -291,14 +292,19 @@ export async function buildSystemPrompt(
   const sessionsDir = getSessionsDir(config);
   
   // 检查是否使用 Docker 沙箱
+  // ★ 优先使用传入的 sandboxInfo，否则自己检测
   let usingDockerSandbox = false;
   let workspaceDir = agent.workspace.startsWith('/')
     ? agent.workspace
     : `${agentsDir}/${agent.workspace}`;
   let actualWorkspace = workspaceDir; // 实际外部路径
   
-  // 如果配置了 Docker 沙箱，检查是否可用
-  if (agent.sandbox?.enabled && agent.sandbox?.type === 'docker') {
+  // ★ 使用传入的沙箱状态
+  if (sandboxInfo?.type === 'docker' && sandboxInfo?.running) {
+    usingDockerSandbox = true;
+    workspaceDir = '/workspace'; // 容器内路径
+  } else if (agent.sandbox?.enabled && agent.sandbox?.type === 'docker') {
+    // 回退：自己检测 Docker 可用性（用于直接调用 buildSystemPrompt 的场景）
     try {
       const { DockerSandbox } = await import('./sandbox/index.js');
       const dockerAvailable = await DockerSandbox.isDockerAvailable();

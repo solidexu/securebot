@@ -660,22 +660,31 @@ export async function processMessage(
       // ★ Docker 沙箱：在容器内执行
       if (dockerSandboxAvailable && dockerSandboxInstance) {
         // 确保容器运行
-        await dockerSandboxInstance.start();
+        const started = await dockerSandboxInstance.start();
         
-        // 在容器内执行命令
-        const result = await dockerSandboxInstance.exec(`cd /workspace && ${simpleCmd.cmd}`);
-        
-        if (simpleCmd.showOutput) {
-          console.log(chalk.gray(`📁 工作区: /workspace (容器内)`));
-          console.log();
-          if (result.stdout) {
-            console.log(result.stdout);
-          }
-          if (result.stderr && result.exitCode !== 0) {
-            console.log(chalk.red(result.stderr));
+        if (!started) {
+          // ★ 沙箱启动失败，回退到主机执行
+          console.log(chalk.yellow('⚠️ 沙箱启动失败，使用主机环境'));
+          dockerSandboxAvailable = false;
+        } else {
+          // 在容器内执行命令
+          const result = await dockerSandboxInstance.exec(`cd /workspace && ${simpleCmd.cmd}`);
+          
+          if (simpleCmd.showOutput) {
+            console.log(chalk.gray(`📁 工作区: /workspace (容器内)`));
+            console.log();
+            if (result.stdout) {
+              console.log(result.stdout);
+            }
+            if (result.stderr && result.exitCode !== 0) {
+              console.log(chalk.red(result.stderr));
+            }
           }
         }
-      } else {
+      }
+      
+      // ★ 主机执行（沙箱不可用或启动失败）
+      if (!dockerSandboxAvailable || !dockerSandboxInstance) {
         // 主机执行
         const { getAgentsDir } = await import('../core/config.js');
         const agentsDir = getAgentsDir(state.config);
@@ -734,23 +743,29 @@ export async function processMessage(
         // ★ Docker 沙箱：在容器内执行
         if (dockerSandboxAvailable && dockerSandboxInstance) {
           // 确保容器运行
-          await dockerSandboxInstance.start();
+          const started = await dockerSandboxInstance.start();
           
-          // 转换命令中的路径
-          const translatedCommand = dockerSandboxInstance.translateCommand(trimmedMessage);
-          
-          console.log(chalk.gray(`📁 工作区: /workspace (容器内)`));
-          console.log();
-          
-          const result = await dockerSandboxInstance.exec(`cd /workspace && ${translatedCommand}`);
-          
-          if (result.stdout) {
-            console.log(result.stdout);
+          if (!started) {
+            // ★ 沙箱启动失败，回退到主机执行
+            console.log(chalk.yellow('⚠️ 沙箱启动失败，使用主机环境'));
+            dockerSandboxAvailable = false;
+          } else {
+            console.log(chalk.gray(`📁 工作区: /workspace (容器内)`));
+            console.log();
+            
+            const result = await dockerSandboxInstance.exec(`cd /workspace && ${trimmedMessage}`);
+            
+            if (result.stdout) {
+              console.log(result.stdout);
+            }
+            if (result.stderr && result.exitCode !== 0) {
+              console.log(chalk.red(result.stderr));
+            }
           }
-          if (result.stderr && result.exitCode !== 0) {
-            console.log(chalk.red(result.stderr));
-          }
-        } else {
+        }
+        
+        // ★ 主机执行（沙箱不可用或启动失败）
+        if (!dockerSandboxAvailable || !dockerSandboxInstance) {
           // 主机执行
           const { execSync } = await import('node:child_process');
           const { getAgentsDir } = await import('../core/config.js');
@@ -1027,12 +1042,21 @@ export async function processMessage(
     
     const skillsPrompt = await skillManager.buildSkillsPrompt(agent.id, activeSkills);
     
+    // ★ 构建沙箱状态信息
+    const sandboxStatus = sandbox?.getStatus();
+    const sandboxInfo = sandboxStatus?.type === 'docker' 
+      ? { type: 'docker' as const, running: true }
+      : sandboxStatus?.type === 'path-filter'
+      ? { type: 'path-filter' as const, running: true }
+      : { type: 'none' as const, running: false };
+    
     // 构建基础系统提示
     let baseSystemPrompt = await buildSystemPrompt(
       agent,
       state.config,
       getAvailableToolNames(agent, state.config.tools),
-      skillsPrompt
+      skillsPrompt,
+      sandboxInfo
     );
     
     // ★ P1优化：RAG 检索相关内容注入上下文

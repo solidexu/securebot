@@ -342,7 +342,7 @@ export class DockerSandbox extends PathFilterSandbox {
       // 启动容器
       const output = execSync(`docker ${args.join(' ')}`, {
         encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'ignore'],
+        stdio: ['ignore', 'pipe', 'pipe'],
       }).trim();
       
       this.containerId = output;
@@ -350,7 +350,9 @@ export class DockerSandbox extends PathFilterSandbox {
       
       return true;
     } catch (error) {
-      // 启动失败，静默返回 false
+      // 启动失败，打印错误信息
+      const msg = error instanceof Error ? error.message : String(error);
+      console.log(chalk.red(`沙箱容器启动失败: ${msg}`));
       return false;
     }
   }
