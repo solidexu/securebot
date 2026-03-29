@@ -578,6 +578,130 @@ export async function processMessage(
   const abortController = new AbortController();
   state.abortController = abortController;
   
+  // ★ 新增：简单命令快速路径（不调用大模型直接执行）
+  // 这些命令直接在工作区执行，不需要大模型参与
+  const simpleCommands: Record<string, { cmd: string; desc: string; showOutput: boolean }> = {
+    // 文件系统导航
+    'ls': { cmd: 'ls -la', desc: '列出当前目录内容', showOutput: true },
+    'll': { cmd: 'ls -la', desc: '列出当前目录内容', showOutput: true },
+    'la': { cmd: 'ls -la', desc: '列出当前目录内容', showOutput: true },
+    'l': { cmd: 'ls -la', desc: '列出当前目录内容', showOutput: true },
+    'pwd': { cmd: 'pwd', desc: '显示当前工作目录', showOutput: true },
+    'cd': { cmd: 'pwd', desc: '显示当前工作目录', showOutput: true },
+    
+    // 系统信息
+    'whoami': { cmd: 'whoami', desc: '显示当前用户', showOutput: true },
+    'date': { cmd: 'date', desc: '显示当前日期时间', showOutput: true },
+    'hostname': { cmd: 'hostname', desc: '显示主机名', showOutput: true },
+    'uname': { cmd: 'uname -a', desc: '显示系统信息', showOutput: true },
+    'df': { cmd: 'df -h', desc: '显示磁盘使用情况', showOutput: true },
+    'free': { cmd: 'free -h', desc: '显示内存使用情况', showOutput: true },
+    'uptime': { cmd: 'uptime', desc: '显示系统运行时间', showOutput: true },
+    
+    // Git 快捷命令
+    'gs': { cmd: 'git status', desc: 'Git 状态', showOutput: true },
+    'git status': { cmd: 'git status', desc: 'Git 状态', showOutput: true },
+    'gl': { cmd: 'git log --oneline -10', desc: 'Git 日志（最近10条）', showOutput: true },
+    'gb': { cmd: 'git branch', desc: 'Git 分支列表', showOutput: true },
+    'gd': { cmd: 'git diff --stat', desc: 'Git 差异统计', showOutput: true },
+    
+    // Python/Node 环境
+    'python --version': { cmd: 'python --version', desc: 'Python 版本', showOutput: true },
+    'python3 --version': { cmd: 'python3 --version', desc: 'Python3 版本', showOutput: true },
+    'node --version': { cmd: 'node --version', desc: 'Node 版本', showOutput: true },
+    'npm --version': { cmd: 'npm --version', desc: 'NPM 版本', showOutput: true },
+    'uv --version': { cmd: 'uv --version', desc: 'UV 版本', showOutput: true },
+    
+    // 终端控制
+    'clear': { cmd: 'clear', desc: '清屏', showOutput: false },
+    'cls': { cmd: 'clear', desc: '清屏', showOutput: false },
+  };
+  
+  const trimmedMessage = message.trim();
+  const lowerMessage = trimmedMessage.toLowerCase();
+  const simpleCmd = simpleCommands[lowerMessage] || simpleCommands[trimmedMessage];
+  
+  if (simpleCmd) {
+    // 简单命令直接执行，不调用大模型
+    console.log(chalk.gray(`⚡ 快速执行: ${simpleCmd.desc}`));
+    console.log();
+    
+    try {
+      const { execSync } = await import('node:child_process');
+      const workspace = agent.workspace || process.cwd();
+      
+      if (simpleCmd.showOutput) {
+        console.log(chalk.gray(`📁 工作区: ${workspace}`));
+        console.log();
+      }
+      
+      const output = execSync(simpleCmd.cmd, {
+        cwd: workspace,
+        encoding: 'utf-8',
+        timeout: 10000,
+        stdio: simpleCmd.showOutput ? ['pipe', 'pipe', 'pipe'] : 'ignore',
+      });
+      
+      if (simpleCmd.showOutput && output) {
+        console.log(output);
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      // 忽略 clear 命令的错误
+      if (!simpleCmd.cmd.includes('clear')) {
+        console.log(chalk.red(`执行失败: ${errorMsg}`));
+      }
+    }
+    
+    state.executing = false;
+    return;
+  }
+  
+  // ★ 扩展：带参数的简单命令模式
+  // 匹配 "cat <file>", "head <file>", "tail <file>" 等
+  const quickCmdPatterns = [
+    { pattern: /^cat\s+(.+)$/, desc: '显示文件内容', dangerous: false },
+    { pattern: /^head\s+(-n\s+\d+\s+)?(.+)$/, desc: '显示文件开头', dangerous: false },
+    { pattern: /^tail\s+(-n\s+\d+\s+)?(.+)$/, desc: '显示文件结尾', dangerous: false },
+    { pattern: /^less\s+(.+)$/, desc: '分页查看文件', dangerous: false },
+    { pattern: /^wc\s+(.+)$/, desc: '统计文件行数/字数', dangerous: false },
+    { pattern: /^find\s+(.+)$/, desc: '查找文件', dangerous: false },
+    { pattern: /^tree\s*(.*)$/, desc: '显示目录树', dangerous: false },
+    { pattern: /^du\s+(.+)$/, desc: '显示目录大小', dangerous: false },
+  ];
+  
+  for (const { pattern, desc } of quickCmdPatterns) {
+    const match = trimmedMessage.match(pattern);
+    if (match) {
+      console.log(chalk.gray(`⚡ 快速执行: ${desc}`));
+      console.log();
+      
+      try {
+        const { execSync } = await import('node:child_process');
+        const workspace = agent.workspace || process.cwd();
+        
+        console.log(chalk.gray(`📁 工作区: ${workspace}`));
+        console.log();
+        
+        const output = execSync(trimmedMessage, {
+          cwd: workspace,
+          encoding: 'utf-8',
+          timeout: 30000,
+        });
+        
+        if (output) {
+          console.log(output);
+        }
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.log(chalk.red(`执行失败: ${errorMsg}`));
+      }
+      
+      state.executing = false;
+      return;
+    }
+  }
+  
   try {
     const session = getOrCreateMainSession(agent);
     
