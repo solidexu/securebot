@@ -39,7 +39,84 @@ async function validatePath(
                      path.startsWith('~') ||
                      /^[A-Za-z]:[/\\]/.test(path);
   
-  // 如果不是绝对路径，检查是否"看起来像"绝对路径
+  // ★ Docker 沙箱：强制使用容器内路径
+  const sandboxStatus = sandbox?.getStatus();
+  if (sandboxStatus?.type === 'docker') {
+    const { DockerSandbox } = await import('../core/sandbox/docker.js');
+    const dockerSandbox = sandbox as unknown as typeof DockerSandbox.prototype;
+    const externalWorkspace = dockerSandbox.getWorkspace();
+    
+    // 检查是否使用了外部路径
+    if (path.includes(externalWorkspace) || path.includes('/disk0') || path.includes('/home') && !path.startsWith('/workspace')) {
+      return {
+        valid: false,
+        resolved: path,
+        error: `⚠️ 沙箱路径错误：你正在 Docker 容器内运行，必须使用容器内路径！
+
+路径 "${path}" 包含外部路径，这在沙箱环境中是不允许的。
+
+**正确做法**：
+- 使用 \`/workspace/...\` 作为文件路径
+- 例如：\`/workspace/file.py\` 而不是 \`${externalWorkspace}/file.py\`
+- 或使用相对路径：\`file.py\`（相对于 /workspace）
+
+请重新使用正确的容器内路径。`,
+      };
+    }
+    
+    // 解析路径：只允许 /workspace 或相对路径
+    let containerPath: string;
+    if (path.startsWith('/workspace')) {
+      containerPath = path;
+    } else if (isAbsolute && !path.startsWith('/workspace')) {
+      // 其他绝对路径，拒绝
+      return {
+        valid: false,
+        resolved: path,
+        error: `⚠️ 沙箱路径错误：只能访问 /workspace 目录！
+
+路径 "${path}" 不在 /workspace 内，访问被拒绝。
+
+**正确做法**：
+- 使用 \`/workspace/...\` 作为路径
+- 或使用相对路径（相对于 /workspace）`,
+      };
+    } else {
+      // 相对路径，相对于 /workspace 解析
+      containerPath = `/workspace/${path}`;
+    }
+    
+    // 转换为外部路径进行实际操作
+    const hostPath = dockerSandbox.mapFromContainer(containerPath);
+    
+    // 检查权限（使用外部路径）
+    const sandboxResult = sandbox.checkAccess({ path: hostPath, operation });
+    if (!sandboxResult.allowed && !sandboxResult.requiresConfirmation) {
+      return {
+        valid: false,
+        resolved: containerPath,
+        error: `沙箱拒绝访问: ${path}\n原因: ${sandboxResult.reason}`,
+        sandboxResult,
+      };
+    }
+    
+    if (sandboxResult.requiresConfirmation && context.requestSandboxAuth) {
+      const granted = await context.requestSandboxAuth(hostPath, operation);
+      if (!granted) {
+        return {
+          valid: false,
+          resolved: containerPath,
+          error: `沙箱拒绝访问: ${path}\n原因: 用户拒绝授权`,
+          sandboxResult,
+        };
+      }
+      sandbox.allowDir(hostPath, operation === 'write' ? 'readwrite' : 'readonly', '用户授权');
+    }
+    
+    return { valid: true, resolved: containerPath, hostPath };
+  }
+  
+  // 如果不是绝对路径，检查是否"看起来像"绝对路径（非 Docker 沙箱）
   if (!isAbsolute && !path.startsWith('.')) {
     const withSlash = '/' + path;
     if (existsSync(withSlash) || existsSync(resolve(withSlash))) {
@@ -57,7 +134,7 @@ async function validatePath(
     resolved = resolve(workspace, normalizedPath);
   }
   
-  // ★ 沙箱检查
+  // ★ 沙箱检查（非 Docker）
   if (sandbox) {
     const sandboxResult = sandbox.checkAccess({ path: resolved, operation });
     
@@ -81,29 +158,6 @@ async function validatePath(
         error: `沙箱拒绝访问: ${resolved}\n原因: ${sandboxResult.reason}`,
         sandboxResult,
       };
-    }
-    
-    // ★ Docker 沙箱：转换路径到容器内路径
-    const sandboxStatus = sandbox.getStatus();
-    if (sandboxStatus?.type === 'docker') {
-      const { DockerSandbox } = await import('../core/sandbox/docker.js');
-      const dockerSandbox = sandbox as unknown as typeof DockerSandbox.prototype;
-      
-      // ★ 判断 resolved 是容器内路径还是外部路径
-      let containerPath: string;
-      let hostPath: string;
-      
-      if (resolved.startsWith('/workspace')) {
-        // resolved 已经是容器内路径，转换回外部路径
-        containerPath = resolved;
-        hostPath = dockerSandbox.mapFromContainer(resolved);
-      } else {
-        // resolved 是外部路径，转换为容器内路径
-        containerPath = dockerSandbox.mapToContainer(resolved);
-        hostPath = resolved;
-      }
-      
-      return { valid: true, resolved: containerPath, hostPath };
     }
   }
   

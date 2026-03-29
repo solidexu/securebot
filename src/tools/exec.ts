@@ -212,21 +212,35 @@ export const execTool: Tool = {
     // ★ 检查是否使用 Docker 沙箱
     const sandboxStatus = context.sandbox?.getStatus();
     if (sandboxStatus?.type === 'docker') {
-      // ★ Docker 沙箱：在容器内执行
       const { DockerSandbox } = await import('../core/sandbox/docker.js');
       const dockerSandbox = context.sandbox as unknown as DockerSandbox;
       
-      // ★ 转换命令中的路径
-      const translatedCommand = dockerSandbox.translateCommand(command);
+      // ★ 检查命令是否包含外部路径（强制使用容器内路径）
+      const workspace = dockerSandbox.getWorkspace();
+      if (command.includes(workspace) || command.includes('/disk0') || command.includes('/home')) {
+        return {
+          success: false,
+          error: `⚠️ 沙箱路径错误：你正在 Docker 容器内运行，必须使用容器内路径！
+
+命令中包含了外部路径，这在沙箱环境中是不允许的。
+
+**正确做法**：
+- 使用 \`/workspace\` 作为工作目录
+- 例如：\`mkdir -p /workspace/project\` 而不是 \`mkdir -p ${workspace}/project\`
+
+请重新使用正确的容器内路径执行命令。`,
+        };
+      }
       
-      // ★ 转换工作目录
+      // ★ 只允许 /workspace 路径
       let containerWorkDir = '/workspace';
       if (cwd) {
-        containerWorkDir = dockerSandbox.mapToContainer(resolve(context.workspace, cwd));
+        // cwd 应该已经是容器内路径
+        containerWorkDir = cwd.startsWith('/') ? cwd : `/workspace/${cwd}`;
       }
       
       // 在容器内执行命令
-      const result = await dockerSandbox.exec(`cd ${containerWorkDir} && ${translatedCommand}`, timeout);
+      const result = await dockerSandbox.exec(`cd ${containerWorkDir} && ${command}`, timeout);
       
       let output = '';
       if (result.stdout) {
@@ -244,7 +258,6 @@ export const execTool: Tool = {
           content: output,
           metadata: {
             command,
-            translatedCommand,
             exitCode: result.exitCode,
             sandbox: 'docker',
           },
@@ -260,7 +273,6 @@ export const execTool: Tool = {
         content: output || '(无输出)',
         metadata: {
           command,
-          translatedCommand,
           exitCode: result.exitCode,
           sandbox: 'docker',
         },
