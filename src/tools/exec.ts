@@ -211,12 +211,22 @@ export const execTool: Tool = {
     
     // ★ 检查是否使用 Docker 沙箱
     const sandboxStatus = context.sandbox?.getStatus();
-    if (sandboxStatus?.type === 'docker' && sandboxStatus?.containerId) {
-      // 在 Docker 容器内执行命令
+    if (sandboxStatus?.type === 'docker') {
+      // ★ Docker 沙箱：在容器内执行
       const { DockerSandbox } = await import('../core/sandbox/docker.js');
       const dockerSandbox = context.sandbox as unknown as DockerSandbox;
       
-      const result = await dockerSandbox.exec(command, timeout);
+      // ★ 转换命令中的路径
+      const translatedCommand = dockerSandbox.translateCommand(command);
+      
+      // ★ 转换工作目录
+      let containerWorkDir = '/workspace';
+      if (cwd) {
+        containerWorkDir = dockerSandbox.mapToContainer(resolve(context.workspace, cwd));
+      }
+      
+      // 在容器内执行命令
+      const result = await dockerSandbox.exec(`cd ${containerWorkDir} && ${translatedCommand}`, timeout);
       
       let output = '';
       if (result.stdout) {
@@ -234,6 +244,7 @@ export const execTool: Tool = {
           content: output,
           metadata: {
             command,
+            translatedCommand,
             exitCode: result.exitCode,
             sandbox: 'docker',
           },
@@ -249,13 +260,14 @@ export const execTool: Tool = {
         content: output || '(无输出)',
         metadata: {
           command,
+          translatedCommand,
           exitCode: result.exitCode,
           sandbox: 'docker',
         },
       };
     }
     
-    // 主机执行命令
+    // ★ 主机执行命令
     const result = await runCommand(command, workDir, timeout);
     
     // 构建输出

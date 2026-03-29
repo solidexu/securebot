@@ -102,6 +102,79 @@ export class DockerSandbox extends PathFilterSandbox {
   }
 
   /**
+   * ★ 路径映射：将外部路径映射到容器内路径
+   * 
+   * 工作区 /disk0/.../py/ -> /workspace/
+   */
+  mapToContainer(hostPath: string): string {
+    const workspace = this.getWorkspace();
+    
+    // 如果路径在工作区内，映射到 /workspace
+    if (hostPath.startsWith(workspace)) {
+      const relativePath = hostPath.slice(workspace.length);
+      return `/workspace${relativePath}`;
+    }
+    
+    // 检查允许的目录挂载
+    for (const dir of this.getAllowedDirs()) {
+      if (hostPath.startsWith(dir.path)) {
+        const relativePath = hostPath.slice(dir.path.length);
+        const mountPoint = dir.path.startsWith('/') ? dir.path : `/mnt${dir.path}`;
+        return `${mountPoint}${relativePath}`;
+      }
+    }
+    
+    // 其他路径保持不变（会被拒绝）
+    return hostPath;
+  }
+
+  /**
+   * ★ 路径映射：将容器内路径映射回外部路径
+   */
+  mapFromContainer(containerPath: string): string {
+    // /workspace/... -> 工作区路径
+    if (containerPath.startsWith('/workspace')) {
+      const relativePath = containerPath.slice('/workspace'.length);
+      return `${this.getWorkspace()}${relativePath}`;
+    }
+    
+    // 检查挂载点
+    for (const dir of this.getAllowedDirs()) {
+      const mountPoint = dir.path.startsWith('/') ? dir.path : `/mnt${dir.path}`;
+      if (containerPath.startsWith(mountPoint)) {
+        const relativePath = containerPath.slice(mountPoint.length);
+        return `${dir.path}${relativePath}`;
+      }
+    }
+    
+    return containerPath;
+  }
+
+  /**
+   * ★ 命令路径转换：将命令中的路径转换为容器内路径
+   */
+  translateCommand(command: string): string {
+    const workspace = this.getWorkspace();
+    
+    // 替换工作区路径
+    let translated = command.replace(
+      new RegExp(workspace.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'),
+      '/workspace'
+    );
+    
+    // 替换允许的目录路径
+    for (const dir of this.getAllowedDirs()) {
+      const mountPoint = dir.path.startsWith('/') ? dir.path : `/mnt${dir.path}`;
+      translated = translated.replace(
+        new RegExp(dir.path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'),
+        mountPoint
+      );
+    }
+    
+    return translated;
+  }
+
+  /**
    * 检查 Docker 是否可用
    */
   static async isDockerAvailable(): Promise<boolean> {

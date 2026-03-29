@@ -16,13 +16,19 @@ import type { AccessResult } from '../core/sandbox/index.js';
 
 /**
  * 验证路径是否在 workspace 或允许的路径内
- * 支持沙箱检查
+ * 支持沙箱检查和路径转换
  */
 async function validatePath(
   path: string, 
   context: ToolContext,
   operation: 'read' | 'write' = 'read'
-): Promise<{ valid: boolean; resolved: string; error?: string; sandboxResult?: AccessResult }> {
+): Promise<{ 
+  valid: boolean; 
+  resolved: string;  // 容器内路径（Docker沙箱）或实际路径
+  hostPath?: string; // 外部主机路径（仅 Docker 沙箱）
+  error?: string; 
+  sandboxResult?: AccessResult;
+}> {
   const workspace = context.workspace;
   const allowedPaths = context.allowedPaths;
   const sandbox = context.sandbox;
@@ -75,6 +81,15 @@ async function validatePath(
         error: `沙箱拒绝访问: ${resolved}\n原因: ${sandboxResult.reason}`,
         sandboxResult,
       };
+    }
+    
+    // ★ Docker 沙箱：转换路径到容器内路径
+    const sandboxStatus = sandbox.getStatus();
+    if (sandboxStatus?.type === 'docker') {
+      const { DockerSandbox } = await import('../core/sandbox/docker.js');
+      const dockerSandbox = sandbox as unknown as typeof DockerSandbox.prototype;
+      const containerPath = dockerSandbox.mapToContainer(resolved);
+      return { valid: true, resolved: containerPath, hostPath: resolved };
     }
   }
   
