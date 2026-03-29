@@ -1789,6 +1789,11 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
               
               // ★ 使用状态机完成步骤
               if (ctx.stateMachine) {
+                // 如果步骤是 pending，先调用 startStep 将其标记为 in_progress
+                if (currentStep.status === 'pending') {
+                  console.log(chalk.gray(`[DEBUG] 步骤状态为 pending，先调用 startStep`));
+                  ctx.stateMachine.startStep(currentStep.id);
+                }
                 const completeResult = ctx.stateMachine.completeStep();
                 const updatedPlan = ctx.stateMachine.getPlan();
                 if (updatedPlan) {
