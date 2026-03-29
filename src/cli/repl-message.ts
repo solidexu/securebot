@@ -830,8 +830,38 @@ export async function processMessage(
       await sessionStorage.saveSession(session);
     }
     
-    // ★ 创建沙箱实例
-    const sandbox = getSandbox(agent.id, agent.workspace);
+    // ★ 创建沙箱实例（根据配置和 Docker 可用性自动选择）
+    const sandboxConfig = agent.sandbox;
+    const sandboxEnabled = sandboxConfig?.enabled !== false; // 默认启用
+    const preferDocker = sandboxConfig?.type === 'docker' || sandboxConfig?.type === undefined;
+    
+    let sandbox: import('../core/sandbox/index.js').PathFilterSandbox | null = null;
+    
+    if (sandboxEnabled) {
+      if (preferDocker) {
+        // 尝试使用 Docker 沙箱
+        const { getDockerSandbox } = await import('../core/sandbox/index.js');
+        const dockerSandbox = await getDockerSandbox(agent.id, agent.workspace, {
+          resources: sandboxConfig?.resources,
+          network: sandboxConfig?.networkEnabled === false ? { enabled: false } : undefined,
+        });
+        
+        if (dockerSandbox) {
+          // 启动容器
+          const started = await dockerSandbox.start();
+          if (started) {
+            sandbox = dockerSandbox;
+            console.log(chalk.gray(`🔒 沙箱: Docker 容器`));
+          }
+        }
+      }
+      
+      // Docker 不可用或配置为 path-filter
+      if (!sandbox) {
+        sandbox = getSandbox(agent.id, agent.workspace);
+        console.log(chalk.gray(`🔒 沙箱: 路径过滤`));
+      }
+    }
     
     // ★ 沙箱授权请求回调
     const requestSandboxAuth = async (path: string, operation: 'read' | 'write'): Promise<boolean> => {

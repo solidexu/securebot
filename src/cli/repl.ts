@@ -22,6 +22,7 @@ import { processMessage } from './repl-message.js';
 import { loadPersistedSessions, saveAllSessions, showConfirmationDialog } from './repl-session.js';
 import { ContextualHints, MessageFormatter } from './message-formatter.js';
 import { RalphExecutor } from '../ralph/index.js';
+import { DockerSandbox } from '../core/sandbox/index.js';
 
 // ============ REPL 启动 ============
 
@@ -69,6 +70,25 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
   // 初始化会话存储
   const sessionStorage = getSessionStorage();
   await sessionStorage.initialize();
+
+  // ★ 自动检测沙箱环境
+  const dockerAvailable = await DockerSandbox.isDockerAvailable();
+  
+  if (dockerAvailable) {
+    // 检查沙箱镜像是否存在
+    try {
+      const { execSync } = await import('node:child_process');
+      execSync('docker image inspect securebot-sandbox:latest', { stdio: 'ignore' });
+      console.log(chalk.green('✓ Docker 沙箱可用'));
+    } catch {
+      // 镜像不存在，提示用户初始化
+      console.log(chalk.yellow('⚠ Docker 已安装但沙箱镜像未构建'));
+      console.log(chalk.gray('  运行 `securebot sandbox init` 构建沙箱镜像'));
+      console.log(chalk.gray('  当前使用路径过滤沙箱'));
+    }
+  } else {
+    console.log(chalk.gray('沙箱模式: 路径过滤（Docker 不可用）'));
+  }
 
   // 初始化记忆系统（使用 reconfigure 确保使用正确的配置路径）
   const memoryManager = reconfigureMemoryManager(config);

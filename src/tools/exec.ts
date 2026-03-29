@@ -209,6 +209,53 @@ export const execTool: Tool = {
     // 执行命令
     context.logger.info(`执行命令: ${command}`);
     
+    // ★ 检查是否使用 Docker 沙箱
+    const sandboxStatus = context.sandbox?.getStatus();
+    if (sandboxStatus?.type === 'docker' && sandboxStatus?.containerId) {
+      // 在 Docker 容器内执行命令
+      const { DockerSandbox } = await import('../core/sandbox/docker.js');
+      const dockerSandbox = context.sandbox as unknown as DockerSandbox;
+      
+      const result = await dockerSandbox.exec(command, timeout);
+      
+      let output = '';
+      if (result.stdout) {
+        output += `STDOUT:\n${result.stdout}`;
+      }
+      if (result.stderr) {
+        output += `${output ? '\n' : ''}STDERR:\n${result.stderr}`;
+      }
+      
+      if (result.exitCode !== 0) {
+        const errorMsg = result.stderr || result.stdout || '命令执行失败';
+        return {
+          success: false,
+          error: errorMsg,
+          content: output,
+          metadata: {
+            command,
+            exitCode: result.exitCode,
+            sandbox: 'docker',
+          },
+        };
+      }
+      
+      if (result.exitCode !== null) {
+        output += `\n退出码: ${result.exitCode}`;
+      }
+      
+      return {
+        success: true,
+        content: output || '(无输出)',
+        metadata: {
+          command,
+          exitCode: result.exitCode,
+          sandbox: 'docker',
+        },
+      };
+    }
+    
+    // 主机执行命令
     const result = await runCommand(command, workDir, timeout);
     
     // 构建输出

@@ -147,6 +147,20 @@ export interface AgentConfig {
   rag?: RAGConfig;
   /** 技能列表（技能 ID） */
   skills?: string[];
+  /** 沙箱配置 */
+  sandbox?: {
+    /** 是否启用沙箱 */
+    enabled?: boolean;
+    /** 沙箱类型 */
+    type?: 'docker' | 'path-filter';
+    /** 资源限制 */
+    resources?: {
+      memory?: string;
+      cpu?: number;
+    };
+    /** 是否启用网络 */
+    networkEnabled?: boolean;
+  };
 }
 
 /**

@@ -97,6 +97,10 @@ export const DEFAULT_AGENTS: AgentConfig[] = [
       profile: 'coding',
       deny: ['group:web'],
     },
+    sandbox: {
+      enabled: true,
+      type: 'docker',  // 优先使用 Docker，不可用时自动回退
+    },
   },
   {
     id: 'support',
@@ -105,6 +109,10 @@ export const DEFAULT_AGENTS: AgentConfig[] = [
     tools: {
       profile: 'messaging',
       deny: ['group:fs', 'group:runtime', 'group:web'],
+    },
+    sandbox: {
+      enabled: true,
+      type: 'path-filter',  // 客服助手只需路径过滤
     },
   },
   {
@@ -115,6 +123,10 @@ export const DEFAULT_AGENTS: AgentConfig[] = [
       profile: 'full',
       deny: ['group:web'],
     },
+    sandbox: {
+      enabled: true,
+      type: 'docker',
+    },
   },
   {
     id: 'finance',
@@ -124,6 +136,10 @@ export const DEFAULT_AGENTS: AgentConfig[] = [
       profile: 'messaging',
       allow: ['group:fs'],
       deny: ['group:runtime', 'group:web'],
+    },
+    sandbox: {
+      enabled: true,
+      type: 'path-filter',
     },
   },
 ];
