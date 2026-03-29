@@ -675,10 +675,8 @@ async function handleRagCommand(state: ReplState, action?: string, args?: string
       console.log(chalk.red('此操作将删除所有已索引的文档，不可恢复！'));
       console.log();
       
-      const answer = await import('node:readline/promises').then(rl => 
-        rl.createInterface({ input: process.stdin, output: process.stdout })
-          .question(chalk.cyan('确认清空？(yes/no): '))
-      );
+      // ★ 使用已有的 rl 接口
+      const answer = await _rl.question(chalk.cyan('确认清空？(yes/no): '));
       
       if (answer.toLowerCase() === 'yes') {
         await ragManager.clearAgent(agent.id);
