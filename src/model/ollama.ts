@@ -157,7 +157,7 @@ export class OllamaAdapter implements ModelAdapter {
   } = {}) {
     this.baseUrl = options.baseUrl ?? 'http://localhost:11434';
     this.defaultModel = options.defaultModel ?? 'qwen3.5-35b-a3b';
-    this.timeout = options.timeout ?? 300000; // 5 分钟默认超时
+    this.timeout = options.timeout ?? 180000; // 3 分钟默认超时（从 5 分钟减少）
   }
 
   /**
@@ -355,6 +355,7 @@ export class OllamaAdapter implements ModelAdapter {
     // 设置超时
     const timeoutId = setTimeout(() => {
       if (!abortController.signal.aborted) {
+        console.log(`\n⏱️ 模型响应超时（${Math.round(this.timeout / 1000)}秒），正在中断...`);
         abortController.abort();
       }
     }, this.timeout);

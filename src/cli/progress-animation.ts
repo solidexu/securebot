@@ -17,6 +17,8 @@ export class ProgressAnimation {
   private abortSignal?: AbortSignal;
   private stopped = false;
   private abortHandler?: () => void;
+  private hintShown = false; // 是否已显示提示
+  private hintInterval: ReturnType<typeof setInterval> | null = null;
   
   constructor(message: string = '思考中', abortSignal?: AbortSignal) {
     this.message = message;
@@ -51,6 +53,14 @@ export class ProgressAnimation {
       }
       this.render();
     }, 80);
+    
+    // 30秒后显示提示
+    this.hintInterval = setInterval(() => {
+      if (!this.hintShown && Date.now() - this.startTime > 30000) {
+        this.hintShown = true;
+        console.log(chalk.gray('\n  提示: 按 Ctrl+C 可中断当前操作'));
+      }
+    }, 10000);
     
     // 立即显示第一帧
     this.render();
@@ -91,6 +101,11 @@ export class ProgressAnimation {
     if (this.interval) {
       clearInterval(this.interval);
       this.interval = null;
+    }
+    
+    if (this.hintInterval) {
+      clearInterval(this.hintInterval);
+      this.hintInterval = null;
     }
     
     // ★ 移除 abort 监听器
