@@ -124,3 +124,53 @@ export {
   type UnifiedSearchResult,
   type UnifiedStoreConfig,
 } from './unified-store.js';
+
+// 经验有效性评估
+export {
+  ExperienceEvaluator,
+  ExperienceMerger,
+  getExperienceEvaluator,
+  getExperienceMerger,
+  type DimensionScores,
+  type ExperienceScore,
+  type EvaluatorConfig,
+  type SimilarGroup,
+  type MergedExperience,
+} from './experience-evaluator.js';
+
+// 技能版本管理
+export {
+  SkillVersionManager,
+  getSkillVersionManager,
+  resetSkillVersionManager,
+  type SkillVersion,
+  type SkillDiff,
+  type VersionHistory,
+  type VersionManagerConfig,
+} from './skill-version.js';
+
+// 用户确认管理
+export {
+  UserConfirmationManager,
+  getUserConfirmationManager,
+  resetUserConfirmationManager,
+  buildSkillGenerationRequest,
+  buildSkillMergeRequest,
+  buildSkillRetireRequest,
+  type ConfirmationType,
+  type ConfirmationRequest,
+  type ConfirmationResult,
+  type ConfirmationManagerConfig,
+} from './user-confirmation.js';
+
+// 经验分类体系
+export {
+  ExperienceTaxonomy,
+  getExperienceTaxonomy,
+  resetExperienceTaxonomy,
+  type ExperienceCategory,
+  type ClassificationDimension,
+  type ClassificationResult,
+  type CategoryTreeNode,
+  type TaxonomyConfig,
+} from './experience-taxonomy.js';

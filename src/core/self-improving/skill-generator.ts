@@ -121,6 +121,127 @@ const SKILL_TEMPLATES: Record<string, {
 - 风险控制`,
     defaultTools: ['fs_write'],
   },
+  // ★ 新增模板
+  testing: {
+    namePrefix: '测试',
+    promptTemplate: `你是一个专业的测试助手。
+
+## 技能说明
+{description}
+
+## 测试方法
+{bestPractices}
+
+## 测试工具
+{tools}
+
+## 测试原则
+- 测试覆盖率优先
+- 边界条件必测
+- 异常路径覆盖
+- 测试命名清晰`,
+    defaultTools: ['fs_read', 'fs_write', 'exec'],
+  },
+  documentation: {
+    namePrefix: '文档',
+    promptTemplate: `你是一个专业的文档编写助手。
+
+## 技能说明
+{description}
+
+## 文档规范
+{bestPractices}
+
+## 文档工具
+{tools}
+
+## 文档原则
+- 结构清晰，层次分明
+- 示例丰富，易于理解
+- 及时更新，保持同步
+- 面向读者，简明扼要`,
+    defaultTools: ['fs_read', 'fs_write'],
+  },
+  refactoring: {
+    namePrefix: '重构',
+    promptTemplate: `你是一个专业的代码重构助手。
+
+## 技能说明
+{description}
+
+## 重构方法
+{bestPractices}
+
+## 重构工具
+{tools}
+
+## 重构原则
+- 小步重构，频繁测试
+- 保持功能不变
+- 提高代码可读性
+- 消除重复代码`,
+    defaultTools: ['fs_read', 'fs_write', 'exec'],
+  },
+  deployment: {
+    namePrefix: '部署',
+    promptTemplate: `你是一个专业的部署助手。
+
+## 技能说明
+{description}
+
+## 部署流程
+{bestPractices}
+
+## 部署工具
+{tools}
+
+## 部署原则
+- 环境一致性
+- 回滚机制
+- 监控告警
+- 安全配置`,
+    defaultTools: ['exec', 'fs_read'],
+  },
+  optimization: {
+    namePrefix: '优化',
+    promptTemplate: `你是一个专业的性能优化助手。
+
+## 技能说明
+{description}
+
+## 优化方法
+{bestPractices}
+
+## 优化工具
+{tools}
+
+## 优化原则
+- 先测量，后优化
+- 找到真正的瓶颈
+- 权衡时间和空间
+- 保持代码可读`,
+    defaultTools: ['fs_read', 'exec'],
+  },
+  integration: {
+    namePrefix: '集成',
+    promptTemplate: `你是一个专业的系统集成助手。
+
+## 技能说明
+{description}
+
+## 集成方法
+{bestPractices}
+
+## 集成工具
+{tools}
+
+## 集成原则
+- 接口清晰
+- 错误处理完善
+- 文档齐全
+- 版本兼容`,
+    defaultTools: ['fs_read', 'fs_write', 'exec'],
+  },
 };
 
 // ============ 技能生成器 ============
