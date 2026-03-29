@@ -629,10 +629,17 @@ export async function processMessage(
   
   try {
     const { DockerSandbox, getDockerSandbox } = await import('../core/sandbox/index.js');
+    const { getAgentsDir } = await import('../core/config.js');
     const dockerAvailable = await DockerSandbox.isDockerAvailable();
     
     if (dockerAvailable) {
-      const sandbox = await getDockerSandbox(agent.id, agent.workspace);
+      // ★ 解析 workspace 为完整路径
+      const agentsDir = getAgentsDir(state.config);
+      const fullWorkspacePath = agent.workspace.startsWith('/')
+        ? agent.workspace
+        : `${agentsDir}/${agent.workspace}`;
+      
+      const sandbox = await getDockerSandbox(agent.id, fullWorkspacePath);
       if (sandbox) {
         dockerSandboxInstance = sandbox as DockerSandboxType;
         dockerSandboxAvailable = true;
@@ -670,7 +677,11 @@ export async function processMessage(
         }
       } else {
         // 主机执行
-        const workspace = agent.workspace || process.cwd();
+        const { getAgentsDir } = await import('../core/config.js');
+        const agentsDir = getAgentsDir(state.config);
+        const workspace = agent.workspace.startsWith('/')
+          ? agent.workspace
+          : `${agentsDir}/${agent.workspace}`;
         
         if (simpleCmd.showOutput) {
           console.log(chalk.gray(`📁 工作区: ${workspace}`));
@@ -742,7 +753,11 @@ export async function processMessage(
         } else {
           // 主机执行
           const { execSync } = await import('node:child_process');
-          const workspace = agent.workspace || process.cwd();
+          const { getAgentsDir } = await import('../core/config.js');
+          const agentsDir = getAgentsDir(state.config);
+          const workspace = agent.workspace.startsWith('/')
+            ? agent.workspace
+            : `${agentsDir}/${agent.workspace}`;
           
           console.log(chalk.gray(`📁 工作区: ${workspace}`));
           console.log();
@@ -905,7 +920,15 @@ export async function processMessage(
       if (preferDocker) {
         // 尝试使用 Docker 沙箱
         const { getDockerSandbox } = await import('../core/sandbox/index.js');
-        const dockerSandbox = await getDockerSandbox(agent.id, agent.workspace, {
+        const { getAgentsDir } = await import('../core/config.js');
+        
+        // ★ 解析 workspace 为完整路径
+        const agentsDir = getAgentsDir(state.config);
+        const fullWorkspacePath = agent.workspace.startsWith('/')
+          ? agent.workspace
+          : `${agentsDir}/${agent.workspace}`;
+        
+        const dockerSandbox = await getDockerSandbox(agent.id, fullWorkspacePath, {
           resources: sandboxConfig?.resources,
           network: sandboxConfig?.networkEnabled === false ? { enabled: false } : undefined,
         });
@@ -2499,10 +2522,17 @@ async function executeToolCall(ctx: ToolCallExecuteContext): Promise<ToolCallRes
     
     const toolStartTime = Date.now();
     const rootDir = getRootDir(state.config);
+    
+    // ★ Docker 沙箱时使用容器内路径
+    const sandboxStatus = sandbox?.getStatus();
+    const effectiveWorkspace = sandboxStatus?.type === 'docker' 
+      ? '/workspace' 
+      : agent.workspace;
+    
     toolResult = await executeTool(toolCall.name, toolCall.arguments, {
       agent,
       session,
-      workspace: agent.workspace,
+      workspace: effectiveWorkspace,
       logger: console,
       allowedPaths: [
         rootDir,
