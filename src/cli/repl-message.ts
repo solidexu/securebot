@@ -1013,12 +1013,6 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
   // ✅ 新增：记录每个步骤的等待提示次数（避免无限循环）
   const waitHintCounts = new Map<string, number>();
   
-  // 跟踪是否有已完成的计划（用于判断新阶段）
-  let previousPlanCompleted = false;
-  if (session.plan && session.plan.steps.every(s => s.status === 'completed' || s.status === 'skipped')) {
-    previousPlanCompleted = true;
-  }
-  
   while (round < MAX_TOOL_ROUNDS) {
     if (state.interrupted) {
       console.log(chalk.yellow('\n[操作已打断]'));
@@ -1506,48 +1500,32 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
           noToolCallRounds = 0;
           consecutiveNoProgress = 0;
           
-          const isPlanOnlyRequest = 
-            message.includes('计划') || 
-            message.includes('规划') || 
-            message.includes('方案') ||
-            message.includes('怎么') ||
-            message.includes('如何');
+          // ★ 修复：默认等待用户确认计划，而不是直接执行
+          // 只有当用户明确说"立即执行"、"直接执行"等时才跳过确认
+          const shouldAutoExecute = 
+            message.includes('立即执行') || 
+            message.includes('直接执行') ||
+            message.includes('马上执行') ||
+            message.includes('不用确认') ||
+            message.includes('跳过确认');
           
-          if (isPlanOnlyRequest) {
+          if (!shouldAutoExecute) {
+            // 默认：等待用户确认
             console.log();
             console.log(chalk.cyan('📋 计划已生成，等待您的确认...'));
-            console.log(chalk.gray('确认执行请输入: "继续"、"执行"、"开始" 或描述具体要做什么'));
-            console.log(chalk.gray('修改计划请输入: 您的修改意见'));
-            console.log(chalk.gray('取消请输入: "取消" 或开始新话题'));
-            console.log();
-            if (sessionStorage) {
-              await sessionStorage.saveSession(session);
-            }
-            return;
-          }
-          
-          // 检查是否是新阶段的计划
-          if (previousPlanCompleted) {
-            // 之前有已完成的计划，这是新阶段
-            console.log();
-            console.log(chalk.green('✓ 上一阶段计划已完成'));
-            console.log(chalk.cyan('📋 下一阶段计划已生成:'));
             console.log(renderTaskProgress(currentPlan));
             console.log();
-            console.log(chalk.cyan('是否继续执行下一阶段？'));
             console.log(chalk.gray('确认执行请输入: "继续"、"执行"、"开始"'));
             console.log(chalk.gray('修改计划请输入: 您的修改意见'));
             console.log(chalk.gray('取消请输入: "取消" 或开始新话题'));
             console.log();
-            
-            // 保存会话状态
             if (sessionStorage) {
               await sessionStorage.saveSession(session);
             }
             return;
           }
           
-          // 当前计划还未完成，继续执行
+          // 用户明确要求自动执行
           console.log(chalk.green('\n✓ 计划已生成，开始执行...'));
           addUserMessage(session, 
             '计划已确认。现在请开始执行第一步：\n' +
