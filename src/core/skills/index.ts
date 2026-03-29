@@ -45,7 +45,27 @@ export {
   resetSkillMatcher,
   type EmbeddingService,
   type SkillMatcherConfig,
+  type EnhancedMatchResult,
 } from './matcher.js';
+
+// 意图识别器
+export {
+  IntentRecognizer,
+  getIntentRecognizer,
+  resetIntentRecognizer,
+  type UserIntent,
+  type IntentResult,
+} from './intent-recognizer.js';
+
+// RAG 增强器
+export {
+  SkillRAGEnhancer,
+  getSkillRAGEnhancer,
+  resetSkillRAGEnhancer,
+  type SkillEnhancedContext,
+  type KnowledgeItem,
+  type SkillKnowledgeConfig,
+} from './skill-rag-enhancer.js';
 
 // 验证器
 export {
