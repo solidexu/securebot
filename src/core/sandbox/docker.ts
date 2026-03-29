@@ -220,6 +220,10 @@ export class DockerSandbox extends PathFilterSandbox {
       // 镜像名称
       args.push(this.imageName);
       
+      // ★ 保持容器运行的命令（关键！）
+      // 使用 tail -f /dev/null 让容器在后台保持运行
+      args.push('tail', '-f', '/dev/null');
+      
       // 启动容器
       const output = execSync(`docker ${args.join(' ')}`, {
         encoding: 'utf-8',
@@ -276,8 +280,40 @@ export class DockerSandbox extends PathFilterSandbox {
     stderr: string;
     exitCode: number;
   }> {
+    // 确保容器存在且正在运行
     if (!this.containerId) {
-      await this.start();
+      const started = await this.start();
+      if (!started) {
+        return {
+          stdout: '',
+          stderr: '无法启动沙箱容器',
+          exitCode: 1,
+        };
+      }
+    } else {
+      // 检查容器是否正在运行，如果不在运行则启动
+      try {
+        const status = execSync(
+          `docker inspect --format='{{.State.Status}}' ${this.containerId}`,
+          { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }
+        ).trim();
+        
+        if (status !== 'running') {
+          // 容器不在运行，尝试启动
+          execSync(`docker start ${this.containerId}`, { stdio: 'ignore' });
+        }
+      } catch {
+        // 容器可能已被删除，重新创建
+        this.containerId = null;
+        const started = await this.start();
+        if (!started) {
+          return {
+            stdout: '',
+            stderr: '无法启动沙箱容器',
+            exitCode: 1,
+          };
+        }
+      }
     }
     
     return new Promise((resolve) => {
