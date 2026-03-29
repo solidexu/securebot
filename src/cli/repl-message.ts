@@ -622,7 +622,7 @@ export async function processMessage(
       const total = currentPlan.steps.length;
       
       console.log();
-      console.log(chalk.cyan('📋 恢复上次未完成的任务规划:'));
+      console.log(chalk.cyan('📋 检测到上次未完成的任务:'));
       console.log(renderHierarchicalPlan(session));
       
       // 显示进度条
@@ -635,6 +635,14 @@ export async function processMessage(
       
       const continueKeywords = ['继续', '继续开发', '继续执行', '执行', '开始', 'run', 'continue'];
       const isContinueRequest = continueKeywords.some(kw => message.trim().toLowerCase() === kw.toLowerCase());
+      
+      // 检测用户是否在描述新任务（包含动词和任务关键词）
+      const newTaskIndicators = [
+        '实现', '创建', '开发', '编写', '设计', '构建', '添加', '修改', '重构',
+        '帮我', '请', '使用', '做一个', '写一个', '生成',
+      ];
+      const isNewTaskRequest = newTaskIndicators.some(kw => message.includes(kw)) && 
+                                message.length > 5; // 排除太短的消息
       
       if (isContinueRequest) {
         console.log(chalk.green('\n✓ 继续执行已有计划...'));
@@ -654,6 +662,13 @@ export async function processMessage(
           }
         }
         shouldExecutePlan = true;
+      } else if (isNewTaskRequest) {
+        // 用户描述了新任务，清除旧计划
+        console.log(chalk.yellow('\n🔄 用户提出了新任务，清除旧计划...'));
+        currentPlan = null;
+        session.plan = undefined;
+        console.log(chalk.gray('输入"继续"可恢复旧任务。'));
+        console.log();
       } else {
         console.log(chalk.gray('\n输入"继续"恢复执行，或描述新任务。'));
       }
