@@ -1844,7 +1844,24 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
           noToolCallRounds = 0;
           consecutiveNoProgress = 0;
           
-          // ★ 修复：默认等待用户确认计划，而不是直接执行
+          // ★ 检查计划是否已在执行中
+          const hasInProgressStep = currentPlan.steps.some(s => 
+            s.status === 'in_progress' || s.status === 'completed'
+          );
+          
+          // 如果计划已在执行中，继续执行而不是等待确认
+          if (hasInProgressStep) {
+            const nextStep = getNextPendingStep(currentPlan);
+            if (nextStep) {
+              addUserMessage(session, 
+                `继续执行。下一步：${nextStep.description}\n\n` +
+                `直接调用工具完成这一步。`
+              );
+            }
+            continue;
+          }
+          
+          // ★ 新计划：默认等待用户确认
           // 只有当用户明确说"立即执行"、"直接执行"等时才跳过确认
           const shouldAutoExecute = 
             message.includes('立即执行') || 
@@ -1874,7 +1891,7 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
           addUserMessage(session, 
             '计划已确认。现在请开始执行第一步：\n' +
             `"${currentPlan.steps[0]?.description}"\n\n` +
-            '使用可用工具完成这个步骤。'
+            '使用可用工具完成这一步。'
           );
           continue;
         }
