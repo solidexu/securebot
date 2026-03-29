@@ -534,13 +534,264 @@ export const ragRememberTool: Tool = {
   },
 };
 
+// ============ RAG 保存文档工具 ============
+
+export const ragSaveDocumentTool: Tool = {
+  name: 'rag_save_document',
+  description: '将知识保存为 Markdown 文档文件，并自动索引到知识库。用于保存学习到的知识、教程、最佳实践等。文档会保存到 knowledge 目录下。',
+  parameters: {
+    type: 'object',
+    properties: {
+      filename: {
+        type: 'string',
+        description: '文件名（如 guide.md, tutorial.md）',
+      },
+      content: {
+        type: 'string',
+        description: '文档内容（Markdown 格式）',
+      },
+      directory: {
+        type: 'string',
+        description: '目标目录，默认 knowledge（可选）',
+      },
+      title: {
+        type: 'string',
+        description: '文档标题（可选，用于元数据）',
+      },
+      tags: {
+        type: 'string',
+        description: '标签，用逗号分隔（可选）',
+      },
+    },
+    required: ['filename', 'content'],
+  },
+
+  async execute(params, context: ToolContext): Promise<ToolResult> {
+    const { filename, content, directory = 'knowledge', title, tags } = params as {
+      filename: string;
+      content: string;
+      directory?: string;
+      title?: string;
+      tags?: string;
+    };
+
+    try {
+      const { join, dirname } = await import('node:path');
+      const { writeFileSync, mkdirSync, existsSync } = await import('node:fs');
+      
+      // 确保文件名以 .md 结尾
+      const finalFilename = filename.endsWith('.md') ? filename : `${filename}.md`;
+      
+      // 构建文件路径
+      const targetDir = join(context.workspace, directory);
+      const filePath = join(targetDir, finalFilename);
+      
+      // 构建完整的文档内容（包含元数据）
+      const tagList = tags?.split(',').map(t => t.trim()).filter(Boolean) || [];
+      const docTitle = title || finalFilename.replace('.md', '');
+      
+      // 添加 YAML front matter
+      const frontMatter = `---
+title: ${docTitle}
+created: ${new Date().toISOString()}
+tags: [${tagList.join(', ')}]
+---
+
+`;
+      
+      const fullContent = frontMatter + content;
+      
+      // 确保目录存在
+      if (!existsSync(targetDir)) {
+        mkdirSync(targetDir, { recursive: true });
+      }
+      
+      // 保存文件
+      writeFileSync(filePath, fullContent, 'utf-8');
+      
+      // 自动索引到 RAG
+      const store = await ragManager.getStore(context.agent);
+      let indexed = false;
+      
+      if (store) {
+        await store.addFile(filePath);
+        indexed = true;
+      }
+      
+      return {
+        success: true,
+        content: `✓ 已保存知识文档
+
+**文件**: ${directory}/${finalFilename}
+**路径**: ${filePath}
+**大小**: ${content.length} 字符
+**索引**: ${indexed ? '已索引到知识库' : '未启用 RAG'}
+
+文档已保存并可被检索。`,
+        metadata: {
+          filename: finalFilename,
+          directory,
+          path: filePath,
+          size: content.length,
+          indexed,
+          tags: tagList,
+        },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        error: `保存文档失败: ${message}`,
+      };
+    }
+  },
+};
+
 // ============ 导出 ============
 
-export const ragTools = [ragSearchTool, ragIndexTool, ragStatusTool, ragRememberTool, ragRemoveTool, ragListTool];
+export const ragTools = [ragSearchTool, ragIndexTool, ragStatusTool, ragRememberTool, ragRemoveTool, ragListTool, ragSaveDocumentTool];
+
+/**
+ * 从对话生成知识文档的工具
+ */
+export const ragGenerateDocumentTool: Tool = {
+  name: 'rag_generate_document',
+  description: '根据对话内容生成知识文档并保存。用于总结学习到的知识、记录解决方案、创建教程等。文档会自动保存到 knowledge 目录并索引。',
+  parameters: {
+    type: 'object',
+    properties: {
+      topic: {
+        type: 'string',
+        description: '文档主题（如 "Python 异步编程", "Docker 部署指南"）',
+      },
+      content: {
+        type: 'string',
+        description: '文档内容（会自动格式化为 Markdown）',
+      },
+      type: {
+        type: 'string',
+        enum: ['tutorial', 'guide', 'reference', 'solution', 'best-practice'],
+        description: '文档类型（可选）',
+      },
+      tags: {
+        type: 'string',
+        description: '标签，用逗号分隔（可选）',
+      },
+    },
+    required: ['topic', 'content'],
+  },
+
+  async execute(params, context: ToolContext): Promise<ToolResult> {
+    const { topic, content, type = 'guide', tags } = params as {
+      topic: string;
+      content: string;
+      type?: string;
+      tags?: string;
+    };
+
+    try {
+      const { join } = await import('node:path');
+      const { writeFileSync, mkdirSync, existsSync } = await import('node:fs');
+      
+      // 生成文件名：将主题转换为文件名
+      const slug = topic
+        .toLowerCase()
+        .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 50);
+      
+      const timestamp = new Date().toISOString().slice(0, 10);
+      const filename = `${slug}.md`;
+      
+      // 构建目录
+      const targetDir = join(context.workspace, 'knowledge', type);
+      const filePath = join(targetDir, filename);
+      
+      // 解析标签
+      const tagList = [...new Set([
+        ...((tags?.split(',').map(t => t.trim()).filter(Boolean)) || []),
+        type,
+        topic.split(' ').slice(0, 3).join(' '),
+      ])];
+      
+      // 类型标签映射
+      const typeLabels: Record<string, string> = {
+        tutorial: '教程',
+        guide: '指南',
+        reference: '参考',
+        solution: '解决方案',
+        'best-practice': '最佳实践',
+      };
+      
+      // 构建文档内容
+      const docContent = `# ${topic}
+
+> 类型: ${typeLabels[type] || type}  
+> 创建时间: ${new Date().toLocaleDateString('zh-CN')}  
+> 标签: ${tagList.join(', ')}
+
+---
+
+${content}
+
+---
+
+*本文档由 SecureBot 自动生成*
+`;
+
+      // 确保目录存在
+      if (!existsSync(targetDir)) {
+        mkdirSync(targetDir, { recursive: true });
+      }
+      
+      // 保存文件
+      writeFileSync(filePath, docContent, 'utf-8');
+      
+      // 自动索引到 RAG
+      const store = await ragManager.getStore(context.agent);
+      let indexed = false;
+      
+      if (store) {
+        await store.addFile(filePath);
+        indexed = true;
+      }
+      
+      return {
+        success: true,
+        content: `✓ 已生成知识文档
+
+**主题**: ${topic}
+**类型**: ${typeLabels[type] || type}
+**文件**: knowledge/${type}/${filename}
+**标签**: ${tagList.join(', ')}
+**索引**: ${indexed ? '已索引到知识库' : '未启用 RAG'}
+
+可以使用 \`rag_search\` 检索此文档。`,
+        metadata: {
+          topic,
+          type,
+          filename,
+          path: filePath,
+          tags: tagList,
+          indexed,
+        },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        error: `生成文档失败: ${message}`,
+      };
+    }
+  },
+};
+
+// 完整工具列表
+export const allRAGTools = [...ragTools, ragGenerateDocumentTool];
 
 /**
  * 注册 RAG 工具（延迟调用）
  */
 export function getRAGTools(): Tool[] {
-  return ragTools;
+  return allRAGTools;
 }
