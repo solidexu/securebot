@@ -2,6 +2,7 @@
  * Skills 模块导出
  * 
  * 渐进式加载的 Markdown 技能系统
+ * 遵循 Deer-Flow 标准
  */
 
 // 类型定义
@@ -45,3 +46,29 @@ export {
   type EmbeddingService,
   type SkillMatcherConfig,
 } from './matcher.js';
+
+// 验证器
+export {
+  validateSkillDir,
+  validateSkillFile,
+  validateName,
+  validateDescription,
+  validateTools,
+  validateKeywords,
+  validateAndGetSkillName,
+  ALLOWED_FRONTMATTER_PROPERTIES,
+  NAME_RULES,
+  DESCRIPTION_RULES,
+  type ValidationResult,
+} from './validation.js';
+
+// 迁移工具
+export {
+  migrateSkill,
+  migrateSkills,
+  convertToMarkdown,
+  migrateAllSkills,
+  runMigration,
+  type MigrationOptions,
+  type MigrationResult,
+} from './migrate.js';

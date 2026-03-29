@@ -1,53 +1,68 @@
 ---
-id: debugger
-name: 调试专家
+name: debugger
+description: Use this skill when you need to debug code, troubleshoot errors, analyze stack traces, or investigate runtime issues. Triggers on debugging requests, error analysis, or bug investigation tasks.
+version: "1.0.0"
+license: MIT
 keywords:
-  - 调试
-  - debug
-  - 报错
-  - 错误
-  - bug
-  - 异常
-  - 崩溃
+  - debugging
+  - troubleshooting
+  - error-analysis
+  - bug-fixing
+  - stack-trace
 tools:
   - read
   - exec
 ---
 
-# 调试专家
+# Debugger
 
-## Overview
+## Purpose
 
-帮助分析和定位代码问题。
+Systematically identify and resolve bugs, errors, and unexpected behavior in code.
 
 ## When to Use
 
-- 用户说 "帮我调试"
-- 用户说 "有个 bug"
-- 用户遇到报错或异常
+- Analyzing error messages and stack traces
+- Debugging failing tests
+- Investigating runtime issues
+- Troubleshooting production incidents
+- Memory leak detection
 
-## Instructions
+## Debugging Process
 
-你是一位调试专家。在帮助用户调试问题时，请：
+### 1. Reproduce the Issue
+- Identify the exact steps to reproduce
+- Note the expected vs actual behavior
+- Gather relevant logs and error messages
 
-1. **问题定位**
-   - 询问具体的错误信息
-   - 了解问题发生的场景
-   - 确认最近的代码变更
+### 2. Isolate the Problem
+- Use binary search to narrow down the code
+- Check recent changes (git diff/blame)
+- Review related configuration
 
-2. **分析步骤**
-   - 检查输入数据是否正确
-   - 检查边界条件处理
-   - 检查依赖和环境配置
-   - 检查日志和错误堆栈
+### 3. Analyze Root Cause
+- Read the stack trace carefully
+- Check variable states at breakpoints
+- Review error handling logic
 
-3. **解决方案**
-   - 给出具体的修复代码
-   - 解释问题原因
-   - 提供预防措施
+### 4. Fix and Verify
+- Implement the fix
+- Add test cases
+- Verify no regressions
 
-## Best Practices
+## Common Debugging Techniques
 
-- 使用 console.log 或调试器
-- 检查日志文件
-- 使用断点调试
+- **Logging**: Add strategic log statements
+- **Print Debugging**: Quick variable inspection
+- **Breakpoints**: Step through code execution
+- **Assertions**: Validate assumptions
+- **Rubber Duck**: Explain the problem out loud
+
+## Output Format
+
+```
+Issue: [problem description]
+Root Cause: [analysis]
+Solution: [fix with code]
+Prevention: [how to avoid in future]
+```

@@ -1,39 +1,51 @@
 ---
-id: translator
-name: 翻译助手
+name: translator
+description: Use this skill when you need to translate text between languages, localize content, or handle multilingual text processing. Triggers on translation requests or language conversion tasks.
+version: "1.0.0"
+license: MIT
 keywords:
-  - 翻译
-  - translate
-  - 中译
-  - 英译
-  - 日语
-  - 韩语
+  - translation
+  - localization
+  - i18n
+  - multilingual
+  - language
 ---
 
-# 翻译助手
+# Translator
 
-## Overview
+## Purpose
 
-多语言翻译技能，支持中英日韩等主流语言。
+Translate text between different languages while preserving meaning, context, and tone.
 
 ## When to Use
 
-- 用户说 "帮我翻译"
-- 用户说 "translate"
-- 用户需要中英文转换
+- Translating documentation
+- Localizing user interfaces
+- Converting content for international audiences
+- Handling multilingual data
 
-## Instructions
+## Supported Languages
 
-你是一位专业的翻译专家。翻译时请遵循：
+Common language pairs:
+- English ↔ Chinese (Simplified/Traditional)
+- English ↔ Japanese
+- English ↔ Korean
+- English ↔ Spanish
+- English ↔ French
+- English ↔ German
 
-1. **准确性**：确保翻译准确，不遗漏信息
-2. **流畅性**：译文要符合目标语言的表达习惯
-3. **专业性**：专业术语要准确翻译
-4. **文化适应性**：考虑文化差异，适当本地化
+## Translation Guidelines
+
+1. **Preserve Context**: Understand the full context before translating
+2. **Maintain Tone**: Keep the original tone (formal/casual/technical)
+3. **Technical Terms**: Keep technical terms in original form when appropriate
+4. **Code Comments**: Translate comments while preserving code structure
+5. **Cultural Nuances**: Adapt idioms and cultural references appropriately
 
 ## Output Format
 
-翻译格式：
-- 原文: [原文内容]
-- 译文: [翻译结果]
-- 注释: [如有必要，添加注释]
+```
+Original: [source text]
+Translated: [target text]
+Notes: [any relevant translation notes]
+```

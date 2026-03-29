@@ -1,53 +1,93 @@
 ---
-id: api-designer
-name: API 设计师
+name: api-designer
+description: Use this skill when you need to design, review, or document REST/GraphQL APIs. Triggers on API design requests, endpoint creation, or API architecture discussions.
+version: "1.0.0"
+license: MIT
 keywords:
-  - API
-  - 接口设计
-  - RESTful
-  - REST
-  - endpoint
-  - 接口
+  - api-design
+  - rest-api
+  - graphql
+  - endpoints
+  - api-architecture
 tools:
   - read
   - write
   - edit
 ---
 
-# API 设计师
+# API Designer
 
-## Overview
+## Purpose
 
-RESTful API 设计技能，帮助设计规范的 API 接口。
+Design clean, consistent, and developer-friendly APIs following industry best practices.
 
 ## When to Use
 
-- 用户说 "帮我设计 API"
-- 用户说 "接口设计"
-- 用户提到 "RESTful" 或 "endpoint"
+- Designing new API endpoints
+- Reviewing existing API designs
+- Creating API specifications
+- Planning API versioning strategy
+- Documenting API contracts
 
-## Instructions
+## Design Principles
 
-你是一位 API 设计专家。设计 API 时请遵循 RESTful 规范：
+### RESTful Best Practices
 
-1. **URL 设计**
-   - 使用名词表示资源
-   - 使用连字符分隔单词
-   - 避免动词，用 HTTP 方法表达操作
+1. **Use Nouns for Resources**
+   - Good: `GET /users`, `GET /users/{id}`
+   - Bad: `GET /getUsers`
 
-2. **HTTP 方法**
-   - GET: 查询资源
-   - POST: 创建资源
-   - PUT: 完整更新资源
-   - PATCH: 部分更新资源
-   - DELETE: 删除资源
+2. **Use Proper HTTP Methods**
+   - GET: Retrieve resources
+   - POST: Create resources
+   - PUT/PATCH: Update resources
+   - DELETE: Remove resources
 
-3. **响应格式**
-   - 统一的 JSON 格式
-   - 包含状态码、数据、消息
-   - 分页、排序、过滤支持
+3. **Use Plural Nouns**
+   - Good: `/users`, `/products`
+   - Bad: `/user`, `/product`
 
-4. **错误处理**
-   - 使用标准 HTTP 状态码
-   - 提供详细的错误信息
-   - 包含错误代码便于定位
+4. **Nesting for Relationships**
+   - `GET /users/{id}/orders`
+   - Limit nesting to 2 levels
+
+### Response Format
+
+```json
+{
+  "data": {},
+  "meta": {
+    "page": 1,
+    "limit": 20,
+    "total": 100
+  },
+  "errors": []
+}
+```
+
+### Error Handling
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Invalid input",
+    "details": []
+  }
+}
+```
+
+## Checklist
+
+- [ ] Consistent naming conventions
+- [ ] Proper HTTP status codes
+- [ ] Pagination for list endpoints
+- [ ] Filtering and sorting support
+- [ ] Authentication requirements
+- [ ] Rate limiting headers
+- [ ] Versioning strategy
+- [ ] Comprehensive error messages
+
+## Output Format
+
+Provide OpenAPI/Swagger-compatible specifications when possible.

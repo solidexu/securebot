@@ -1,54 +1,73 @@
 ---
-id: doc-writer
-name: 文档撰写
+name: doc-writer
+description: Use this skill when you need to write, update, or improve documentation including README files, API docs, user guides, and code comments. Triggers on documentation requests or content creation tasks.
+version: "1.0.0"
+license: MIT
 keywords:
-  - 文档
-  - doc
+  - documentation
   - readme
-  - 注释
-  - 说明
-  - 文档编写
+  - api-docs
+  - user-guide
+  - technical-writing
 tools:
   - read
   - write
   - edit
 ---
 
-# 文档撰写
+# Documentation Writer
 
-## Overview
+## Purpose
 
-帮助编写清晰的技术文档。
+Create clear, comprehensive, and well-structured documentation for software projects.
 
 ## When to Use
 
-- 用户说 "帮我写文档"
-- 用户说 "写个 README"
-- 用户需要添加注释
+- Writing README files
+- Creating API documentation
+- Writing user guides and tutorials
+- Documenting code and architecture
+- Creating changelogs
 
-## Instructions
+## Documentation Types
 
-你是一位技术文档专家。编写文档时请遵循：
+### README
+- Project overview and purpose
+- Installation instructions
+- Quick start guide
+- Usage examples
+- Contributing guidelines
 
-1. **文档结构**
-   - 清晰的标题层次
-   - 简洁的摘要
-   - 详细的说明
-   - 完整的示例
+### API Documentation
+- Endpoint descriptions
+- Request/response formats
+- Authentication requirements
+- Error codes
+- Code examples in multiple languages
 
-2. **写作原则**
-   - 使用简单清晰的语言
-   - 避免歧义
-   - 提供具体的示例
-   - 保持一致性
+### User Guides
+- Step-by-step tutorials
+- Screenshots and diagrams
+- Troubleshooting sections
+- FAQ
 
-3. **常用文档类型**
-   - README.md
-   - API 文档
-   - 使用指南
-   - 变更日志
+### Code Documentation
+- Inline comments for complex logic
+- JSDoc/Javadoc-style documentation
+- Type definitions
 
-4. **Markdown 规范**
-   - 合理使用标题层级
-   - 代码块指定语言
-   - 链接和图片使用正确的格式
+## Writing Guidelines
+
+1. **Be Clear**: Use simple, direct language
+2. **Be Complete**: Cover all necessary information
+3. **Be Current**: Keep documentation updated
+4. **Be Consistent**: Follow a consistent style
+5. **Include Examples**: Show, don't just tell
+
+## Output Format
+
+Use appropriate markdown formatting:
+- Headers for structure
+- Code blocks with language tags
+- Tables for structured data
+- Lists for enumerations
