@@ -534,67 +534,99 @@ export const ragRememberTool: Tool = {
   },
 };
 
+/**
+ * 获取知识库存储路径
+ * 统一存放在 data/knowledge/{agent_id}/ 目录下
+ */
+function getKnowledgeDir(agentId: string): string {
+  const { getRootDir } = require('../core/config.js');
+  const rootDir = getRootDir({}); // 获取 ~/.securebot 目录
+  return join(rootDir, '..', 'knowledge', agentId);
+}
+
+/**
+ * 生成唯一文档名
+ * 格式: {type}_{topic}_{timestamp}.md
+ */
+function generateUniqueFilename(topic: string, type: string): string {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const slug = topic
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 30);
+  return `${type}_${slug}_${timestamp}.md`;
+}
+
 // ============ RAG 保存文档工具 ============
 
 export const ragSaveDocumentTool: Tool = {
   name: 'rag_save_document',
-  description: '将知识保存为 Markdown 文档文件，并自动索引到知识库。用于保存学习到的知识、教程、最佳实践等。文档会保存到 knowledge 目录下。',
+  description: '将知识保存为 Markdown 文档文件，并自动索引到知识库。文档保存到全局知识库目录，自动生成唯一文件名。',
   parameters: {
     type: 'object',
     properties: {
-      filename: {
+      topic: {
         type: 'string',
-        description: '文件名（如 guide.md, tutorial.md）',
+        description: '文档主题（用于生成文件名）',
       },
       content: {
         type: 'string',
         description: '文档内容（Markdown 格式）',
       },
-      directory: {
+      type: {
         type: 'string',
-        description: '目标目录，默认 knowledge（可选）',
+        enum: ['guide', 'solution', 'tutorial', 'reference', 'best-practice'],
+        description: '文档类型（默认 guide）',
       },
       title: {
         type: 'string',
-        description: '文档标题（可选，用于元数据）',
+        description: '文档标题（可选）',
       },
       tags: {
         type: 'string',
         description: '标签，用逗号分隔（可选）',
       },
     },
-    required: ['filename', 'content'],
+    required: ['topic', 'content'],
   },
 
   async execute(params, context: ToolContext): Promise<ToolResult> {
-    const { filename, content, directory = 'knowledge', title, tags } = params as {
-      filename: string;
+    const { topic, content, type = 'guide', title, tags } = params as {
+      topic: string;
       content: string;
-      directory?: string;
+      type?: string;
       title?: string;
       tags?: string;
     };
 
     try {
-      const { join, dirname } = await import('node:path');
+      const { join } = await import('node:path');
       const { writeFileSync, mkdirSync, existsSync } = await import('node:fs');
+      const { getRootDir } = await import('../core/config.js');
       
-      // 确保文件名以 .md 结尾
-      const finalFilename = filename.endsWith('.md') ? filename : `${filename}.md`;
+      // ★ 使用全局知识库目录
+      const rootDir = getRootDir({});
+      const knowledgeDir = join(rootDir, '..', 'knowledge', context.agent.id, type);
+      const fileName = generateUniqueFilename(topic, type);
+      const filePath = join(knowledgeDir, fileName);
       
-      // 构建文件路径
-      const targetDir = join(context.workspace, directory);
-      const filePath = join(targetDir, finalFilename);
+      // 解析标签
+      const tagList = [...new Set([
+        ...((tags?.split(',').map(t => t.trim()).filter(Boolean)) || []),
+        type,
+      ])];
       
-      // 构建完整的文档内容（包含元数据）
-      const tagList = tags?.split(',').map(t => t.trim()).filter(Boolean) || [];
-      const docTitle = title || finalFilename.replace('.md', '');
+      const docTitle = title || topic;
+      const timestamp = new Date().toISOString();
       
       // 添加 YAML front matter
       const frontMatter = `---
 title: ${docTitle}
-created: ${new Date().toISOString()}
+type: ${type}
+created: ${timestamp}
 tags: [${tagList.join(', ')}]
+agent: ${context.agent.id}
 ---
 
 `;
@@ -602,8 +634,8 @@ tags: [${tagList.join(', ')}]
       const fullContent = frontMatter + content;
       
       // 确保目录存在
-      if (!existsSync(targetDir)) {
-        mkdirSync(targetDir, { recursive: true });
+      if (!existsSync(knowledgeDir)) {
+        mkdirSync(knowledgeDir, { recursive: true });
       }
       
       // 保存文件
@@ -622,15 +654,16 @@ tags: [${tagList.join(', ')}]
         success: true,
         content: `✓ 已保存知识文档
 
-**文件**: ${directory}/${finalFilename}
-**路径**: ${filePath}
-**大小**: ${content.length} 字符
+**主题**: ${docTitle}
+**类型**: ${type}
+**文件**: knowledge/${context.agent.id}/${type}/${fileName}
+**标签**: ${tagList.join(', ')}
 **索引**: ${indexed ? '已索引到知识库' : '未启用 RAG'}
 
 文档已保存并可被检索。`,
         metadata: {
-          filename: finalFilename,
-          directory,
+          filename: fileName,
+          type,
           path: filePath,
           size: content.length,
           indexed,
@@ -656,7 +689,7 @@ export const ragTools = [ragSearchTool, ragIndexTool, ragStatusTool, ragRemember
  */
 export const ragGenerateDocumentTool: Tool = {
   name: 'rag_generate_document',
-  description: '根据对话内容生成知识文档并保存。用于总结学习到的知识、记录解决方案、创建教程等。文档会自动保存到 knowledge 目录并索引。',
+  description: '根据对话内容生成知识文档并保存。文档保存到全局知识库目录，自动生成唯一文件名。',
   parameters: {
     type: 'object',
     properties: {
@@ -671,7 +704,7 @@ export const ragGenerateDocumentTool: Tool = {
       type: {
         type: 'string',
         enum: ['tutorial', 'guide', 'reference', 'solution', 'best-practice'],
-        description: '文档类型（可选）',
+        description: '文档类型（默认 guide）',
       },
       tags: {
         type: 'string',
@@ -692,26 +725,18 @@ export const ragGenerateDocumentTool: Tool = {
     try {
       const { join } = await import('node:path');
       const { writeFileSync, mkdirSync, existsSync } = await import('node:fs');
+      const { getRootDir } = await import('../core/config.js');
       
-      // 生成文件名：将主题转换为文件名
-      const slug = topic
-        .toLowerCase()
-        .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-')
-        .replace(/^-|-$/g, '')
-        .slice(0, 50);
-      
-      const timestamp = new Date().toISOString().slice(0, 10);
-      const filename = `${slug}.md`;
-      
-      // 构建目录
-      const targetDir = join(context.workspace, 'knowledge', type);
-      const filePath = join(targetDir, filename);
+      // ★ 使用全局知识库目录
+      const rootDir = getRootDir({});
+      const knowledgeDir = join(rootDir, '..', 'knowledge', context.agent.id, type);
+      const fileName = generateUniqueFilename(topic, type);
+      const filePath = join(knowledgeDir, fileName);
       
       // 解析标签
       const tagList = [...new Set([
         ...((tags?.split(',').map(t => t.trim()).filter(Boolean)) || []),
         type,
-        topic.split(' ').slice(0, 3).join(' '),
       ])];
       
       // 类型标签映射
@@ -724,11 +749,13 @@ export const ragGenerateDocumentTool: Tool = {
       };
       
       // 构建文档内容
+      const timestamp = new Date().toISOString();
       const docContent = `# ${topic}
 
 > 类型: ${typeLabels[type] || type}  
 > 创建时间: ${new Date().toLocaleDateString('zh-CN')}  
 > 标签: ${tagList.join(', ')}
+> Agent: ${context.agent.id}
 
 ---
 
@@ -740,8 +767,8 @@ ${content}
 `;
 
       // 确保目录存在
-      if (!existsSync(targetDir)) {
-        mkdirSync(targetDir, { recursive: true });
+      if (!existsSync(knowledgeDir)) {
+        mkdirSync(knowledgeDir, { recursive: true });
       }
       
       // 保存文件
@@ -762,7 +789,7 @@ ${content}
 
 **主题**: ${topic}
 **类型**: ${typeLabels[type] || type}
-**文件**: knowledge/${type}/${filename}
+**文件**: knowledge/${context.agent.id}/${type}/${fileName}
 **标签**: ${tagList.join(', ')}
 **索引**: ${indexed ? '已索引到知识库' : '未启用 RAG'}
 
@@ -770,7 +797,7 @@ ${content}
         metadata: {
           topic,
           type,
-          filename,
+          filename: fileName,
           path: filePath,
           tags: tagList,
           indexed,
