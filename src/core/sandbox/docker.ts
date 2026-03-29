@@ -80,11 +80,10 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \\
 # 安装 pnpm 和 yarn
 RUN npm install -g pnpm yarn
 
-# 安装 uv (Python 包管理器)
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# 设置 PATH 包含 uv
-ENV PATH="/root/.local/bin:$PATH"
+# 安装 uv (Python 包管理器) - 安装到 /usr/local/bin
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh \\
+    && mv /root/.local/bin/uv /usr/local/bin/uv \\
+    && mv /root/.local/bin/uvx /usr/local/bin/uvx || true
 
 # 创建非 root 用户
 RUN useradd -m -s /bin/bash securebot
