@@ -181,7 +181,11 @@ export class SkillPackager {
     // 确定安装目录
     const { getRootDir } = await import('../config.js');
     const rootDir = getRootDir();
-    const targetDir = options?.targetDir || join(rootDir, 'skills', 'public', manifest.name.toLowerCase().replace(/\s+/g, '-'));
+    const skillDirName = manifest.name.toLowerCase().replace(/\s+/g, '-');
+    
+    // 始终在目标路径下创建技能子目录
+    const baseDir = options?.targetDir || join(rootDir, 'skills', 'public');
+    const targetDir = join(baseDir, skillDirName);
 
     // 检查是否已存在
     if (existsSync(targetDir) && !options?.overwrite) {
