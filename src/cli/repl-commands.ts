@@ -10,6 +10,7 @@ import type { ReplState } from '../core/types.js';
 import { getOrCreateMainSession, getDefaultAgent } from '../core/agent.js';
 import { clearSessionHistory } from '../core/session.js';
 import { getSessionStorage } from '../core/session-storage.js';
+import { getInputHistoryManager } from '../core/input-history.js';
 import { getAuditLogger } from '../core/audit.js';
 import { getMemoryManager } from '../core/memory.js';
 import { getSkillManager } from '../core/skills.js';
@@ -254,7 +255,12 @@ async function handleResetCommand(
     const session = getOrCreateMainSession(agent);
     clearSessionHistory(session);
     await sessionStorage.deleteSession(session.sessionKey);
-    console.log(chalk.green('✓ 已清除当前会话历史'));
+    
+    // 清空输入历史
+    const inputHistoryManager = getInputHistoryManager();
+    await inputHistoryManager.clearHistoryAndSave();
+    
+    console.log(chalk.green('✓ 已清除当前会话历史和输入历史'));
   }
 }
 
