@@ -63,7 +63,7 @@ export class SkillMatcher {
   private skillToIntentMap: Map<string, UserIntent[]> = new Map([
     ['deep-research', ['research', 'learning']],
     ['data-analysis', ['analysis']],
-    ['code-review', ['code_review', 'security', 'refactoring']],
+    ['code-review', ['code_review', 'refactoring']],
     ['testing-helper', ['testing']],
     ['doc-generator', ['documentation']],
     ['doc-writer', ['documentation', 'learning']],
