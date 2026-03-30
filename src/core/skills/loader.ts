@@ -167,7 +167,7 @@ export class SkillLoader {
       }
 
       // ✅ 只解析 front matter，不加载完整内容
-      const metadata = this.parseMetadata(skillFile, category, agentId);
+      const metadata = this.parseMetadata(skillFile, skillId, category, agentId);
 
       if (metadata) {
         metadataList.push(metadata);
@@ -182,6 +182,7 @@ export class SkillLoader {
    */
   private parseMetadata(
     skillFile: string,
+    skillDirName: string,
     category: 'public' | 'private',
     agentId?: string
   ): SkillMetadata | null {
@@ -197,10 +198,12 @@ export class SkillLoader {
       // 解析 YAML front matter
       const frontMatter = this.parseYamlFrontMatterSimple(frontMatterMatch[1]!);
 
-      // 验证必需字段
-      if (!frontMatter.id || !frontMatter.name) {
+      // 验证必需字段：name 是必需的，id 如果没有则使用目录名
+      if (!frontMatter.name) {
         return null;
       }
+
+      const id = frontMatter.id || skillDirName;
 
       // 提取概述（第一段）
       const body = content.slice(frontMatterMatch[0].length);
@@ -208,7 +211,7 @@ export class SkillLoader {
       const description = overviewMatch && overviewMatch[1] ? overviewMatch[1].trim() : undefined;
 
       return {
-        id: frontMatter.id,
+        id,
         name: frontMatter.name,
         keywords: frontMatter.keywords || [],
         description,

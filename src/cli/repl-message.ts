@@ -1879,6 +1879,17 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         }
       }
       
+      // ★ 关键修复：上一轮有工具调用，本轮是确认消息 → 直接结束对话
+      // 避免"无进展"警告
+      if (lastRoundHadToolCall && /(✓|✅|✔|已成功|已记录|已完成|成功记录|成功)/.test(result.content || '')) {
+        addAssistantMessage(session, result.content);
+        console.log();
+        if (sessionStorage) {
+          await sessionStorage.saveSession(session);
+        }
+        return;  // 工具调用成功后的确认消息，直接结束
+      }
+      
       // ★ 新增：检测是否是正常对话结束（简单问候/介绍等）
       // 如果是，直接结束，不触发无进展警告
       if (isNormalConversationEnd(result, complexity)) {

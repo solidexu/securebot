@@ -1028,20 +1028,59 @@ ${entry.content}
    * 规范化事实内容（用于去重比较）
    */
   private normalizeFactContent(content: string): string {
-    return content.trim().toLowerCase().replace(/\s+/g, ' ');
+    const normalized = content.trim().toLowerCase().replace(/\s+/g, ' ');
+    return normalized.replace(/\s/g, '');
   }
 
-  /**
-   * 检查事实是否已存在（基于内容相似性）
-   */
+  private extractCoreKeywords(content: string): string[] {
+    const normalized = content.trim().toLowerCase().replace(/\s+/g, ' ');
+    const keywords: string[] = [];
+    
+    const techPatterns = [
+      /python|c\+\+|java|javascript|go|rust|typescript|node|react|vue|angular/gi,
+      /开发|developer|programmer|工程师|expert|专家/gi,
+      /前端|backend|后端|fullstack|全栈/gi,
+    ];
+    
+    for (const pattern of techPatterns) {
+      const matches = normalized.match(pattern);
+      if (matches) {
+        keywords.push(...matches.map(m => m.toLowerCase()));
+      }
+    }
+    
+    return keywords.sort();
+  }
+
+  private calculateSimilarity(content1: string, content2: string): number {
+    const keywords1 = this.extractCoreKeywords(content1);
+    const keywords2 = this.extractCoreKeywords(content2);
+    
+    if (keywords1.length === 0 || keywords2.length === 0) {
+      return 0;
+    }
+    
+    const commonKeywords = keywords1.filter(k => keywords2.includes(k));
+    const maxLen = Math.max(keywords1.length, keywords2.length);
+    
+    return commonKeywords.length / maxLen;
+  }
+
   private findExistingFactIndex(content: string): number {
     if (!this.userProfile?.facts) return -1;
     
     const normalizedNew = this.normalizeFactContent(content);
     
-    return this.userProfile.facts.findIndex(fact => 
-      this.normalizeFactContent(fact.content) === normalizedNew
-    );
+    return this.userProfile.facts.findIndex(fact => {
+      const normalizedExisting = this.normalizeFactContent(fact.content);
+      
+      if (normalizedNew === normalizedExisting) {
+        return true;
+      }
+      
+      const similarity = this.calculateSimilarity(content, fact.content);
+      return similarity >= 0.6;
+    });
   }
 
   /**

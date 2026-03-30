@@ -94,7 +94,7 @@ export interface SkillMetadata {
 export interface MatchedSkill {
   skill: MarkdownSkill | null;
   score: number;
-  method: 'keyword' | 'semantic';
+  method: 'intent' | 'keyword' | 'semantic';
   metadata: SkillMetadata;
 }
 

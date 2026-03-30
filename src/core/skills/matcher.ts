@@ -7,8 +7,8 @@
  * 3. 语义匹配（可选，需要嵌入模型）
  */
 
+import { getSkillLoader, type SkillLoader } from './loader.js';
 import type { SkillMetadata, MatchedSkill } from './types.js';
-import type { SkillLoader } from './loader.js';
 import { getIntentRecognizer, type UserIntent, type IntentResult } from './intent-recognizer.js';
 
 /**
@@ -249,7 +249,7 @@ export class SkillMatcher {
     agentId?: string
   ): Promise<MatchedSkill | null> {
     const results = await this.match(message, agentId);
-    return results.length > 0 ? results[0] : null;
+    return results.length > 0 ? results[0]! : null;
   }
 
   /**
@@ -368,9 +368,11 @@ export class SkillMatcher {
     let normB = 0;
 
     for (let i = 0; i < a.length; i++) {
-      dotProduct += a[i] * b[i];
-      normA += a[i] * a[i];
-      normB += b[i] * b[i];
+      const aVal = a[i]!;
+      const bVal = b[i]!;
+      dotProduct += aVal * bVal;
+      normA += aVal * aVal;
+      normB += bVal * bVal;
     }
 
     if (normA === 0 || normB === 0) return 0;
@@ -430,10 +432,4 @@ export function getSkillMatcher(
  */
 export function resetSkillMatcher(): void {
   globalMatcher = null;
-}
-
-// 避免循环依赖，延迟导入
-function getSkillLoader(): SkillLoader {
-  const { getSkillLoader: _getSkillLoader } = require('./loader.js');
-  return _getSkillLoader();
 }

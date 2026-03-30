@@ -8,19 +8,20 @@
  */
 
 import { readFileSync, existsSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { dirname } from 'node:path';
 import type {
   MarkdownSkill,
   WorkflowStep,
   SkillExample,
   ResourceReference,
-  SkillTrigger,
 } from './types.js';
 
 /**
  * 解析 SKILL.md 文件
+ * @param skillFile 技能文件路径
+ * @param skillDirName 可选的技能目录名，用于在没有 id 时作为后备
  */
-export function parseSkillFile(skillFile: string): MarkdownSkill | null {
+export function parseSkillFile(skillFile: string, skillDirName?: string): MarkdownSkill | null {
   if (!existsSync(skillFile)) {
     return null;
   }
@@ -37,11 +38,13 @@ export function parseSkillFile(skillFile: string): MarkdownSkill | null {
 
     const frontMatter = parseYamlFrontMatter(frontMatterMatch[1]);
 
-    // 验证必需字段
-    if (!frontMatter.id || !frontMatter.name) {
+    // 验证必需字段：name 是必需的，id 如果没有则使用目录名
+    if (!frontMatter.name) {
       console.warn(`Skill file missing required fields: ${skillFile}`);
       return null;
     }
+
+    const id = frontMatter.id || skillDirName || dirname(skillFile).split('/').pop() || '';
 
     // 2. 解析 Markdown body
     const body = content.slice(frontMatterMatch[0].length);
@@ -49,7 +52,7 @@ export function parseSkillFile(skillFile: string): MarkdownSkill | null {
 
     // 3. 构建 MarkdownSkill 对象
     const skill: MarkdownSkill = {
-      id: frontMatter.id,
+      id,
       name: frontMatter.name,
       version: frontMatter.version,
       author: frontMatter.author,

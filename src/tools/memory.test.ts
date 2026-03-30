@@ -89,6 +89,50 @@ describe('Memory Tools', () => {
       expect(result.success).toBe(true);
     });
 
+    it('should merge facts with different spacing', async () => {
+      await addFactTool.execute(
+        { content: '我是 Python 开发者', confidence: 0.8 },
+        mockContext
+      );
+
+      const result = await addFactTool.execute(
+        { content: '我是Python开发者', confidence: 0.9 },
+        mockContext
+      );
+
+      expect(result.success).toBe(true);
+      
+      const factsResult = await getFactsTool.execute({}, mockContext);
+      expect(factsResult.success).toBe(true);
+      const contentLower = (factsResult.content || '').toLowerCase();
+      expect(contentLower).toContain('python');
+      expect(contentLower).toContain('90%');
+      
+      const factLines = (factsResult.content || '').split('\n').filter(line => line.toLowerCase().includes('python'));
+      expect(factLines.length).toBe(1);
+    });
+
+    it('should merge similar facts with same core keywords', async () => {
+      await addFactTool.execute(
+        { content: '我是 C++ 开发者', confidence: 0.8 },
+        mockContext
+      );
+
+      const result = await addFactTool.execute(
+        { content: '我是 C++ 开发', confidence: 0.9 },
+        mockContext
+      );
+
+      expect(result.success).toBe(true);
+      
+      const factsResult = await getFactsTool.execute({}, mockContext);
+      expect(factsResult.success).toBe(true);
+      
+      const factLines = (factsResult.content || '').split('\n').filter(line => line.toLowerCase().includes('c++'));
+      expect(factLines.length).toBe(1);
+      expect((factsResult.content || '').toLowerCase()).toContain('90%');
+    });
+
     it('should reject empty content', async () => {
       const result = await addFactTool.execute(
         { content: '' },
