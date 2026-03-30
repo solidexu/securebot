@@ -135,6 +135,117 @@ skillCmd
     await removeSkillFromAgent(skillId, agentId);
   });
 
+// skill version 命令
+skillCmd
+  .command('versions <skillId>')
+  .description('查看技能版本历史')
+  .action(async (skillId: string) => {
+    const { listVersions } = await import('./commands/skill-version.js');
+    await listVersions(skillId);
+  });
+
+skillCmd
+  .command('save <skillId>')
+  .description('保存当前版本')
+  .option('-m, --message <msg>', '版本变更说明')
+  .action(async (skillId: string, options) => {
+    const { saveVersion } = await import('./commands/skill-version.js');
+    await saveVersion(skillId, options.message);
+  });
+
+skillCmd
+  .command('rollback <skillId> [version]')
+  .description('回滚到指定版本')
+  .action(async (skillId: string, version?: string) => {
+    const { rollbackVersion } = await import('./commands/skill-version.js');
+    await rollbackVersion(skillId, version);
+  });
+
+skillCmd
+  .command('diff <skillId> [version1] [version2]')
+  .description('对比两个版本')
+  .action(async (skillId: string, version1?: string, version2?: string) => {
+    const { diffVersions } = await import('./commands/skill-version.js');
+    await diffVersions(skillId, version1, version2);
+  });
+
+// skill pack 命令
+skillCmd
+  .command('pack <skillId>')
+  .description('打包技能为 .skill 文件')
+  .option('-o, --output <path>', '输出目录')
+  .action(async (skillId: string, options) => {
+    const { packSkill } = await import('./commands/skill-pack.js');
+    await packSkill(skillId, options.output);
+  });
+
+skillCmd
+  .command('install <source>')
+  .description('安装技能（本地文件或 URL）')
+  .option('-f, --force', '覆盖已存在的技能')
+  .option('-d, --dir <path>', '安装目录')
+  .action(async (source: string, options) => {
+    const { installSkill } = await import('./commands/skill-pack.js');
+    await installSkill(source, { overwrite: options.force, targetDir: options.dir });
+  });
+
+skillCmd
+  .command('verify <skillFile>')
+  .description('验证技能包')
+  .action(async (skillFile: string) => {
+    const { verifySkill } = await import('./commands/skill-pack.js');
+    await verifySkill(skillFile);
+  });
+
+skillCmd
+  .command('inspect <skillFile>')
+  .description('查看技能包内容')
+  .action(async (skillFile: string) => {
+    const { inspectSkill } = await import('./commands/skill-pack.js');
+    await inspectSkill(skillFile);
+  });
+
+skillCmd
+  .command('export-all')
+  .description('导出所有技能')
+  .option('-o, --output <path>', '输出目录')
+  .action(async (options) => {
+    const { exportAllSkills } = await import('./commands/skill-pack.js');
+    await exportAllSkills(options.output);
+  });
+
+// skill discovery 命令
+skillCmd
+  .command('search <query>')
+  .description('搜索远程技能')
+  .action(async (query: string) => {
+    const { searchSkills } = await import('./commands/skill-discover.js');
+    await searchSkills(query);
+  });
+
+skillCmd
+  .command('explore')
+  .description('浏览热门和最新技能')
+  .option('-t, --type <type>', 'popular 或 latest', 'popular')
+  .option('-l, --limit <number>', '显示数量', '10')
+  .action(async (options) => {
+    const { showPopular, showLatest } = await import('./commands/skill-discover.js');
+    const limit = parseInt(options.limit) || 10;
+    if (options.type === 'latest') {
+      await showLatest(limit);
+    } else {
+      await showPopular(limit);
+    }
+  });
+
+skillCmd
+  .command('show-remote <skillId>')
+  .description('查看远程技能详情')
+  .action(async (skillId: string) => {
+    const { showRemoteSkill } = await import('./commands/skill-discover.js');
+    await showRemoteSkill(skillId);
+  });
+
 // config 命令
 program
   .command('config')

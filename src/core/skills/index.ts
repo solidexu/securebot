@@ -92,3 +92,33 @@ export {
   type MigrationOptions,
   type MigrationResult,
 } from './migrate.js';
+
+// 版本管理
+export {
+  SkillVersionManager,
+  getSkillVersionManager,
+  resetSkillVersionManager,
+  type SkillVersion,
+  type VersionDiff,
+} from './version.js';
+
+// 打包器
+export {
+  SkillPackager,
+  getSkillPackager,
+  resetSkillPackager,
+  type SkillPackageManifest,
+  type PackOptions,
+  type InstallOptions,
+  type InstallResult,
+} from './packager.js';
+
+// 技能发现
+export {
+  SkillRegistry,
+  getSkillRegistry,
+  resetSkillRegistry,
+  type RemoteSkill,
+  type SearchResult,
+  type SkillRegistryConfig,
+} from './registry.js';

@@ -269,12 +269,12 @@ export const getFactsTool: Tool = {
       }
 
       const content = facts
-        .map((f, i) => `${i + 1}. [${f.category} | ${(f.confidence * 100).toFixed(0)}%] ${f.content}`)
+        .map((f, i) => `${i + 1}. [${f.id.slice(0, 8)}] [${f.category} | ${(f.confidence * 100).toFixed(0)}%] ${f.content}`)
         .join('\n');
 
       return {
         success: true,
-        content: `### 用户事实 (${facts.length}条)\n${content}`,
+        content: `### 用户事实 (${facts.length}条)\n${content}\n\n提示: 使用 delete_fact 工具删除时，ID取前8位即可`,
         metadata: { count: facts.length },
       };
     } catch (error) {
@@ -326,6 +326,81 @@ export const deleteFactTool: Tool = {
       return {
         success: false,
         error: `删除事实失败: ${message}`,
+      };
+    }
+  },
+};
+
+export const cleanFactsTool: Tool = {
+  name: 'clean_facts',
+  description: '清理重复和低置信度的事实。合并相似内容，保留最高置信度版本。',
+  parameters: {
+    type: 'object',
+    properties: {
+      min_confidence: {
+        type: 'number',
+        description: '保留的最低置信度阈值（默认0.7）',
+      },
+    },
+  },
+
+  async execute(params): Promise<ToolResult> {
+    const { min_confidence = 0.7 } = params as { min_confidence?: number };
+
+    try {
+      const memoryManager = getMemoryManager();
+      await memoryManager.initialize();
+      
+      const facts = memoryManager.getFacts({ limit: 100 });
+      if (facts.length === 0) {
+        return {
+          success: true,
+          content: '暂无事实需要清理。',
+        };
+      }
+
+      const toDelete: string[] = [];
+      const keep: Map<string, typeof facts[0]> = new Map();
+      
+      for (const fact of facts) {
+        const normalized = fact.content.trim().toLowerCase().replace(/\s+/g, '');
+        const existing = keep.get(normalized);
+        
+        if (existing) {
+          if (fact.confidence > existing.confidence) {
+            toDelete.push(existing.id);
+            keep.set(normalized, fact);
+          } else {
+            toDelete.push(fact.id);
+          }
+        } else {
+          keep.set(normalized, fact);
+        }
+      }
+      
+      for (const factId of toDelete) {
+        await memoryManager.deleteFact(factId);
+      }
+      
+      const lowConfidenceFacts = facts.filter(f => f.confidence < min_confidence);
+      for (const fact of lowConfidenceFacts) {
+        if (!toDelete.includes(fact.id)) {
+          await memoryManager.deleteFact(fact.id);
+          toDelete.push(fact.id);
+        }
+      }
+
+      const remaining = keep.size - lowConfidenceFacts.length;
+      
+      return {
+        success: true,
+        content: `清理完成。删除了 ${toDelete.length} 条重复/低质量记录，保留 ${Math.max(0, remaining)} 条有效事实。`,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        error: `清理事实失败: ${message}`,
       };
     }
   },
@@ -501,6 +576,7 @@ export const memoryTools = [
   addFactTool,
   getFactsTool,
   deleteFactTool,
+  cleanFactsTool,
   setUserInfoTool,
   getUserInfoTool,
   memoryStatsTool,

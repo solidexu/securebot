@@ -1027,9 +1027,8 @@ ${entry.content}
   /**
    * 规范化事实内容（用于去重比较）
    */
-  private normalizeFactContent(content: string): string {
-    const normalized = content.trim().toLowerCase().replace(/\s+/g, ' ');
-    return normalized.replace(/\s/g, '');
+private normalizeFactContent(content: string): string {
+    return content.trim().toLowerCase().replace(/\s+/g, '');
   }
 
   private extractCoreKeywords(content: string): string[] {
@@ -1038,8 +1037,8 @@ ${entry.content}
     
     const techPatterns = [
       /python|c\+\+|java|javascript|go|rust|typescript|node|react|vue|angular/gi,
-      /开发|developer|programmer|工程师|expert|专家/gi,
-      /前端|backend|后端|fullstack|全栈/gi,
+      /开发|developer|programmer|程序员|工程师|expert|专家|全栈|fullstack/gi,
+      /前端|backend|后端/gi,
     ];
     
     for (const pattern of techPatterns) {
@@ -1063,7 +1062,20 @@ ${entry.content}
     const commonKeywords = keywords1.filter(k => keywords2.includes(k));
     const maxLen = Math.max(keywords1.length, keywords2.length);
     
-    return commonKeywords.length / maxLen;
+    const baseSimilarity = commonKeywords.length / maxLen;
+    
+    const norm1 = this.normalizeFactContent(content1);
+    const norm2 = this.normalizeFactContent(content2);
+    
+    if (norm1 === norm2) {
+      return 1.0;
+    }
+    
+    if (norm1.includes(norm2) || norm2.includes(norm1)) {
+      return Math.max(baseSimilarity, 0.8);
+    }
+    
+    return baseSimilarity;
   }
 
   private findExistingFactIndex(content: string): number {
@@ -1079,7 +1091,7 @@ ${entry.content}
       }
       
       const similarity = this.calculateSimilarity(content, fact.content);
-      return similarity >= 0.6;
+      return similarity >= 0.5;
     });
   }
 
@@ -1163,7 +1175,9 @@ ${entry.content}
     
     if (!this.userProfile?.facts) return false;
 
-    const index = this.userProfile.facts.findIndex(f => f.id === factId);
+    const index = this.userProfile.facts.findIndex(f => 
+      f.id === factId || f.id.startsWith(factId)
+    );
     if (index < 0) return false;
 
     this.userProfile.facts.splice(index, 1);

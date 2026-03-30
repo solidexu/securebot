@@ -24,6 +24,8 @@
   },
   "dependencies": {
     "@clack/prompts": "^0.10.1",
+    "adm-zip": "^0.5.16",
+    "archiver": "^7.0.1",
     "blessed": "^0.1.81",
     "blessed-contrib": "^4.11.0",
     "boxen": "^8.0.1",
@@ -37,6 +39,8 @@
     "uuid": "^13.0.0"
   },
   "devDependencies": {
+    "@types/adm-zip": "^0.5.8",
+    "@types/archiver": "^7.0.0",
     "@types/blessed": "^0.1.27",
     "@types/node": "^22.13.0",
     "@types/uuid": "^10.0.0",

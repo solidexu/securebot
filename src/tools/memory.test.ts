@@ -112,24 +112,52 @@ describe('Memory Tools', () => {
     });
 
     it('should merge similar facts with same core keywords', async () => {
+      // 使用独立的上下文
+      const localDir = join(tmpdir(), 'securebot-memory-test-merge-' + Date.now());
+      mkdirSync(localDir, { recursive: true });
+      mkdirSync(join(localDir, 'profiles'), { recursive: true });
+      reconfigureMemoryManager({ rootDir: localDir });
+      
+      const localAgent = {
+        id: 'merge-test-agent',
+        name: 'Merge Test',
+        workspace: localDir,
+        sessions: new Map(),
+      };
+      const localSession = {
+        sessionKey: 'merge-session',
+        agentId: localAgent.id,
+        history: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      const localContext = {
+        agent: localAgent,
+        session: localSession,
+        workspace: localDir,
+        logger: console,
+      };
+      
       await addFactTool.execute(
         { content: '我是 C++ 开发者', confidence: 0.8 },
-        mockContext
+        localContext
       );
 
       const result = await addFactTool.execute(
         { content: '我是 C++ 程序员', confidence: 0.9 },
-        mockContext
+        localContext
       );
 
       expect(result.success).toBe(true);
       
-      const factsResult = await getFactsTool.execute({}, mockContext);
+      const factsResult = await getFactsTool.execute({}, localContext);
       expect(factsResult.success).toBe(true);
       
       const factLines = (factsResult.content || '').split('\n').filter(line => line.toLowerCase().includes('c++'));
       expect(factLines.length).toBe(1);
       expect((factsResult.content || '').toLowerCase()).toContain('90%');
+      
+      rmSync(localDir, { recursive: true, force: true });
     });
 
     it('should reject empty content', async () => {

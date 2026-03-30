@@ -11,6 +11,7 @@ import { loadConfig, createDefaultConfig } from '../core/config.js';
 import { createAgents, parseAgentPrefix, getDefaultAgent, getOrCreateMainSession } from '../core/agent.js';
 import { OllamaAdapter } from '../model/ollama.js';
 import { getSessionStorage } from '../core/session-storage.js';
+import { getInputHistoryManager } from '../core/input-history.js';
 import { reconfigureMemoryManager } from '../core/memory.js';
 import { ragManager } from '../rag/tools.js';
 import { getSkillManager } from '../core/skills.js';
@@ -95,6 +96,10 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
   // 初始化会话存储
   const sessionStorage = getSessionStorage();
   await sessionStorage.initialize();
+
+  // 初始化输入历史管理器
+  const inputHistoryManager = getInputHistoryManager();
+  await inputHistoryManager.initialize();
 
   // ★ 自动检测沙箱环境
   const dockerAvailable = await DockerSandbox.isDockerAvailable();
@@ -263,6 +268,8 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
     output: process.stdout,
     completer,
     terminal: true,  // 启用终端模式，支持信号处理
+    history: inputHistoryManager.getHistory(),
+    historySize: 100,
   });
   
   // 使用 readline 的 SIGINT 事件（比 process.on 更可靠）
@@ -333,6 +340,7 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
   // 注册退出处理
   const exitHandler = async () => {
     memoryMonitor.stop();
+    await inputHistoryManager.saveHistory();
     await saveAllSessions(agents, sessionStorage);
   };
   
@@ -477,6 +485,9 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
         }
         continue;
       }
+
+      // 添加到输入历史
+      inputHistoryManager.addEntry(inputLine.trim());
 
       // 处理命令
       if (inputLine.startsWith('/')) {
