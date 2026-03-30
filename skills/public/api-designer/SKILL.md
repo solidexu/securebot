@@ -1,71 +1,60 @@
 ---
 name: api-designer
-description: Use this skill when you need to design, review, or document REST/GraphQL APIs. Triggers on API design requests, endpoint creation, or API architecture discussions.
+description: |
+  当用户需要设计、审查或文档化 REST/GraphQL API 时使用。
+  即使用户没有明确说"API设计"，只要提到"设计接口"、"创建端点"、"API架构"、"REST规范"等相关请求，都应该使用此技能。
+  遵循行业最佳实践设计清晰、一致、开发者友好的 API。
 version: "1.0.0"
-license: MIT
 keywords:
   - api-design
   - rest-api
   - graphql
   - endpoints
   - api-architecture
-tools:
-  - read
-  - write
-  - edit
+metadata:
+  openclaw:
+    emoji: "🔌"
 ---
 
-# API Designer
+# API 设计师
 
-## Purpose
+设计清晰、一致、开发者友好的 API。
 
-Design clean, consistent, and developer-friendly APIs following industry best practices.
+## 何时使用
 
-## When to Use
+- 设计新的 API 端点
+- 审查现有 API 设计
+- 创建 API 规范
+- 规划 API 版本策略
 
-- Designing new API endpoints
-- Reviewing existing API designs
-- Creating API specifications
-- Planning API versioning strategy
-- Documenting API contracts
+## 设计原则
 
-## Design Principles
+### RESTful 最佳实践
 
-### RESTful Best Practices
+1. **使用名词表示资源**
+   - ✅ `GET /users`, `GET /users/{id}`
+   - ❌ `GET /getUsers`
 
-1. **Use Nouns for Resources**
-   - Good: `GET /users`, `GET /users/{id}`
-   - Bad: `GET /getUsers`
+2. **使用正确的 HTTP 方法**
+   - GET: 获取资源
+   - POST: 创建资源
+   - PUT/PATCH: 更新资源
+   - DELETE: 删除资源
 
-2. **Use Proper HTTP Methods**
-   - GET: Retrieve resources
-   - POST: Create resources
-   - PUT/PATCH: Update resources
-   - DELETE: Remove resources
+3. **使用复数名词**
+   - ✅ `/users`, `/products`
+   - ❌ `/user`, `/product`
 
-3. **Use Plural Nouns**
-   - Good: `/users`, `/products`
-   - Bad: `/user`, `/product`
-
-4. **Nesting for Relationships**
-   - `GET /users/{id}/orders`
-   - Limit nesting to 2 levels
-
-### Response Format
+### 响应格式
 
 ```json
 {
   "data": {},
-  "meta": {
-    "page": 1,
-    "limit": 20,
-    "total": 100
-  },
-  "errors": []
+  "meta": { "page": 1, "limit": 20, "total": 100 }
 }
 ```
 
-### Error Handling
+### 错误处理
 
 ```json
 {
@@ -77,17 +66,11 @@ Design clean, consistent, and developer-friendly APIs following industry best pr
 }
 ```
 
-## Checklist
+## 检查清单
 
-- [ ] Consistent naming conventions
-- [ ] Proper HTTP status codes
-- [ ] Pagination for list endpoints
-- [ ] Filtering and sorting support
-- [ ] Authentication requirements
-- [ ] Rate limiting headers
-- [ ] Versioning strategy
-- [ ] Comprehensive error messages
-
-## Output Format
-
-Provide OpenAPI/Swagger-compatible specifications when possible.
+- [ ] 一致的命名规范
+- [ ] 正确的 HTTP 状态码
+- [ ] 列表端点分页
+- [ ] 过滤和排序支持
+- [ ] 认证要求
+- [ ] 版本策略

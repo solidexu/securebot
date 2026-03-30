@@ -1364,7 +1364,7 @@ ${entry.content}
     const sections: string[] = [];
     let totalTokens = 0;
 
-    // 添加用户上下文
+    // 1. 添加用户上下文（最高优先级）
     const userContext = this.formatUserContext();
     if (userContext) {
       const userTokens = countTokens(userContext);
@@ -1374,7 +1374,17 @@ ${entry.content}
       }
     }
 
-    // 添加事实（按置信度排序）
+    // 2. 添加历史记录
+    const historySection = this.formatHistorySection();
+    if (historySection) {
+      const historyTokens = countTokens(historySection);
+      if (totalTokens + historyTokens <= maxTokens) {
+        sections.push(historySection);
+        totalTokens += historyTokens;
+      }
+    }
+
+    // 3. 添加事实（按置信度排序）
     const factsSection = this.formatFactsSection(maxTokens - totalTokens);
     if (factsSection) {
       const factsTokens = countTokens(factsSection);
@@ -1384,7 +1394,7 @@ ${entry.content}
       }
     }
 
-    // 添加工作记忆
+    // 4. 添加工作记忆
     const workingMemorySection = this.formatWorkingMemorySection(sorted, maxTokens - totalTokens);
     if (workingMemorySection) {
       sections.push(workingMemorySection);
@@ -1415,14 +1425,25 @@ ${entry.content}
       lines.push(`当前关注: ${this.userProfile.topOfMind.summary}`);
     }
     
-    if (this.userProfile.keyInfo && Object.keys(this.userProfile.keyInfo).length > 0) {
-      lines.push('### 用户信息');
-      for (const [key, value] of Object.entries(this.userProfile.keyInfo)) {
-        lines.push(`- ${key}: ${value}`);
-      }
+    return lines.length > 0 ? '用户上下文:\n' + lines.map(l => `- ${l}`).join('\n') : '';
+  }
+
+  private formatHistorySection(): string {
+    if (!this.userProfile) return '';
+    
+    const lines: string[] = [];
+    
+    if (this.userProfile.recentMonths?.summary) {
+      lines.push(`近期: ${this.userProfile.recentMonths.summary}`);
+    }
+    if (this.userProfile.earlierContext?.summary) {
+      lines.push(`更早: ${this.userProfile.earlierContext.summary}`);
+    }
+    if (this.userProfile.longTermBackground?.summary) {
+      lines.push(`长期: ${this.userProfile.longTermBackground.summary}`);
     }
     
-    return lines.length > 0 ? '用户上下文:\n' + lines.join('\n') : '';
+    return lines.length > 0 ? '历史记录:\n' + lines.map(l => `- ${l}`).join('\n') : '';
   }
 
   /**

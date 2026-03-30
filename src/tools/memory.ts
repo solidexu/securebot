@@ -6,6 +6,7 @@
 
 import type { Tool, ToolContext, ToolResult } from '../core/types.js';
 import { getMemoryManager, type MemoryFact } from '../core/memory.js';
+import { shouldRecordContent, inferCategory, inferConfidence, FACT_CATEGORIES } from '../core/memory-template.js';
 
 // ============ 记忆存储工具 ============
 
@@ -145,33 +146,63 @@ export const recallTool: Tool = {
 
 export const addFactTool: Tool = {
   name: 'add_fact',
-  description: '添加一条结构化事实到用户档案。支持分类和置信度。',
+  description: `添加一条结构化事实到用户档案。
+
+分类说明:
+- preference: 用户偏好（工具、风格、语言）
+- knowledge: 知识技能（专业领域、经验）
+- context: 背景信息（工作、项目、环境）
+- behavior: 行为模式（工作习惯、沟通风格）
+- goal: 目标计划（学习目标、职业规划）
+
+置信度指南:
+- 0.9+: 明确陈述的事实
+- 0.7-0.8: 从行为推断
+- 0.5-0.6: 模糊推断（谨慎使用）`,
   parameters: {
     type: 'object',
     properties: {
       content: {
         type: 'string',
-        description: '事实内容',
+        description: '事实内容（应包含具体细节，如技术名称、版本号等）',
       },
       category: {
         type: 'string',
         enum: ['preference', 'knowledge', 'context', 'behavior', 'goal'],
-        description: '事实分类',
+        description: '事实分类（不填则自动推断）',
       },
       confidence: {
         type: 'number',
-        description: '置信度 (0-1)，默认0.8。显式陈述用0.9+，推断用0.6-0.8',
+        description: '置信度 (0-1)，不填则自动推断',
       },
     },
     required: ['content'],
   },
 
   async execute(params, context: ToolContext): Promise<ToolResult> {
-    const { content, category = 'context', confidence = 0.8 } = params as {
+    const { content, category, confidence } = params as {
       content: string;
       category?: MemoryFact['category'];
       confidence?: number;
     };
+
+    if (!content || content.trim().length < 3) {
+      return {
+        success: false,
+        error: '内容太短，无法记录',
+      };
+    }
+
+    const check = shouldRecordContent(content);
+    if (!check.should) {
+      return {
+        success: false,
+        error: `不建议记录: ${check.reason}`,
+      };
+    }
+
+    const finalCategory = category || inferCategory(content);
+    const finalConfidence = confidence ?? inferConfidence(content);
 
     try {
       const memoryManager = getMemoryManager();
@@ -179,15 +210,16 @@ export const addFactTool: Tool = {
       
       const fact = await memoryManager.addFact(
         content,
-        category,
-        confidence,
-        context.agent.id
+        finalCategory,
+        finalConfidence,
+        context.session?.sessionKey || context.agent.id
       );
 
+      const categoryInfo = FACT_CATEGORIES[finalCategory];
       return {
         success: true,
-        content: `已记录事实 [${category} | ${(confidence * 100).toFixed(0)}%]: ${content}`,
-        metadata: { factId: fact.id, category, confidence },
+        content: `已记录 [${categoryInfo?.name || finalCategory} | ${(finalConfidence * 100).toFixed(0)}%]: ${content}`,
+        metadata: { factId: fact.id, category: finalCategory, confidence: finalConfidence },
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

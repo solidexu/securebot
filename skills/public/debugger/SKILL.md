@@ -1,68 +1,78 @@
 ---
 name: debugger
-description: Use this skill when you need to debug code, troubleshoot errors, analyze stack traces, or investigate runtime issues. Triggers on debugging requests, error analysis, or bug investigation tasks.
+description: |
+  当用户需要调试代码、排查错误、分析堆栈跟踪或调查运行时问题时使用。
+  即使用户没有明确说"调试"，只要提到"报错"、"错误"、"bug"、"异常"、"崩溃"、"不工作"等问题排查请求，都应该使用此技能。
+  提供系统化的调试方法论和问题定位技巧。
 version: "1.0.0"
-license: MIT
 keywords:
   - debugging
   - troubleshooting
-  - error-analysis
-  - bug-fixing
-  - stack-trace
-tools:
-  - read
-  - exec
+  - error
+  - bug
+  - 报错
+  - 错误
+  - 异常
+  - 调试
+metadata:
+  openclaw:
+    emoji: "🐛"
+    requires:
+      bins: [grep, find]
 ---
 
-# Debugger
+# 调试技能
 
-## Purpose
+系统化地识别和解决代码中的 bug、错误和异常行为。
 
-Systematically identify and resolve bugs, errors, and unexpected behavior in code.
+## 何时使用
 
-## When to Use
+- 分析错误消息和堆栈跟踪
+- 调试失败的测试
+- 调查运行时问题
+- 排查生产事故
+- 内存泄漏检测
 
-- Analyzing error messages and stack traces
-- Debugging failing tests
-- Investigating runtime issues
-- Troubleshooting production incidents
-- Memory leak detection
+## 调试流程
 
-## Debugging Process
+### 1. 复现问题
 
-### 1. Reproduce the Issue
-- Identify the exact steps to reproduce
-- Note the expected vs actual behavior
-- Gather relevant logs and error messages
+- 确定重现问题的确切步骤
+- 记录预期行为 vs 实际行为
+- 收集相关日志和错误消息
 
-### 2. Isolate the Problem
-- Use binary search to narrow down the code
-- Check recent changes (git diff/blame)
-- Review related configuration
+### 2. 隔离问题
 
-### 3. Analyze Root Cause
-- Read the stack trace carefully
-- Check variable states at breakpoints
-- Review error handling logic
+- 使用二分查找缩小代码范围
+- 检查最近的代码变更（git diff/blame）
+- 检查相关配置
 
-### 4. Fix and Verify
-- Implement the fix
-- Add test cases
-- Verify no regressions
+### 3. 分析根因
 
-## Common Debugging Techniques
+- 仔细阅读堆栈跟踪
+- 检查断点处的变量状态
+- 检查错误处理逻辑
 
-- **Logging**: Add strategic log statements
-- **Print Debugging**: Quick variable inspection
-- **Breakpoints**: Step through code execution
-- **Assertions**: Validate assumptions
-- **Rubber Duck**: Explain the problem out loud
+### 4. 修复并验证
 
-## Output Format
+- 实现修复
+- 添加测试用例
+- 验证没有回归
 
-```
-Issue: [problem description]
-Root Cause: [analysis]
-Solution: [fix with code]
-Prevention: [how to avoid in future]
+## 常用调试技术
+
+| 技术 | 用途 |
+|------|------|
+| **日志** | 添加战略性日志语句 |
+| **打印调试** | 快速变量检查 |
+| **断点** | 逐步执行代码 |
+| **断言** | 验证假设 |
+
+## 输出格式
+
+```markdown
+问题: [问题描述]
+根因: [分析]
+解决方案: [修复代码]
+预防措施: [如何避免]
 ```

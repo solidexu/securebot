@@ -1,51 +1,53 @@
 ---
 name: translator
-description: Use this skill when you need to translate text between languages, localize content, or handle multilingual text processing. Triggers on translation requests or language conversion tasks.
+description: |
+  当用户需要在不同语言之间翻译文本、本地化内容或处理多语言文本时使用。
+  即使用户没有明确说"翻译"，只要提到"翻译成XX语"、"转成中文"、"本地化"等相关请求，都应该使用此技能。
+  在保留意义、上下文和语气的同时进行翻译。
 version: "1.0.0"
-license: MIT
 keywords:
   - translation
   - localization
   - i18n
   - multilingual
   - language
+metadata:
+  openclaw:
+    emoji: "🌐"
 ---
 
-# Translator
+# 翻译助手
 
-## Purpose
+在不同语言之间翻译文本，保留意义、上下文和语气。
 
-Translate text between different languages while preserving meaning, context, and tone.
+## 何时使用
 
-## When to Use
+- 翻译文档
+- 本地化用户界面
+- 为国际受众转换内容
+- 处理多语言数据
 
-- Translating documentation
-- Localizing user interfaces
-- Converting content for international audiences
-- Handling multilingual data
+## 支持的语言
 
-## Supported Languages
+- 英语 ↔ 中文（简体/繁体）
+- 英语 ↔ 日语
+- 英语 ↔ 韩语
+- 英语 ↔ 西班牙语
+- 英语 ↔ 法语
+- 英语 ↔ 德语
 
-Common language pairs:
-- English ↔ Chinese (Simplified/Traditional)
-- English ↔ Japanese
-- English ↔ Korean
-- English ↔ Spanish
-- English ↔ French
-- English ↔ German
+## 翻译指南
 
-## Translation Guidelines
+1. **保留上下文**：翻译前理解完整上下文
+2. **保持语气**：保持原始语气（正式/随意/技术）
+3. **技术术语**：适当时保留技术术语原始形式
+4. **代码注释**：翻译注释同时保留代码结构
+5. **文化细微差别**：适当调整习语和文化引用
 
-1. **Preserve Context**: Understand the full context before translating
-2. **Maintain Tone**: Keep the original tone (formal/casual/technical)
-3. **Technical Terms**: Keep technical terms in original form when appropriate
-4. **Code Comments**: Translate comments while preserving code structure
-5. **Cultural Nuances**: Adapt idioms and cultural references appropriately
-
-## Output Format
+## 输出格式
 
 ```
-Original: [source text]
-Translated: [target text]
-Notes: [any relevant translation notes]
+原文: [源文本]
+译文: [目标文本]
+注释: [相关翻译注释]
 ```

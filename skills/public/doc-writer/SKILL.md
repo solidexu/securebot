@@ -1,73 +1,64 @@
 ---
 name: doc-writer
-description: Use this skill when you need to write, update, or improve documentation including README files, API docs, user guides, and code comments. Triggers on documentation requests or content creation tasks.
+description: |
+  当用户需要编写、更新或改进文档时使用，包括 README 文件、API 文档、用户指南和代码注释。
+  即使用户没有明确说"文档"，只要提到"写个README"、"API文档"、"使用说明"、"用户指南"等相关请求，都应该使用此技能。
+  创建清晰、全面、结构良好的文档。
 version: "1.0.0"
-license: MIT
 keywords:
   - documentation
   - readme
   - api-docs
   - user-guide
   - technical-writing
-tools:
-  - read
-  - write
-  - edit
+metadata:
+  openclaw:
+    emoji: "📝"
 ---
 
-# Documentation Writer
+# 文档撰写
 
-## Purpose
+创建清晰、全面、结构良好的文档。
 
-Create clear, comprehensive, and well-structured documentation for software projects.
+## 何时使用
 
-## When to Use
+- 编写 README 文件
+- 创建 API 文档
+- 编写用户指南和教程
+- 记录代码和架构
 
-- Writing README files
-- Creating API documentation
-- Writing user guides and tutorials
-- Documenting code and architecture
-- Creating changelogs
-
-## Documentation Types
+## 文档类型
 
 ### README
-- Project overview and purpose
-- Installation instructions
-- Quick start guide
-- Usage examples
-- Contributing guidelines
+- 项目概述和目的
+- 安装说明
+- 快速开始指南
+- 使用示例
 
-### API Documentation
-- Endpoint descriptions
-- Request/response formats
-- Authentication requirements
-- Error codes
-- Code examples in multiple languages
+### API 文档
+- 端点描述
+- 请求/响应格式
+- 认证要求
+- 错误码
+- 多语言代码示例
 
-### User Guides
-- Step-by-step tutorials
-- Screenshots and diagrams
-- Troubleshooting sections
-- FAQ
+### 用户指南
+- 分步教程
+- 截图和图表
+- 故障排除部分
 
-### Code Documentation
-- Inline comments for complex logic
-- JSDoc/Javadoc-style documentation
-- Type definitions
+## 写作指南
 
-## Writing Guidelines
+1. **清晰**：使用简单直接的语言
+2. **完整**：覆盖所有必要信息
+3. **最新**：保持文档更新
+4. **一致**：遵循一致的风格
+5. **示例**：展示，而不只是讲述
 
-1. **Be Clear**: Use simple, direct language
-2. **Be Complete**: Cover all necessary information
-3. **Be Current**: Keep documentation updated
-4. **Be Consistent**: Follow a consistent style
-5. **Include Examples**: Show, don't just tell
+## 输出格式
 
-## Output Format
-
-Use appropriate markdown formatting:
-- Headers for structure
-- Code blocks with language tags
-- Tables for structured data
-- Lists for enumerations
+使用适当的 Markdown 格式：
+- 标题组织结构
+- 带语言标签的代码块
+- 表格展示结构化数据
+- 列表展示枚举

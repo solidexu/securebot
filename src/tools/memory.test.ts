@@ -55,15 +55,15 @@ describe('Memory Tools', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(result.content).toContain('已记录事实');
-      expect(result.content).toContain('Python 开发者');
+      expect(result.content).toContain('已记录');
+      expect(result.content).toContain('Python');
       expect(result.metadata?.factId).toBeDefined();
     });
 
     it('should add a fact with category and confidence', async () => {
       const result = await addFactTool.execute(
         { 
-          content: '用户喜欢使用 VSCode', 
+          content: '我喜欢的编辑器是 VSCode', 
           category: 'preference',
           confidence: 0.9 
         },
@@ -71,18 +71,17 @@ describe('Memory Tools', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(result.content).toContain('preference');
       expect(result.content).toContain('90%');
     });
 
     it('should not add duplicate facts', async () => {
       await addFactTool.execute(
-        { content: '我会说中文' },
+        { content: '我精通 Python 编程' },
         mockContext
       );
 
       const result = await addFactTool.execute(
-        { content: '我会说中文' },
+        { content: '我精通 Python 编程' },
         mockContext
       );
 
@@ -119,7 +118,7 @@ describe('Memory Tools', () => {
       );
 
       const result = await addFactTool.execute(
-        { content: '我是 C++ 开发', confidence: 0.9 },
+        { content: '我是 C++ 程序员', confidence: 0.9 },
         mockContext
       );
 
@@ -140,14 +139,14 @@ describe('Memory Tools', () => {
       );
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain('空');
+      expect(result.error).toContain('太短');
     });
 
     it('should only call tool once (no duplicate execution)', async () => {
       const executeSpy = vi.spyOn(addFactTool, 'execute');
       
       await addFactTool.execute(
-        { content: '测试事实', category: 'knowledge' },
+        { content: '我是测试开发者', category: 'knowledge' },
         mockContext
       );
 
@@ -165,23 +164,23 @@ describe('Memory Tools', () => {
 
     it('should return facts after adding', async () => {
       await addFactTool.execute(
-        { content: '事实1', category: 'knowledge', confidence: 0.9 },
+        { content: '我精通 JavaScript', category: 'knowledge', confidence: 0.9 },
         mockContext
       );
 
       const result = await getFactsTool.execute({}, mockContext);
 
       expect(result.success).toBe(true);
-      expect(result.content).toContain('事实1');
+      expect(result.content).toContain('JavaScript');
     });
 
     it('should filter by category', async () => {
       await addFactTool.execute(
-        { content: '偏好1', category: 'preference' },
+        { content: '我喜欢的编辑器是 Vim', category: 'preference' },
         mockContext
       );
       await addFactTool.execute(
-        { content: '知识1', category: 'knowledge' },
+        { content: '我精通 Go 语言', category: 'knowledge' },
         mockContext
       );
 
@@ -191,15 +190,15 @@ describe('Memory Tools', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(result.content).toContain('偏好1');
-      expect(result.content).not.toContain('知识1');
+      expect(result.content).toContain('Vim');
+      expect(result.content).not.toContain('Go');
     });
   });
 
   describe('deleteFactTool', () => {
     it('should delete existing fact', async () => {
       const addResult = await addFactTool.execute(
-        { content: '要删除的事实' },
+        { content: '我精通 Rust 语言' },
         mockContext
       );
 
