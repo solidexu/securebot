@@ -120,6 +120,8 @@ securebot chat
 
 ## 三层记忆架构
 
+> 📑 **[查看完整的记忆系统文档 →](docs/MEMORY.md)** - Agent 独立存储、智能去重、一键迁移。
+
 SecureBot 的记忆系统分为三层，确保信息既不丢失，又不会让上下文膨胀：
 
 ```
@@ -127,48 +129,58 @@ SecureBot 的记忆系统分为三层，确保信息既不丢失，又不会让�
 │  Layer 3: 向量记忆 (RAG)                                     │
 │  - 历史文档、长期知识                                         │
 │  - 按需检索，不占用上下文                                     │
-│  - 重要性 >= 4 的记忆自动同步                                 │
 ├─────────────────────────────────────────────────────────────┤
 │  Layer 2: 结构化记忆                                         │
-│  ├── profiles/    用户/Agent 档案（偏好、统计）              │
-│  ├── events/      重要事件记录                               │
-│  └── summaries/   记忆摘要（超过阈值自动压缩）               │
+│  ├── facts.json    Agent 独立事实存储                        │
+│  ├── profiles/     用户/Agent 档案                           │
+│  └── events/       重要事件记录                              │
 ├─────────────────────────────────────────────────────────────┤
 │  Layer 1: 工作记忆 (daily/)                                  │
 │  - 最近 3 天的对话、任务                                      │
 │  - 自动加载，按重要性排序                                     │
-│  - 自动衰减，低重要性记忆逐渐遗忘                             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### 记忆类型
+### 快速开始
 
-| 类型 | 说明 | 自动触发 |
-|------|------|----------|
-| `conversation` | 对话记录 | 每次对话 |
-| `task` | 任务完成 | 工具调用成功 |
-| `knowledge` | 知识点 | 用户明确要求记住 |
-| `event` | 重要事件 | 创建/删除文件等 |
-| `preference` | 用户偏好 | "我喜欢..." |
+```bash
+# 添加事实
+[dev] > /fact add 我精通Python和C++
 
-### 智能重要性评估
+# 查看事实
+[dev] > /fact list
 
-系统自动评估记忆重要性（1-5 分）：
+# 搜索
+[dev] > /fact search Python
 
-- **基础分**: 3 分
-- **+2 分**: "记住"、"重要"、"关键" 等关键词
-- **+1 分**: 包含路径、配置、项目相关
-- **+1 分**: 内容长度 > 500 字符
+# 导出/导入
+[dev] > /fact export facts.json
+[dev] > /fact import facts.json
+```
 
-**重要性 >= 4 的记忆会自动同步到 RAG**，实现长期记忆。
+### Agent 独立存储
+
+每个 Agent 拥有独立的事实存储：
+
+```bash
+[dev] > /fact add 我是dev agent
+[dev] > @pybro
+[pybro] > /fact list    # 看到的是 pybro 的事实，不包含 dev 的
+```
 
 ### 记忆命令
 
-```
-/memory stats       # 查看记忆统计
-/memory search 关键词  # 搜索记忆
-/memory trigger     # 手动触发摘要压缩
-```
+| 命令 | 说明 |
+|------|------|
+| `/fact list` | 列出事实 |
+| `/fact add` | 添加事实 |
+| `/fact search` | 搜索事实 |
+| `/fact edit` | 编辑事实 |
+| `/fact delete` | 删除事实 |
+| `/fact export` | 导出事实 |
+| `/fact import` | 导入事实 |
+| `/fact clean` | 清理重复 |
+| `/memory stats` | 记忆统计 |
 
 ---
 
@@ -366,6 +378,7 @@ securebot audit search <kw> # 搜索日志
 |------|------|
 | `/help` | 显示帮助 |
 | `/agent [id]` | 切换/列出 Agent |
+| `/fact list\|add\|search\|export\|import` | 事实管理 |
 | `/skills` | 查看当前技能 |
 | `/skill create` | 创建技能 |
 | `/memory stats\|search` | 记忆管理 |
@@ -617,8 +630,10 @@ Agent 将持续迭代直到任务完成。
 │       ├── workspace/       # 工作目录
 │       └── skills/          # 个人技能
 ├── memory/                  # 记忆系统
+│   ├── profiles/
+│   │   ├── facts.json       # Agent 独立事实（新格式）
+│   │   └── user.json        # 用户档案
 │   ├── daily/               # 每日工作记忆
-│   ├── profiles/            # 用户/Agent 档案
 │   ├── events/              # 事件日志
 │   └── summaries/           # 记忆摘要
 ├── knowledges/              # RAG 知识库
@@ -643,6 +658,24 @@ ollama serve  # 确保 Ollama 正在运行
 
 - 确保使用 `securebot chat` 启动（不是 `npm run dev`）
 - 记忆在对话过程中自动记录
+
+### 切换 Agent 后事实消失
+
+每个 Agent 的事实是独立的。如需共享，使用导出/导入：
+```bash
+@dev
+/fact export dev_facts.json
+
+@pybro
+/fact import dev_facts.json
+```
+
+### 如何清理重复事实
+
+```bash
+/fact clean
+```
+系统会自动合并相似内容，调用 LLM 精炼。
 
 ### 技能未生效
 
