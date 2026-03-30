@@ -75,7 +75,7 @@ export {
   validateDescription,
   validateTools,
   validateKeywords,
-  validateAndGetSkillName,
+  validateAndGetSkillId,
   ALLOWED_FRONTMATTER_PROPERTIES,
   NAME_RULES,
   DESCRIPTION_RULES,

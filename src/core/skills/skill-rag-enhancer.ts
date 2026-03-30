@@ -128,7 +128,7 @@ export class SkillRAGEnhancer {
 
     try {
       // 使用 RAG 管理器检索
-      const { ragManager } = await import('../rag/tools.js');
+      const { ragManager } = await import('../../rag/tools.js');
       const store = await ragManager.getStore(agent);
 
       if (!store) {
@@ -172,7 +172,7 @@ export class SkillRAGEnhancer {
       const { existsSync, readdirSync, readFileSync } = await import('node:fs');
       
       // 构建技能知识目录路径
-      const { getRootDir, loadConfig } = await import('../core/config.js');
+      const { getRootDir, loadConfig } = await import('../config.js');
       const config = loadConfig();
       const rootDir = getRootDir(config);
       const skillKnowledgePath = join(rootDir, knowledgeDir, agent.id);
@@ -329,7 +329,7 @@ export class SkillRAGEnhancer {
     }
   ): Promise<boolean> {
     try {
-      const { ragGenerateDocumentTool } = await import('../rag/tools.js');
+      const { ragGenerateDocumentTool } = await import('../../rag/tools.js');
       
       const content = `# 技能执行经验：${skillId}
 

@@ -7,9 +7,9 @@
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join } from 'node:path';
 import type { SkillMetadata, MarkdownSkill, SkillLoaderConfig } from './types.js';
-import { parseSkillFile, extractOverview } from './parser.js';
+import { parseSkillFile } from './parser.js';
 
 /**
  * 技能加载器
@@ -134,7 +134,7 @@ export class SkillLoader {
       }
 
       // 解析 YAML front matter
-      const frontMatter = this.parseYamlFrontMatterSimple(frontMatterMatch[1]);
+      const frontMatter = this.parseYamlFrontMatterSimple(frontMatterMatch[1]!);
 
       // 验证必需字段
       if (!frontMatter.id || !frontMatter.name) {
@@ -144,7 +144,7 @@ export class SkillLoader {
       // 提取概述（第一段）
       const body = content.slice(frontMatterMatch[0].length);
       const overviewMatch = body.match(/^#\s+.+\n\n(.+?)(?=\n\n##|$)/s);
-      const description = overviewMatch ? overviewMatch[1].trim() : undefined;
+      const description = overviewMatch && overviewMatch[1] ? overviewMatch[1].trim() : undefined;
 
       return {
         id: frontMatter.id,

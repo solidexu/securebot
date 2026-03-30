@@ -23,28 +23,23 @@ export const createSkillTool: Tool = {
         type: 'string',
         description: '技能名称',
       },
-      description: {
+      overview: {
         type: 'string',
-        description: '技能描述（用于智能匹配，请描述清楚技能的用途）',
-      },
-      system_prompt: {
-        type: 'string',
-        description: '技能的系统提示词（定义技能的行为和输出格式）',
+        description: '技能概述（用于智能匹配，请描述清楚技能的用途）',
       },
       keywords: {
         type: 'string',
         description: '触发关键词，用逗号分隔（用于快速匹配）',
       },
     },
-    required: ['id', 'name', 'description', 'system_prompt'],
+    required: ['id', 'name', 'overview'],
   },
 
   async execute(params, context: ToolContext): Promise<ToolResult> {
-    const { id, name, description, system_prompt, keywords } = params as {
+    const { id, name, overview, keywords } = params as {
       id: string;
       name: string;
-      description: string;
-      system_prompt: string;
+      overview: string;
       keywords?: string;
     };
 
@@ -52,8 +47,7 @@ export const createSkillTool: Tool = {
       const skillManager = getSkillManager();
       await skillManager.initialize();
 
-      // 检查技能是否已存在
-      const existing = await skillManager.loadSkill(id, false);
+      const existing = await skillManager.loadSkill(id);
       if (existing) {
         return {
           success: false,
@@ -61,27 +55,24 @@ export const createSkillTool: Tool = {
         };
       }
 
-      // 解析关键词
       const keywordList = keywords
         ?.split(',')
         .map(k => k.trim())
         .filter(Boolean);
 
-      // 创建个人技能
-      await skillManager.createPrivateSkill(context.agent.id, {
+      await skillManager.createSkill({
         id,
         name,
-        description,
-        systemPrompt: system_prompt,
+        overview,
         keywords: keywordList,
-      });
+      }, false, context.agent.id);
 
       return {
         success: true,
         content: `✓ 技能 "${name}" 已创建
 
 **ID**: ${id}
-**描述**: ${description}
+**概述**: ${overview}
 ${keywordList?.length ? `**关键词**: ${keywordList.join(', ')}` : ''}
 
 用户下次提到相关内容时，会自动唤醒此技能。`,
@@ -92,111 +83,6 @@ ${keywordList?.length ? `**关键词**: ${keywordList.join(', ')}` : ''}
       return {
         success: false,
         error: `创建技能失败: ${message}`,
-      };
-    }
-  },
-};
-
-// ============ 更新技能工具 ============
-
-export const updateSkillTool: Tool = {
-  name: 'update_skill',
-  description: '更新已存在的技能。可以修改名称、描述、系统提示词或关键词。',
-  parameters: {
-    type: 'object',
-    properties: {
-      id: {
-        type: 'string',
-        description: '要更新的技能 ID',
-      },
-      name: {
-        type: 'string',
-        description: '新的技能名称（可选）',
-      },
-      description: {
-        type: 'string',
-        description: '新的描述（可选）',
-      },
-      system_prompt: {
-        type: 'string',
-        description: '新的系统提示词（可选）',
-      },
-      keywords: {
-        type: 'string',
-        description: '新的关键词，用逗号分隔（可选）',
-      },
-    },
-    required: ['id'],
-  },
-
-  async execute(params, _context: ToolContext): Promise<ToolResult> {
-    const { id, name, description, system_prompt, keywords } = params as {
-      id: string;
-      name?: string;
-      description?: string;
-      system_prompt?: string;
-      keywords?: string;
-    };
-
-    try {
-      const skillManager = getSkillManager();
-      await skillManager.initialize();
-
-      // 检查技能是否存在
-      let skill = await skillManager.loadSkill(id, false);
-      let isPublic = false;
-
-      if (!skill) {
-        skill = await skillManager.loadSkill(id, true);
-        isPublic = true;
-      }
-
-      if (!skill) {
-        return {
-          success: false,
-          error: `技能 "${id}" 不存在`,
-        };
-      }
-
-      // 公共技能检查权限
-      if (isPublic) {
-        return {
-          success: false,
-          error: `公共技能不能被 Agent 修改，请使用管理员命令`,
-        };
-      }
-
-      // 解析关键词
-      const keywordList = keywords
-        ?.split(',')
-        .map(k => k.trim())
-        .filter(Boolean);
-
-      // 更新技能
-      const updated = await skillManager.updateSkill(id, {
-        name,
-        description,
-        systemPrompt: system_prompt,
-        keywords: keywordList,
-      });
-
-      if (!updated) {
-        return {
-          success: false,
-          error: '更新失败',
-        };
-      }
-
-      return {
-        success: true,
-        content: `✓ 技能 "${updated.name}" 已更新`,
-        metadata: { skillId: id },
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return {
-        success: false,
-        error: `更新技能失败: ${message}`,
       };
     }
   },
@@ -225,7 +111,7 @@ export const listSkillsTool: Tool = {
       if (publicSkills.length > 0) {
         lines.push('### 公共技能');
         for (const skill of publicSkills) {
-          lines.push(`- **${skill.id}**: ${skill.name} - ${skill.description}`);
+          lines.push(`- **${skill.id}**: ${skill.name}`);
         }
         lines.push('');
       }
@@ -233,7 +119,7 @@ export const listSkillsTool: Tool = {
       if (privateSkills.length > 0) {
         lines.push('### 个人技能');
         for (const skill of privateSkills) {
-          lines.push(`- **${skill.id}**: ${skill.name} - ${skill.description}`);
+          lines.push(`- **${skill.id}**: ${skill.name}`);
         }
         lines.push('');
       }
@@ -270,25 +156,23 @@ export const deleteSkillTool: Tool = {
     required: ['id'],
   },
 
-  async execute(params, _context: ToolContext): Promise<ToolResult> {
+  async execute(params, context: ToolContext): Promise<ToolResult> {
     const { id } = params as { id: string };
 
     try {
       const skillManager = getSkillManager();
       await skillManager.initialize();
 
-      // 检查是否是个人技能
-      const skill = await skillManager.loadSkill(id, false);
+      const skill = await skillManager.loadSkill(id);
       
-      if (!skill) {
+      if (!skill || skill.category !== 'private' || skill.agentId !== context.agent.id) {
         return {
           success: false,
           error: `技能 "${id}" 不存在或不属于此 Agent`,
         };
       }
 
-      // 删除技能
-      const deleted = await skillManager.deleteSkill(id, false);
+      const deleted = await skillManager.deleteSkill(id, false, context.agent.id);
 
       if (deleted) {
         return {
@@ -315,7 +199,6 @@ export const deleteSkillTool: Tool = {
 
 export const skillTools = [
   createSkillTool,
-  updateSkillTool,
   listSkillsTool,
   deleteSkillTool,
 ];

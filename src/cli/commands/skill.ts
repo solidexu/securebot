@@ -1,7 +1,7 @@
 /**
  * 技能管理命令
  * 
- * 支持公共技能和个人技能的管理
+ * 纯 Markdown 格式技能管理
  */
 
 import * as p from '@clack/prompts';
@@ -18,20 +18,20 @@ export async function listSkills(options?: { public?: boolean; private?: boolean
 
   console.log(chalk.cyan.bold('\n📚 技能列表\n'));
 
-  // 公共技能
   if (!options?.private) {
     const publicSkills = await skillManager.listPublicSkills();
     if (publicSkills.length > 0) {
       console.log(chalk.green('公共技能 (所有 Agent 可用):'));
       for (const skill of publicSkills) {
         console.log(`  ${chalk.white(skill.id)} - ${skill.name}`);
-        console.log(chalk.gray(`    ${skill.description}`));
+        if (skill.overview) {
+          console.log(chalk.gray(`    ${skill.overview.slice(0, 60)}...`));
+        }
       }
       console.log();
     }
   }
 
-  // 个人技能
   if (!options?.public) {
     const privateSkills = await skillManager.listPrivateSkills(options?.agent);
     if (privateSkills.length > 0) {
@@ -39,13 +39,14 @@ export async function listSkills(options?: { public?: boolean; private?: boolean
       for (const skill of privateSkills) {
         const agentInfo = skill.agentId ? ` [${skill.agentId}]` : '';
         console.log(`  ${chalk.white(skill.id)} - ${skill.name}${agentInfo}`);
-        console.log(chalk.gray(`    ${skill.description}`));
+        if (skill.overview) {
+          console.log(chalk.gray(`    ${skill.overview.slice(0, 60)}...`));
+        }
       }
       console.log();
     }
   }
 
-  // Agent 已分配的技能
   if (options?.agent) {
     const config = loadConfig();
     const agentConfig = config.agents.find((a: AgentConfig) => a.id === options.agent);
@@ -64,12 +65,10 @@ export async function createSkillInteractive(options?: { agent?: string }): Prom
   const skillManager = getSkillManager();
   await skillManager.initialize();
 
-  // 如果指定了 agent，直接创建个人技能
   const preselectedAgent = options?.agent;
 
   console.log(chalk.cyan.bold('\n✨ 创建新技能\n'));
 
-  // 选择技能类型
   const skillType = preselectedAgent ? 'private' : await p.select({
     message: '技能类型',
     options: [
@@ -83,7 +82,6 @@ export async function createSkillInteractive(options?: { agent?: string }): Prom
     return;
   }
 
-  // 如果是个人技能，选择 Agent
   let agentId: string | undefined = preselectedAgent;
   if (skillType === 'private' && !preselectedAgent) {
     const config = loadConfig();
@@ -101,7 +99,6 @@ export async function createSkillInteractive(options?: { agent?: string }): Prom
     agentId = selectedAgent as string;
   }
 
-  // 收集技能信息
   const id = await p.text({
     message: '技能 ID（仅字母、数字、连字符）',
     placeholder: 'my-skill',
@@ -131,34 +128,34 @@ export async function createSkillInteractive(options?: { agent?: string }): Prom
     return;
   }
 
-  const description = await p.text({
-    message: '技能描述',
+  const overview = await p.text({
+    message: '技能概述',
     placeholder: '这个技能可以帮助...',
   });
 
-  if (p.isCancel(description)) {
+  if (p.isCancel(overview)) {
     console.log(chalk.gray('已取消'));
     return;
   }
 
-  const systemPrompt = await p.text({
-    message: '系统提示词',
-    placeholder: '你是一个专业的...',
+  const keywordsStr = await p.text({
+    message: '触发关键词（逗号分隔）',
+    placeholder: '关键词1, 关键词2',
   });
 
-  if (p.isCancel(systemPrompt)) {
+  if (p.isCancel(keywordsStr)) {
     console.log(chalk.gray('已取消'));
     return;
   }
 
-  // 预览
+  const keywords = keywordsStr?.split(',').map(k => k.trim()).filter(Boolean);
+
   console.log();
   console.log(chalk.cyan('━━━ 技能预览 ━━━'));
   console.log(chalk.white(`  ID:          ${id}`));
   console.log(chalk.white(`  名称:        ${name}`));
-  console.log(chalk.white(`  描述:        ${description}`));
+  console.log(chalk.white(`  概述:        ${overview}`));
   console.log(chalk.white(`  类型:        ${skillType === 'public' ? '公共' : `个人 [${agentId}]`}`));
-  console.log(chalk.white(`  系统提示:    ${systemPrompt?.slice(0, 50)}...`));
   console.log(chalk.cyan('━━━━━━━━━━━━━━━━━━━━━'));
   console.log();
 
@@ -172,23 +169,13 @@ export async function createSkillInteractive(options?: { agent?: string }): Prom
     return;
   }
 
-  // 创建技能
   try {
-    if (skillType === 'public') {
-      await skillManager.createPublicSkill({
-        id: id as string,
-        name: name as string,
-        description: description ?? '',
-        systemPrompt: systemPrompt ?? '',
-      });
-    } else {
-      await skillManager.createPrivateSkill(agentId!, {
-        id: id as string,
-        name: name as string,
-        description: description ?? '',
-        systemPrompt: systemPrompt ?? '',
-      });
-    }
+    await skillManager.createSkill({
+      id: id as string,
+      name: name as string,
+      overview: overview ?? '',
+      keywords,
+    }, skillType === 'public', skillType === 'private' ? agentId : undefined);
 
     console.log(chalk.green(`\n✓ 技能 "${name}" 创建成功！\n`));
   } catch (error) {
@@ -204,13 +191,12 @@ export async function deleteSkillInteractive(skillId?: string): Promise<void> {
   await skillManager.initialize();
 
   if (!skillId) {
-    // 列出所有技能让用户选择
     const publicSkills = await skillManager.listPublicSkills();
     const privateSkills = await skillManager.listPrivateSkills();
 
     const options = [
-      ...publicSkills.map((s: { id: string; name: string }) => ({ value: `public:${s.id}`, label: `[公共] ${s.name}` })),
-      ...privateSkills.map((s: { id: string; name: string }) => ({ value: `private:${s.id}`, label: `[个人] ${s.name}` })),
+      ...publicSkills.map(s => ({ value: `public:${s.id}`, label: `[公共] ${s.name}` })),
+      ...privateSkills.map(s => ({ value: `private:${s.id}`, label: `[个人] ${s.name}` })),
     ];
 
     if (options.length === 0) {
@@ -235,21 +221,14 @@ export async function deleteSkillInteractive(skillId?: string): Promise<void> {
       await deleteSkillById(id, type === 'public');
     }
   } else {
-    // 尝试查找技能
-    let skill = await skillManager.loadSkill(skillId, true);
-    let isPublic = true;
-
-    if (!skill) {
-      skill = await skillManager.loadSkill(skillId, false);
-      isPublic = false;
-    }
-
+    const skill = await skillManager.loadSkill(skillId);
+    
     if (!skill) {
       console.log(chalk.red(`技能不存在: ${skillId}`));
       return;
     }
 
-    await deleteSkillById(skillId, isPublic);
+    await deleteSkillById(skillId, skill.category === 'public');
   }
 }
 
@@ -280,18 +259,13 @@ export async function assignSkillToAgent(skillId: string, agentId: string): Prom
   const skillManager = getSkillManager();
   await skillManager.initialize();
 
-  // 检查技能是否存在
-  let skill = await skillManager.loadSkill(skillId, true);
-  if (!skill) {
-    skill = await skillManager.loadSkill(skillId, false);
-  }
+  const skill = await skillManager.loadSkill(skillId);
 
   if (!skill) {
     console.log(chalk.red(`技能不存在: ${skillId}`));
     return;
   }
 
-  // 加载配置
   const config = loadConfig();
   const agentConfig = config.agents.find((a: AgentConfig) => a.id === agentId);
 
@@ -300,7 +274,6 @@ export async function assignSkillToAgent(skillId: string, agentId: string): Prom
     return;
   }
 
-  // 添加技能
   if (!agentConfig.skills) {
     agentConfig.skills = [];
   }

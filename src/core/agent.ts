@@ -121,6 +121,7 @@ export const TOOL_GROUPS: Record<string, string[]> = {
   'group:web': ['web_search', 'web_fetch', 'browser'],
   'group:code': ['code_edit', 'code_analyze'],
   'group:sessions': ['sessions_list', 'sessions_history', 'sessions_send'],
+  'group:memory': ['remember', 'recall', 'add_fact', 'get_facts', 'delete_fact', 'set_user_info', 'get_user_info', 'memory_stats'],
 };
 
 /**
@@ -128,7 +129,7 @@ export const TOOL_GROUPS: Record<string, string[]> = {
  */
 export const TOOL_PROFILES: Record<string, string[]> = {
   minimal: ['session_status'],
-  coding: ['read', 'write', 'edit', 'exec', 'process', 'code_edit', 'code_analyze'],
+  coding: ['read', 'write', 'edit', 'exec', 'process', 'code_edit', 'code_analyze', 'remember', 'recall', 'add_fact', 'get_facts', 'delete_fact', 'set_user_info', 'get_user_info', 'memory_stats'],
   messaging: ['session_status'],
   full: [], // 空数组表示无限制
 };
