@@ -13,6 +13,36 @@ import { getMemoryDir } from './config.js';
 import type { Config } from './types.js';
 import { homedir } from 'node:os';
 import type { AdvancedRAGStore } from '../rag/store.js';
+import { encode } from 'gpt-tokenizer';
+
+// ============ Token 计数工具 ============
+
+/**
+ * 精确计算文本的token数量
+ * 使用cl100k_base编码（GPT-4/3.5-turbo使用）
+ */
+export function countTokens(text: string): number {
+  if (!text || typeof text !== 'string') return 0;
+  try {
+    return encode(text).length;
+  } catch {
+    return Math.ceil(text.length / 4);
+  }
+}
+
+/**
+ * 截断文本到指定token数量
+ */
+export function truncateToTokens(text: string, maxTokens: number): string {
+  if (!text || maxTokens <= 0) return '';
+  
+  const tokens = encode(text);
+  if (tokens.length <= maxTokens) return text;
+  
+  // 解码前maxTokens个token
+  const { decode } = require('gpt-tokenizer');
+  return decode(tokens.slice(0, maxTokens));
+}
 
 // ============ RAG 同步接口 ============
 
@@ -43,6 +73,29 @@ export interface MemoryEntry {
   agentId?: string;
   /** 是否已同步到 RAG */
   ragSynced?: boolean;
+  /** 置信度 (0-1)，用于事实类记忆 */
+  confidence?: number;
+}
+
+/**
+ * 记忆事实
+ * 结构化的事实存储，支持分类和置信度
+ */
+export interface MemoryFact {
+  /** 唯一ID */
+  id: string;
+  /** 事实内容 */
+  content: string;
+  /** 分类: preference/preference/knowledge/context/behavior/goal */
+  category: 'preference' | 'knowledge' | 'context' | 'behavior' | 'goal';
+  /** 置信度 (0-1) */
+  confidence: number;
+  /** 创建时间 */
+  createdAt: string;
+  /** 来源（thread_id或'manual'） */
+  source: string;
+  /** 标签 */
+  tags?: string[];
 }
 
 /**
@@ -60,6 +113,16 @@ export interface DailyMemory {
 }
 
 /**
+ * 记忆段落
+ */
+export interface MemorySection {
+  /** 摘要内容 */
+  summary: string;
+  /** 更新时间 */
+  updatedAt: string;
+}
+
+/**
  * 用户档案
  */
 export interface UserProfile {
@@ -71,10 +134,27 @@ export interface UserProfile {
   preferences: Record<string, unknown>;
   /** 常用 Agent */
   frequentAgents: string[];
-  /** 重要信息 */
+  /** 重要信息（旧格式，保持兼容） */
   keyInfo: Record<string, string>;
   /** 更新时间 */
   updatedAt: string;
+  
+  // ========== P0 新增字段 ==========
+  
+  /** 结构化事实列表 */
+  facts: MemoryFact[];
+  /** 工作上下文 */
+  workContext?: MemorySection;
+  /** 个人上下文 */
+  personalContext?: MemorySection;
+  /** 当前关注点 */
+  topOfMind?: MemorySection;
+  /** 近期历史（1-3个月） */
+  recentMonths?: MemorySection;
+  /** 更早历史（3-12个月） */
+  earlierContext?: MemorySection;
+  /** 长期背景 */
+  longTermBackground?: MemorySection;
 }
 
 /**
@@ -190,6 +270,15 @@ export interface MemoryConfig {
   enableRAGSync: boolean;
   /** RAG 同步最小重要性阈值 (1-5) */
   ragSyncThreshold: number;
+  // ========== P0 新增配置 ==========
+  /** 最大事实数量 */
+  maxFacts: number;
+  /** 事实置信度阈值 (0-1) */
+  factConfidenceThreshold: number;
+  /** 最大注入token数 */
+  maxInjectionTokens: number;
+  /** 是否启用记忆注入 */
+  injectionEnabled: boolean;
 }
 
 /**
@@ -234,13 +323,18 @@ const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
   workingMemoryDays: 3,
   maxEntriesPerDay: 100,
   autoSummary: true,
-  summaryThreshold: 50,  // 超过 50 条触发摘要
-  summaryKeepEntries: 20, // 摘要后保留 20 条
+  summaryThreshold: 50,
+  summaryKeepEntries: 20,
   enableDecay: true,
-  decayFactor: 0.9,      // 每天衰减 10%
+  decayFactor: 0.9,
   autoExtractKeyInfo: true,
-  enableRAGSync: true,   // 默认启用 RAG 同步
-  ragSyncThreshold: 4,   // 重要性 >= 4 时同步到 RAG
+  enableRAGSync: true,
+  ragSyncThreshold: 4,
+  // P0 新增配置
+  maxFacts: 100,
+  factConfidenceThreshold: 0.7,
+  maxInjectionTokens: 2000,
+  injectionEnabled: true,
 };
 
 // ============ 智能重要性评估 ============
@@ -757,12 +851,12 @@ ${entry.content}
   private async loadUserProfile(): Promise<void> {
     const filePath = join(this.config.rootDir, 'profiles', 'user.json');
     if (!existsSync(filePath)) {
-      // 创建默认档案
       this.userProfile = {
         userId: 'default',
         preferences: {},
         frequentAgents: [],
         keyInfo: {},
+        facts: [],
         updatedAt: new Date().toISOString(),
       };
       return;
@@ -771,9 +865,11 @@ ${entry.content}
     try {
       const content = readFileSync(filePath, 'utf-8');
       this.userProfile = JSON.parse(content) as UserProfile;
-      // 确保 keyInfo 存在
       if (!this.userProfile.keyInfo) {
         this.userProfile.keyInfo = {};
+      }
+      if (!this.userProfile.facts) {
+        this.userProfile.facts = [];
       }
     } catch {
       this.userProfile = {
@@ -781,6 +877,7 @@ ${entry.content}
         preferences: {},
         frequentAgents: [],
         keyInfo: {},
+        facts: [],
         updatedAt: new Date().toISOString(),
       };
     }
@@ -820,13 +917,13 @@ ${entry.content}
   async rememberKeyInfo(key: string, value: string): Promise<void> {
     if (!this.userProfile) {
       await this.loadUserProfile();
-      // 如果仍然没有 userProfile，创建一个默认的
       if (!this.userProfile) {
         this.userProfile = {
           userId: 'default',
           preferences: {},
           keyInfo: {},
           frequentAgents: [],
+          facts: [],
           updatedAt: new Date().toISOString(),
         };
       }
@@ -838,7 +935,6 @@ ${entry.content}
     this.userProfile.keyInfo[key] = value;
     await this.saveUserProfile();
     
-    // 同时记录到每日记忆
     await this.remember('system', `记住: ${key} = ${value}`, 'knowledge', 5, ['key-info']);
   }
 
@@ -908,16 +1004,212 @@ ${entry.content}
     profile.stats.lastUsed = new Date().toISOString();
     await this.saveAgentProfile(profile);
 
-    // 更新用户常用 Agent
     if (this.userProfile) {
       if (!this.userProfile.frequentAgents.includes(agentId)) {
         this.userProfile.frequentAgents.push(agentId);
-        // 最多保留 5 个
         if (this.userProfile.frequentAgents.length > 5) {
           this.userProfile.frequentAgents.shift();
         }
         await this.saveUserProfile();
       }
+    }
+  }
+
+  // ============ P0: 事实管理（置信度+去重） ============
+
+  /**
+   * 生成事实ID
+   */
+  private generateFactId(): string {
+    return `fact_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  }
+
+  /**
+   * 规范化事实内容（用于去重比较）
+   */
+  private normalizeFactContent(content: string): string {
+    return content.trim().toLowerCase().replace(/\s+/g, ' ');
+  }
+
+  /**
+   * 检查事实是否已存在（基于内容相似性）
+   */
+  private findExistingFactIndex(content: string): number {
+    if (!this.userProfile?.facts) return -1;
+    
+    const normalizedNew = this.normalizeFactContent(content);
+    
+    return this.userProfile.facts.findIndex(fact => 
+      this.normalizeFactContent(fact.content) === normalizedNew
+    );
+  }
+
+  /**
+   * 验证置信度值
+   */
+  private validateConfidence(confidence: number): number {
+    if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
+      return 0.5;
+    }
+    return Math.round(confidence * 1000) / 1000;
+  }
+
+  /**
+   * 添加事实（自动去重）
+   */
+  async addFact(
+    content: string,
+    category: MemoryFact['category'] = 'context',
+    confidence: number = 0.5,
+    source: string = 'manual',
+    tags?: string[]
+  ): Promise<MemoryFact> {
+    if (!this.initialized) await this.initialize();
+    
+    const normalizedContent = content.trim();
+    if (!normalizedContent) {
+      throw new Error('事实内容不能为空');
+    }
+
+    const validatedConfidence = this.validateConfidence(confidence);
+    
+    if (validatedConfidence < this.config.factConfidenceThreshold) {
+      throw new Error(`置信度 ${validatedConfidence} 低于阈值 ${this.config.factConfidenceThreshold}`);
+    }
+
+    if (!this.userProfile) {
+      await this.loadUserProfile();
+    }
+
+    if (!this.userProfile!.facts) {
+      this.userProfile!.facts = [];
+    }
+
+    const existingIndex = this.findExistingFactIndex(normalizedContent);
+    
+    if (existingIndex >= 0) {
+      const existingFact = this.userProfile!.facts[existingIndex]!;
+      if (validatedConfidence > existingFact.confidence) {
+        existingFact.confidence = validatedConfidence;
+        existingFact.source = source;
+        await this.saveUserProfile();
+      }
+      return existingFact;
+    }
+
+    const now = new Date().toISOString();
+    const newFact: MemoryFact = {
+      id: this.generateFactId(),
+      content: normalizedContent,
+      category,
+      confidence: validatedConfidence,
+      createdAt: now,
+      source,
+      tags,
+    };
+
+    this.userProfile!.facts.push(newFact);
+    
+    await this.enforceMaxFacts();
+    await this.saveUserProfile();
+
+    return newFact;
+  }
+
+  /**
+   * 删除事实
+   */
+  async deleteFact(factId: string): Promise<boolean> {
+    if (!this.initialized) await this.initialize();
+    
+    if (!this.userProfile?.facts) return false;
+
+    const index = this.userProfile.facts.findIndex(f => f.id === factId);
+    if (index < 0) return false;
+
+    this.userProfile.facts.splice(index, 1);
+    await this.saveUserProfile();
+    
+    return true;
+  }
+
+  /**
+   * 更新事实
+   */
+  async updateFact(
+    factId: string,
+    updates: Partial<Pick<MemoryFact, 'content' | 'category' | 'confidence' | 'tags'>>
+  ): Promise<MemoryFact | null> {
+    if (!this.initialized) await this.initialize();
+    
+    if (!this.userProfile?.facts) return null;
+
+    const fact = this.userProfile.facts.find(f => f.id === factId);
+    if (!fact) return null;
+
+    if (updates.content !== undefined) {
+      const normalizedContent = updates.content.trim();
+      if (!normalizedContent) {
+        throw new Error('事实内容不能为空');
+      }
+      fact.content = normalizedContent;
+    }
+
+    if (updates.category !== undefined) {
+      fact.category = updates.category;
+    }
+
+    if (updates.confidence !== undefined) {
+      fact.confidence = this.validateConfidence(updates.confidence);
+    }
+
+    if (updates.tags !== undefined) {
+      fact.tags = updates.tags;
+    }
+
+    await this.saveUserProfile();
+    
+    return fact;
+  }
+
+  /**
+   * 获取所有事实（按置信度排序）
+   */
+  getFacts(options?: {
+    category?: MemoryFact['category'];
+    minConfidence?: number;
+    limit?: number;
+  }): MemoryFact[] {
+    if (!this.userProfile?.facts) return [];
+
+    let facts = [...this.userProfile.facts];
+
+    if (options?.category) {
+      facts = facts.filter(f => f.category === options.category);
+    }
+
+    if (options?.minConfidence !== undefined) {
+      facts = facts.filter(f => f.confidence >= options.minConfidence!);
+    }
+
+    facts.sort((a, b) => b.confidence - a.confidence);
+
+    if (options?.limit) {
+      facts = facts.slice(0, options.limit);
+    }
+
+    return facts;
+  }
+
+  /**
+   * 强制执行最大事实数量限制
+   */
+  private async enforceMaxFacts(): Promise<void> {
+    if (!this.userProfile?.facts) return;
+
+    if (this.userProfile.facts.length > this.config.maxFacts) {
+      this.userProfile.facts.sort((a, b) => b.confidence - a.confidence);
+      this.userProfile.facts = this.userProfile.facts.slice(0, this.config.maxFacts);
     }
   }
 
@@ -1017,45 +1309,142 @@ ${entry.content}
   }
 
   /**
-   * 获取上下文摘要
+   * 获取上下文摘要（精确token计数）
    */
   async getContextSummary(agentId: string, maxTokens: number = 1000): Promise<string> {
     const cacheKey = `${agentId}:${maxTokens}`;
     const cached = this.contextSummaryCache.get(cacheKey);
     
-    // 如果缓存存在且不超过 60 秒
     if (cached && Date.now() - cached.timestamp < 60000) {
       return cached.summary;
     }
     
     const entries = await this.getWorkingMemory(agentId);
-    
-    // 按重要性排序
     const sorted = [...entries].sort((a, b) => b.importance - a.importance);
     
-    let summary = '';
-    let currentLength = 0;
-    
-    for (const entry of sorted) {
-      const line = `- [${entry.type}] ${entry.content}\n`;
-      if (currentLength + line.length > maxTokens * 4) break;
-      
-      summary += line;
-      currentLength += line.length;
-    }
+    const sections: string[] = [];
+    let totalTokens = 0;
 
-    // 添加用户关键信息
-    if (this.userProfile?.keyInfo && Object.keys(this.userProfile.keyInfo).length > 0) {
-      summary += '\n### 用户信息\n';
-      for (const [key, value] of Object.entries(this.userProfile.keyInfo)) {
-        summary += `- ${key}: ${value}\n`;
+    // 添加用户上下文
+    const userContext = this.formatUserContext();
+    if (userContext) {
+      const userTokens = countTokens(userContext);
+      if (totalTokens + userTokens <= maxTokens) {
+        sections.push(userContext);
+        totalTokens += userTokens;
       }
     }
+
+    // 添加事实（按置信度排序）
+    const factsSection = this.formatFactsSection(maxTokens - totalTokens);
+    if (factsSection) {
+      const factsTokens = countTokens(factsSection);
+      if (totalTokens + factsTokens <= maxTokens) {
+        sections.push(factsSection);
+        totalTokens += factsTokens;
+      }
+    }
+
+    // 添加工作记忆
+    const workingMemorySection = this.formatWorkingMemorySection(sorted, maxTokens - totalTokens);
+    if (workingMemorySection) {
+      sections.push(workingMemorySection);
+    }
     
-    // 缓存结果
+    const summary = sections.join('\n\n');
+    
     this.contextSummaryCache.set(cacheKey, { summary, timestamp: Date.now() });
 
     return summary;
+  }
+
+  /**
+   * 格式化用户上下文
+   */
+  private formatUserContext(): string {
+    if (!this.userProfile) return '';
+    
+    const lines: string[] = [];
+    
+    if (this.userProfile.workContext?.summary) {
+      lines.push(`工作: ${this.userProfile.workContext.summary}`);
+    }
+    if (this.userProfile.personalContext?.summary) {
+      lines.push(`个人: ${this.userProfile.personalContext.summary}`);
+    }
+    if (this.userProfile.topOfMind?.summary) {
+      lines.push(`当前关注: ${this.userProfile.topOfMind.summary}`);
+    }
+    
+    if (this.userProfile.keyInfo && Object.keys(this.userProfile.keyInfo).length > 0) {
+      lines.push('### 用户信息');
+      for (const [key, value] of Object.entries(this.userProfile.keyInfo)) {
+        lines.push(`- ${key}: ${value}`);
+      }
+    }
+    
+    return lines.length > 0 ? '用户上下文:\n' + lines.join('\n') : '';
+  }
+
+  /**
+   * 格式化事实部分（精确token预算）
+   */
+  private formatFactsSection(maxTokens: number): string {
+    if (!this.config.injectionEnabled || !this.userProfile?.facts?.length) {
+      return '';
+    }
+
+    const facts = this.getFacts({ limit: 50 });
+    if (facts.length === 0) return '';
+
+    const header = '事实:\n';
+    const headerTokens = countTokens(header);
+    let remainingTokens = maxTokens - headerTokens;
+
+    if (remainingTokens <= 0) return '';
+
+    const factLines: string[] = [];
+    for (const fact of facts) {
+      const line = `- [${fact.category} | ${(fact.confidence * 100).toFixed(0)}%] ${fact.content}`;
+      const lineTokens = countTokens(line);
+      
+      if (remainingTokens - lineTokens >= 0) {
+        factLines.push(line);
+        remainingTokens -= lineTokens;
+      } else {
+        break;
+      }
+    }
+
+    return factLines.length > 0 ? header + factLines.join('\n') : '';
+  }
+
+  /**
+   * 格式化工作记忆部分（精确token预算）
+   */
+  private formatWorkingMemorySection(entries: MemoryEntry[], maxTokens: number): string {
+    if (!entries.length) return '';
+
+    const header = '当前记忆:\n';
+    const headerTokens = countTokens(header);
+    let remainingTokens = maxTokens - headerTokens;
+
+    if (remainingTokens <= 0) return '';
+
+    const lines: string[] = [];
+    for (const entry of entries) {
+      const line = `- [${entry.type}] ${entry.content}`;
+      const lineTokens = countTokens(line);
+      
+      if (remainingTokens - lineTokens >= 0) {
+        lines.push(line);
+        remainingTokens -= lineTokens;
+      } else {
+        break;
+      }
+    }
+
+    return lines.length > 0 ? header + lines.join('\n') : '';
   }
 
   // ============ 工具方法 ============
@@ -1492,52 +1881,94 @@ ${entry.content}
   }
 
   /**
-   * 获取压缩后的上下文（用于大模型输入）
+   * 获取压缩后的上下文（用于大模型输入，精确token计数）
    */
-  async getCompressedContext(agentId: string, maxTokens: number = 2000): Promise<string> {
-    // 先尝试获取摘要
+  async getCompressedContext(agentId: string, maxTokens?: number): Promise<string> {
+    const budget = maxTokens ?? this.config.maxInjectionTokens;
+    
+    if (!this.config.injectionEnabled) {
+      return '';
+    }
+
+    const sections: string[] = [];
+    let totalTokens = 0;
+
+    // 1. 用户上下文（最高优先级）
+    const userContext = this.formatUserContext();
+    if (userContext) {
+      const tokens = countTokens(userContext);
+      if (totalTokens + tokens <= budget) {
+        sections.push('## 用户上下文\n' + userContext);
+        totalTokens += tokens;
+      }
+    }
+
+    // 2. 事实（按置信度排序）
+    const factsSection = this.formatFactsSection(budget - totalTokens);
+    if (factsSection) {
+      const tokens = countTokens(factsSection);
+      if (totalTokens + tokens <= budget) {
+        sections.push('## ' + factsSection);
+        totalTokens += tokens;
+      }
+    }
+
+    // 3. 近期摘要
     const today = new Date().toISOString().split('T')[0] ?? new Date().toISOString().slice(0, 10);
     const summaries = await this.getSummaryHistory(today, agentId);
     
-    let context = '';
-    
-    // 添加最近的摘要
     if (summaries.length > 0) {
-      context += '## 近期摘要\n';
-      for (const summary of summaries.slice(0, 3)) {
-        context += `- ${summary.summary}\n`;
-        if (summary.keyInfo.length > 0) {
-          context += `  关键信息: ${summary.keyInfo.map(k => `${k.key}=${k.value}`).join(', ')}\n`;
+      const summarySection = this.formatSummariesSection(summaries, budget - totalTokens);
+      if (summarySection) {
+        const tokens = countTokens(summarySection);
+        if (totalTokens + tokens <= budget) {
+          sections.push(summarySection);
+          totalTokens += tokens;
         }
       }
-      context += '\n';
     }
 
-    // 添加当前工作记忆
+    // 4. 当前工作记忆
     const entries = await this.getWorkingMemory(agentId);
     const sorted = [...entries].sort((a, b) => b.importance - a.importance);
     
-    context += '## 当前记忆\n';
-    let currentLength = context.length;
-    const maxChars = maxTokens * 4;
-
-    for (const entry of sorted) {
-      const line = `- [${entry.type}] ${entry.content}\n`;
-      if (currentLength + line.length > maxChars) break;
-      
-      context += line;
-      currentLength += line.length;
+    const workingMemorySection = this.formatWorkingMemorySection(sorted, budget - totalTokens);
+    if (workingMemorySection) {
+      sections.push('## ' + workingMemorySection);
     }
 
-    // 添加用户关键信息
-    if (this.userProfile?.keyInfo && Object.keys(this.userProfile.keyInfo).length > 0) {
-      context += '\n## 用户信息\n';
-      for (const [key, value] of Object.entries(this.userProfile.keyInfo)) {
-        context += `- ${key}: ${value}\n`;
+    return sections.join('\n\n');
+  }
+
+  /**
+   * 格式化摘要部分
+   */
+  private formatSummariesSection(summaries: SummaryRecord[], maxTokens: number): string {
+    if (!summaries.length || maxTokens <= 0) return '';
+
+    const header = '## 近期摘要\n';
+    const headerTokens = countTokens(header);
+    let remainingTokens = maxTokens - headerTokens;
+
+    if (remainingTokens <= 0) return '';
+
+    const lines: string[] = [];
+    for (const summary of summaries.slice(0, 3)) {
+      let line = `- ${summary.summary}`;
+      if (summary.keyInfo.length > 0) {
+        line += `\n  关键信息: ${summary.keyInfo.map(k => `${k.key}=${k.value}`).join(', ')}`;
+      }
+      
+      const lineTokens = countTokens(line);
+      if (remainingTokens - lineTokens >= 0) {
+        lines.push(line);
+        remainingTokens -= lineTokens;
+      } else {
+        break;
       }
     }
 
-    return context;
+    return lines.length > 0 ? header + lines.join('\n') : '';
   }
 
   // ============ 内存管理 ============

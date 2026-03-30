@@ -30,6 +30,7 @@
     "chalk": "^5.4.1",
     "chokidar": "^4.0.3",
     "commander": "^13.1.0",
+    "gpt-tokenizer": "^3.4.0",
     "json5": "^2.2.3",
     "ora": "^9.3.0",
     "undici": "^7.5.0",

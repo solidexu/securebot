@@ -5,7 +5,7 @@
  */
 
 import type { Tool, ToolContext, ToolResult } from '../core/types.js';
-import { getMemoryManager } from '../core/memory.js';
+import { getMemoryManager, type MemoryFact } from '../core/memory.js';
 
 // ============ 记忆存储工具 ============
 
@@ -141,7 +141,163 @@ export const recallTool: Tool = {
   },
 };
 
-// ============ 用户信息工具 ============
+// ============ P0: 事实管理工具 ============
+
+export const addFactTool: Tool = {
+  name: 'add_fact',
+  description: '添加一条结构化事实到用户档案。支持分类和置信度。',
+  parameters: {
+    type: 'object',
+    properties: {
+      content: {
+        type: 'string',
+        description: '事实内容',
+      },
+      category: {
+        type: 'string',
+        enum: ['preference', 'knowledge', 'context', 'behavior', 'goal'],
+        description: '事实分类',
+      },
+      confidence: {
+        type: 'number',
+        description: '置信度 (0-1)，默认0.8。显式陈述用0.9+，推断用0.6-0.8',
+      },
+    },
+    required: ['content'],
+  },
+
+  async execute(params, context: ToolContext): Promise<ToolResult> {
+    const { content, category = 'context', confidence = 0.8 } = params as {
+      content: string;
+      category?: MemoryFact['category'];
+      confidence?: number;
+    };
+
+    try {
+      const memoryManager = getMemoryManager();
+      await memoryManager.initialize();
+      
+      const fact = await memoryManager.addFact(
+        content,
+        category,
+        confidence,
+        context.agent.id
+      );
+
+      return {
+        success: true,
+        content: `已记录事实 [${category} | ${(confidence * 100).toFixed(0)}%]: ${content}`,
+        metadata: { factId: fact.id, category, confidence },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        error: `添加事实失败: ${message}`,
+      };
+    }
+  },
+};
+
+export const getFactsTool: Tool = {
+  name: 'get_facts',
+  description: '获取用户的事实列表，按置信度排序。',
+  parameters: {
+    type: 'object',
+    properties: {
+      category: {
+        type: 'string',
+        enum: ['preference', 'knowledge', 'context', 'behavior', 'goal'],
+        description: '筛选分类（可选）',
+      },
+      limit: {
+        type: 'number',
+        description: '返回数量限制，默认10',
+      },
+    },
+  },
+
+  async execute(params): Promise<ToolResult> {
+    const { category, limit = 10 } = params as {
+      category?: MemoryFact['category'];
+      limit?: number;
+    };
+
+    try {
+      const memoryManager = getMemoryManager();
+      await memoryManager.initialize();
+      
+      const facts = memoryManager.getFacts({ category, limit });
+
+      if (facts.length === 0) {
+        return {
+          success: true,
+          content: '暂无事实记录。',
+        };
+      }
+
+      const content = facts
+        .map((f, i) => `${i + 1}. [${f.category} | ${(f.confidence * 100).toFixed(0)}%] ${f.content}`)
+        .join('\n');
+
+      return {
+        success: true,
+        content: `### 用户事实 (${facts.length}条)\n${content}`,
+        metadata: { count: facts.length },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        error: `获取事实失败: ${message}`,
+      };
+    }
+  },
+};
+
+export const deleteFactTool: Tool = {
+  name: 'delete_fact',
+  description: '删除指定ID的事实。',
+  parameters: {
+    type: 'object',
+    properties: {
+      fact_id: {
+        type: 'string',
+        description: '要删除的事实ID',
+      },
+    },
+    required: ['fact_id'],
+  },
+
+  async execute(params): Promise<ToolResult> {
+    const { fact_id } = params as { fact_id: string };
+
+    try {
+      const memoryManager = getMemoryManager();
+      await memoryManager.initialize();
+      
+      const deleted = await memoryManager.deleteFact(fact_id);
+
+      if (deleted) {
+        return {
+          success: true,
+          content: `已删除事实: ${fact_id}`,
+        };
+      } else {
+        return {
+          success: false,
+          error: `未找到事实: ${fact_id}`,
+        };
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        error: `删除事实失败: ${message}`,
+      };
+    }
+  },
+};
 
 export const setUserInfoTool: Tool = {
   name: 'set_user_info',
@@ -272,6 +428,7 @@ export const memoryStatsTool: Tool = {
       
       const stats = memoryManager.getStats();
       const profile = memoryManager.getUserProfile();
+      const facts = memoryManager.getFacts();
 
       const content = `## 记忆系统状态
 
@@ -279,17 +436,20 @@ export const memoryStatsTool: Tool = {
 - 总记忆条目: ${stats.totalEntries}
 - Agent 档案: ${stats.agentCount}
 - 用户信息: ${Object.keys(profile?.keyInfo ?? {}).length} 条
+- 结构化事实: ${facts.length} 条
 
 ### 使用方式
 - \`remember\` - 存储重要信息
 - \`recall\` - 搜索记忆
+- \`add_fact\` - 添加结构化事实（支持分类和置信度）
+- \`get_facts\` - 获取事实列表
 - \`set_user_info\` - 设置用户信息
 - \`get_user_info\` - 获取用户信息`;
 
       return {
         success: true,
         content,
-        metadata: stats,
+        metadata: { ...stats, factsCount: facts.length },
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -306,6 +466,9 @@ export const memoryStatsTool: Tool = {
 export const memoryTools = [
   rememberTool,
   recallTool,
+  addFactTool,
+  getFactsTool,
+  deleteFactTool,
   setUserInfoTool,
   getUserInfoTool,
   memoryStatsTool,
