@@ -155,6 +155,8 @@ export class SkillVersionManager {
     }
 
     const skillManager = getSkillManager();
+    await skillManager.initialize();
+    
     const skill = await skillManager.loadSkill(skillId);
     if (!skill) {
       throw new Error(`技能不存在: ${skillId}`);
