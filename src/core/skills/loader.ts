@@ -38,15 +38,33 @@ export class SkillLoader {
    * 加载所有技能元数据（轻量级）
    * 
    * 只解析 YAML front matter，不加载完整内容
+   * 扫描两个目录：
+   * 1. 项目内置技能（代码库中的 skills/public/）
+   * 2. 用户自定义技能（~/.securebot/skills/public/）
    */
   async loadAllMetadata(skillsRoot: string): Promise<SkillMetadata[]> {
     const metadataList: SkillMetadata[] = [];
 
-    // 扫描公共技能
-    const publicDir = join(skillsRoot, 'skills', 'public');
-    if (existsSync(publicDir)) {
-      const publicMetadata = await this.scanMetadata(publicDir, 'public');
-      metadataList.push(...publicMetadata);
+    // 扫描用户目录的公共技能
+    const userPublicDir = join(skillsRoot, 'skills', 'public');
+    if (existsSync(userPublicDir)) {
+      const userMetadata = await this.scanMetadata(userPublicDir, 'public');
+      metadataList.push(...userMetadata);
+    }
+
+    // 扫描项目内置技能（优先级更高，会覆盖用户目录的同名技能）
+    const builtinPublicDir = this.getBuiltinSkillsDir();
+    if (builtinPublicDir && existsSync(builtinPublicDir)) {
+      const builtinMetadata = await this.scanMetadata(builtinPublicDir, 'public');
+      // 合并，内置技能覆盖用户技能
+      for (const m of builtinMetadata) {
+        const existing = metadataList.findIndex(item => item.id === m.id);
+        if (existing >= 0) {
+          metadataList[existing] = m;
+        } else {
+          metadataList.push(m);
+        }
+      }
     }
 
     // 扫描个人技能
@@ -68,6 +86,21 @@ export class SkillLoader {
     }
 
     return metadataList;
+  }
+
+  /**
+   * 获取内置技能目录
+   */
+  private getBuiltinSkillsDir(): string | null {
+    try {
+      const { fileURLToPath } = require('node:url');
+      const { dirname } = require('node:path');
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = dirname(__filename);
+      return join(__dirname, '..', '..', '..', '..', 'skills', 'public');
+    } catch {
+      return null;
+    }
   }
 
   /**

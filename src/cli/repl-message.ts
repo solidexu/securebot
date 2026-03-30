@@ -2781,13 +2781,5 @@ async function executeToolCall(ctx: ToolCallExecuteContext): Promise<ToolCallRes
       : `错误: ${toolResult.error}`
   );
   
-  console.log(chalk.gray(toolResult.success ? '✓ 成功' : '✗ 失败'));
-  if (toolResult.content) {
-    const preview = toolResult.content.length > 200 
-      ? toolResult.content.slice(0, 200) + '...'
-      : toolResult.content;
-    console.log(chalk.gray(preview));
-  }
-  
   return toolResult;
 }
