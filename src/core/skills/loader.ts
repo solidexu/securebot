@@ -90,17 +90,45 @@ export class SkillLoader {
 
   /**
    * 获取内置技能目录
+   * 
+   * 从多个可能的位置查找：
+   * 1. 当前工作目录下的 skills/public/
+   * 2. 从模块位置往上查找
    */
   private getBuiltinSkillsDir(): string | null {
+    const possibleDirs: string[] = [];
+
+    // 1. 当前工作目录
+    possibleDirs.push(join(process.cwd(), 'skills', 'public'));
+
+    // 2. 从模块位置查找
     try {
       const { fileURLToPath } = require('node:url');
       const { dirname } = require('node:path');
       const __filename = fileURLToPath(import.meta.url);
       const __dirname = dirname(__filename);
-      return join(__dirname, '..', '..', '..', '..', 'skills', 'public');
+      
+      // 打包后可能在 dist/xxx.js，往上找项目根目录
+      // 开发时可能在 dist/core/skills/loader.js
+      for (let i = 1; i <= 5; i++) {
+        let dir = __dirname;
+        for (let j = 0; j < i; j++) {
+          dir = dirname(dir);
+        }
+        possibleDirs.push(join(dir, 'skills', 'public'));
+      }
     } catch {
-      return null;
+      // ignore
     }
+
+    // 返回第一个存在的目录
+    for (const dir of possibleDirs) {
+      if (existsSync(dir)) {
+        return dir;
+      }
+    }
+
+    return null;
   }
 
   /**
