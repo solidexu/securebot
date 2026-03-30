@@ -174,79 +174,61 @@ SecureBot 的记忆系统分为三层，确保信息既不丢失，又不会让�
 
 ## 技能系统
 
-### 公共技能 vs 个人技能
+> 📑 **[查看完整的技能系统文档 →](docs/SKILLS.md)** - 技能格式、CLI 命令、版本管理、打包分发、远程发现。
 
-```
-~/.securebot/
-├── skills/
-│   └── public/              # 公共技能（所有 Agent 可用）
-│       ├── code-review.json
-│       ├── translator.json
-│       └── ...
-└── agents/
-    └── {agentId}/
-        └── skills/          # 个人技能（仅此 Agent 可用）
-            ├── fastapi-helper.json
-            └── my-custom.json
-```
-
-### 内置公共技能
-
-| 技能 | 关键词 | 说明 |
-|------|--------|------|
-| code-review | 审查, review, 检查代码 | 专业代码审查 |
-| translator | 翻译, translate | 多语言翻译 |
-| api-designer | API, 接口设计, RESTful | RESTful API 设计 |
-| debugger | 调试, debug, 报错, bug | 问题定位与分析 |
-| doc-writer | 文档, readme, 注释 | 技术文档撰写 |
-
-### 智能唤醒机制
-
-技能支持两种唤醒方式：
-
-1. **关键词匹配** - 快速匹配，优先级高
-2. **语义匹配** - 使用 RAG embedding，理解意图
-
-```
-用户: 帮我看看这段代码有什么问题
-系统: 检测到关键词 "问题" → 唤醒 debugger 技能
-
-用户: 这个接口响应太慢了，怎么优化
-系统: 语义匹配 → 唤醒 api-designer 技能
-```
-
-### 创建技能
-
-**CLI 方式：**
+### 快速开始
 
 ```bash
+# 查看可用技能
+securebot skill list
+
+# 创建自定义技能
 securebot skill create
+
+# 打包技能
+securebot skill pack my-skill -o ./
+
+# 安装技能
+securebot skill install my-skill.skill
 ```
 
-**对话方式：**
+### 内置技能
+
+| 技能 | 触发场景 | 说明 |
+|------|---------|------|
+| `security-audit` | 安全漏洞、SQL注入、XSS | 代码安全审计 |
+| `deep-research` | 研究XX、什么是XX | 深度网络研究 |
+| `debugger` | 报错、bug、异常 | 问题定位与分析 |
+| `code-review` | 审查代码、review | 代码审查 |
+| `testing-helper` | 写测试、测试用例 | 测试编写指导 |
+| `doc-generator` | 文档、README | 文档生成 |
+| `git-workflow` | 分支、合并、冲突 | Git 操作指导 |
+| `api-design` | 设计接口、API | API 设计 |
+
+### 自动触发
+
+技能会根据你的请求自动触发：
 
 ```
-[开发助手] > /skill create
-技能 ID: my-helper
-技能名称: 我的助手
-描述: 帮助处理日常工作
-关键词: 帮忙, 协助
+[开发助手] > 检查代码有没有安全漏洞
+🎯 激活技能: 安全审计
+
+[开发助手] > 研究一下什么是RAG
+🎯 激活技能: 深度研究
 ```
 
-**直接编辑 JSON：**
+### 目录结构
 
-```json
-// ~/.securebot/agents/dev/skills/my-helper.json
-{
-  "id": "my-helper",
-  "name": "我的助手",
-  "description": "帮助处理日常工作",
-  "keywords": ["帮忙", "协助"],
-  "systemPrompt": "你是一位专业的助手...",
-  "tools": ["read", "write"],
-  "isPublic": false,
-  "agentId": "dev"
-}
+```
+skills/
+└── public/                    # 公共技能
+    ├── security-audit/
+    │   └── SKILL.md
+    ├── code-review/
+    └── ...
+
+~/.securebot/
+└── agents/{agentId}/skills/  # 个人技能
 ```
 
 ---
@@ -357,7 +339,21 @@ securebot agent show <id>   # 查看 Agent 详情
 # 技能管理
 securebot skill list        # 列出技能
 securebot skill create      # 创建技能
-securebot skill assign      # 分配技能
+securebot skill delete <id> # 删除技能
+
+# 技能版本管理
+securebot skill versions <id>        # 版本历史
+securebot skill save <id> -m "msg"   # 保存版本
+securebot skill rollback <id>        # 回滚版本
+
+# 技能打包分发
+securebot skill pack <id> -o ./      # 打包技能
+securebot skill install <file|url>   # 安装技能
+securebot skill verify <file>        # 验证技能包
+
+# 技能发现
+securebot skill search <query>       # 搜索远程技能
+securebot skill explore              # 浏览热门技能
 
 # 审计
 securebot audit list        # 查看审计日志

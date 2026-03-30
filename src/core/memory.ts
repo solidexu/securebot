@@ -914,7 +914,16 @@ ${entry.content}
   /**
    * 记录关键信息
    */
+  /**
+   * 记住用户关键信息
+   * 
+   * @deprecated 此方法已废弃，请使用 addFact() 替代
+   * 保留仅为向后兼容，新代码应使用 addFact()
+   */
   async rememberKeyInfo(key: string, value: string): Promise<void> {
+    // 输出废弃警告
+    console.warn(`\n⚠️  rememberKeyInfo() 已废弃，请使用 addFact() 或 /fact add 命令\n`);
+    
     if (!this.userProfile) {
       await this.loadUserProfile();
       if (!this.userProfile) {
@@ -929,13 +938,87 @@ ${entry.content}
       }
     }
     
+    // 同时写入 keyInfo（兼容旧代码）
     if (!this.userProfile.keyInfo) {
       this.userProfile.keyInfo = {};
     }
     this.userProfile.keyInfo[key] = value;
+    
+    // 同时写入 facts（新格式）
+    const content = `${key}: ${value}`;
+    const category = this.inferCategoryFromKey(key);
+    const confidence = this.inferConfidenceFromKey(key);
+    
+    // 检查是否已存在
+    const existingIndex = this.userProfile.facts.findIndex(f => 
+      f.content.startsWith(`${key}:`) || f.content.startsWith(key)
+    );
+    
+    if (existingIndex >= 0) {
+      // 更新现有事实
+      const existing = this.userProfile.facts[existingIndex];
+      if (existing) {
+        existing.content = content;
+        existing.confidence = confidence;
+        existing.category = category;
+      }
+    } else {
+      // 添加新事实
+      this.userProfile.facts.push({
+        id: this.generateFactId(),
+        content,
+        category,
+        confidence,
+        createdAt: new Date().toISOString(),
+        source: 'rememberKeyInfo',
+      });
+    }
+    
     await this.saveUserProfile();
     
+    // 同时记录到每日笔记
     await this.remember('system', `记住: ${key} = ${value}`, 'knowledge', 5, ['key-info']);
+  }
+  
+  /**
+   * 从 key 推断分类
+   */
+  private inferCategoryFromKey(key: string): MemoryFact['category'] {
+    const keyLower = key.toLowerCase();
+    
+    if (/pref|like|dislike|favorite|style|mode/.test(keyLower)) {
+      return 'preference';
+    }
+    if (/skill|tech|language|framework|tool|expert|know/.test(keyLower)) {
+      return 'knowledge';
+    }
+    if (/work|company|team|project|role|position|location/.test(keyLower)) {
+      return 'context';
+    }
+    if (/habit|routine|style|approach|workflow/.test(keyLower)) {
+      return 'behavior';
+    }
+    if (/goal|plan|target|objective|wish/.test(keyLower)) {
+      return 'goal';
+    }
+    
+    return 'context';
+  }
+  
+  /**
+   * 从 key 推断置信度
+   */
+  private inferConfidenceFromKey(key: string): number {
+    const keyLower = key.toLowerCase();
+    
+    if (/name|email|phone|timezone|location|company|role/.test(keyLower)) {
+      return 0.95;
+    }
+    if (/skill|language|framework|pref|like/.test(keyLower)) {
+      return 0.85;
+    }
+    
+    return 0.8;
   }
 
   /**
@@ -1086,10 +1169,12 @@ private normalizeFactContent(content: string): string {
     return this.userProfile.facts.findIndex(fact => {
       const normalizedExisting = this.normalizeFactContent(fact.content);
       
+      // 完全匹配
       if (normalizedNew === normalizedExisting) {
         return true;
       }
       
+      // 相似度匹配
       const similarity = this.calculateSimilarity(content, fact.content);
       return similarity >= 0.5;
     });

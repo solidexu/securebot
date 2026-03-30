@@ -20,7 +20,8 @@
     "test:watch": "vitest",
     "lint": "oxlint",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "migrate:keyinfo": "tsx scripts/migrate-keyinfo-to-facts.ts"
   },
   "dependencies": {
     "@clack/prompts": "^0.10.1",

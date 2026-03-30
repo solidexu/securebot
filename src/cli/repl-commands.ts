@@ -13,6 +13,7 @@ import { getSessionStorage } from '../core/session-storage.js';
 import { getInputHistoryManager } from '../core/input-history.js';
 import { getAuditLogger } from '../core/audit.js';
 import { getMemoryManager } from '../core/memory.js';
+import { handleFactCommand, setCurrentAgentId } from './commands/fact.js';
 import { getSkillManager } from '../core/skills.js';
 import { getTaskManager } from '../core/task-manager.js';
 import { getConfirmationManager } from '../core/confirmation.js';
@@ -129,6 +130,11 @@ export async function handleCommand(
 
     case 'memory':
       await handleMemoryCommand(state, arg, parts);
+      break;
+
+    case 'fact':
+      setCurrentAgentId(state.currentAgentId);
+      await handleFactCommand(parts.slice(1).join(' '));
       break;
 
     case 'ralph':

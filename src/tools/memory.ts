@@ -360,21 +360,53 @@ export const cleanFactsTool: Tool = {
       }
 
       const toDelete: string[] = [];
-      const keep: Map<string, typeof facts[0]> = new Map();
+      const keep: MemoryFact[] = [];
       
       for (const fact of facts) {
         const normalized = fact.content.trim().toLowerCase().replace(/\s+/g, '');
-        const existing = keep.get(normalized);
         
-        if (existing) {
-          if (fact.confidence > existing.confidence) {
-            toDelete.push(existing.id);
-            keep.set(normalized, fact);
-          } else {
-            toDelete.push(fact.id);
+        let foundSimilar = false;
+        for (let i = 0; i < keep.length; i++) {
+          const existing = keep[i];
+          if (!existing) continue;
+          
+          const existingNorm = existing.content.trim().toLowerCase().replace(/\s+/g, '');
+          
+          if (normalized === existingNorm || 
+              normalized.includes(existingNorm) || 
+              existingNorm.includes(normalized)) {
+            foundSimilar = true;
+            if (fact.confidence > existing.confidence || 
+                (fact.confidence === existing.confidence && fact.content.length > existing.content.length)) {
+              toDelete.push(existing.id);
+              keep[i] = fact;
+            } else {
+              toDelete.push(fact.id);
+            }
+            break;
           }
-        } else {
-          keep.set(normalized, fact);
+          
+          const keywords1: string[] = normalized.match(/python|c\+\+|java|javascript|go|rust|typescript|开发者|工程师|程序员|全栈|开发/gi) || [];
+          const keywords2: string[] = existingNorm.match(/python|c\+\+|java|javascript|go|rust|typescript|开发者|工程师|程序员|全栈|开发/gi) || [];
+          const common = keywords1.filter(k => keywords2.some(k2 => k2.toLowerCase() === k.toLowerCase()));
+          if (common.length > 0 && keywords1.length > 0 && keywords2.length > 0) {
+            const similarity = common.length / Math.max(keywords1.length, keywords2.length);
+            if (similarity >= 0.5) {
+              foundSimilar = true;
+              if (fact.confidence > existing.confidence || 
+                  (fact.confidence === existing.confidence && fact.content.length > existing.content.length)) {
+                toDelete.push(existing.id);
+                keep[i] = fact;
+              } else {
+                toDelete.push(fact.id);
+              }
+              break;
+            }
+          }
+        }
+        
+        if (!foundSimilar) {
+          keep.push(fact);
         }
       }
       
@@ -382,15 +414,13 @@ export const cleanFactsTool: Tool = {
         await memoryManager.deleteFact(factId);
       }
       
-      const lowConfidenceFacts = facts.filter(f => f.confidence < min_confidence);
+      const lowConfidenceFacts = keep.filter(f => f.confidence < min_confidence);
       for (const fact of lowConfidenceFacts) {
-        if (!toDelete.includes(fact.id)) {
-          await memoryManager.deleteFact(fact.id);
-          toDelete.push(fact.id);
-        }
+        await memoryManager.deleteFact(fact.id);
+        toDelete.push(fact.id);
       }
 
-      const remaining = keep.size - lowConfidenceFacts.length;
+      const remaining = keep.length - lowConfidenceFacts.length;
       
       return {
         success: true,
@@ -408,34 +438,83 @@ export const cleanFactsTool: Tool = {
 
 export const setUserInfoTool: Tool = {
   name: 'set_user_info',
-  description: '设置用户的关键信息，如偏好、习惯、重要事项等。',
+  description: `设置用户的关键信息，如偏好、习惯、重要事项等。
+
+此工具会将信息存储为结构化事实，支持：
+- 自动分类（preference/knowledge/context/behavior/goal）
+- 置信度管理
+- 与其他记忆工具统一格式
+
+建议：使用 add_fact 工具可获得更精细的控制`,
   parameters: {
     type: 'object',
     properties: {
       key: {
         type: 'string',
-        description: '信息键名',
+        description: '信息键名（如：skills, preferences, timezone）',
       },
       value: {
         type: 'string',
         description: '信息值',
+      },
+      category: {
+        type: 'string',
+        enum: ['preference', 'knowledge', 'context', 'behavior', 'goal'],
+        description: '信息分类（可选，自动推断）',
       },
     },
     required: ['key', 'value'],
   },
 
   async execute(params): Promise<ToolResult> {
-    const { key, value } = params as { key: string; value: string };
+    const { key, value, category } = params as { 
+      key: string; 
+      value: string; 
+      category?: MemoryFact['category'];
+    };
+
+    if (!key?.trim() || !value?.trim()) {
+      return {
+        success: false,
+        error: '键名和值不能为空',
+      };
+    }
 
     try {
       const memoryManager = getMemoryManager();
       await memoryManager.initialize();
       
-      await memoryManager.rememberKeyInfo(key, value);
+      // 构建事实内容
+      const content = `${key}: ${value}`;
+      
+      // 推断分类
+      const finalCategory = category || inferCategoryFromKey(key);
+      const confidence = inferConfidenceFromKey(key);
+      
+      // 检查是否已存在相同 key 的事实
+      const existingFacts = memoryManager.getFacts({ limit: 100 });
+      const existingFact = existingFacts.find(f => 
+        f.content.startsWith(`${key}:`) || f.content.startsWith(key)
+      );
+      
+      if (existingFact) {
+        // 更新现有事实
+        await memoryManager.deleteFact(existingFact.id);
+      }
+      
+      // 添加新事实
+      const fact = await memoryManager.addFact(
+        content,
+        finalCategory,
+        confidence,
+        'set_user_info'
+      );
 
+      const categoryInfo = FACT_CATEGORIES[finalCategory];
       return {
         success: true,
-        content: `已记录用户信息: ${key} = ${value}`,
+        content: `已记录用户信息: ${content}\n分类: ${categoryInfo?.name || finalCategory}\n置信度: ${(confidence * 100).toFixed(0)}%`,
+        metadata: { factId: fact.id, category: finalCategory },
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -447,9 +526,65 @@ export const setUserInfoTool: Tool = {
   },
 };
 
+/**
+ * 从 key 推断分类
+ */
+function inferCategoryFromKey(key: string): MemoryFact['category'] {
+  const keyLower = key.toLowerCase();
+  
+  // 偏好相关
+  if (/pref|like|dislike|favorite|style|mode/.test(keyLower)) {
+    return 'preference';
+  }
+  
+  // 技能/知识相关
+  if (/skill|tech|language|framework|tool|expert|know/.test(keyLower)) {
+    return 'knowledge';
+  }
+  
+  // 背景相关
+  if (/work|company|team|project|role|position|location/.test(keyLower)) {
+    return 'context';
+  }
+  
+  // 行为相关
+  if (/habit|routine|style|approach|workflow/.test(keyLower)) {
+    return 'behavior';
+  }
+  
+  // 目标相关
+  if (/goal|plan|target|objective|wish/.test(keyLower)) {
+    return 'goal';
+  }
+  
+  return 'context';
+}
+
+/**
+ * 从 key 推断置信度
+ */
+function inferConfidenceFromKey(key: string): number {
+  const keyLower = key.toLowerCase();
+  
+  // 明确的事实性信息
+  if (/name|email|phone|timezone|location|company|role/.test(keyLower)) {
+    return 0.95;
+  }
+  
+  // 技能/偏好
+  if (/skill|language|framework|pref|like/.test(keyLower)) {
+    return 0.85;
+  }
+  
+  // 其他
+  return 0.8;
+}
+
 export const getUserInfoTool: Tool = {
   name: 'get_user_info',
-  description: '获取用户的关键信息。',
+  description: `获取用户的关键信息。
+
+返回存储的用户事实，按置信度排序。支持按键名搜索。`,
   parameters: {
     type: 'object',
     properties: {
@@ -457,11 +592,16 @@ export const getUserInfoTool: Tool = {
         type: 'string',
         description: '信息键名（不填则返回所有）',
       },
+      category: {
+        type: 'string',
+        enum: ['preference', 'knowledge', 'context', 'behavior', 'goal'],
+        description: '按分类筛选（可选）',
+      },
     },
   },
 
   async execute(params): Promise<ToolResult> {
-    const { key } = params as { key?: string };
+    const { key, category } = params as { key?: string; category?: MemoryFact['category'] };
 
     try {
       const memoryManager = getMemoryManager();
@@ -476,37 +616,87 @@ export const getUserInfoTool: Tool = {
         };
       }
 
-      if (key) {
-        const value = profile.keyInfo[key];
-        if (value) {
-          return {
-            success: true,
-            content: `${key}: ${value}`,
-          };
-        } else {
-          return {
-            success: true,
-            content: `未找到 ${key} 的信息。`,
-          };
-        }
-      }
+      // 获取所有事实
+      let facts = memoryManager.getFacts({ 
+        limit: 50,
+        category: category,
+      });
 
-      // 返回所有信息
-      const entries = Object.entries(profile.keyInfo);
-      if (entries.length === 0) {
+      if (facts.length === 0) {
         return {
           success: true,
-          content: '暂无用户信息记录。',
+          content: category 
+            ? `暂无 ${FACT_CATEGORIES[category]?.name || category} 类型的信息记录。`
+            : '暂无用户信息记录。',
         };
       }
 
-      const content = entries
-        .map(([k, v]) => `- ${k}: ${v}`)
-        .join('\n');
+      // 按键名筛选
+      if (key) {
+        const keyLower = key.toLowerCase();
+        facts = facts.filter(f => 
+          f.content.toLowerCase().includes(keyLower) ||
+          f.content.startsWith(`${key}:`) ||
+          f.content.startsWith(key)
+        );
+
+        if (facts.length === 0) {
+          // 同时检查旧的 keyInfo（兼容）
+          const legacyValue = profile.keyInfo?.[key];
+          if (legacyValue) {
+            return {
+              success: true,
+              content: `${key}: ${legacyValue}\n\n⚠️ 此信息来自旧格式，建议使用 /fact 命令重新记录`,
+            };
+          }
+          return {
+            success: true,
+            content: `未找到 "${key}" 相关的信息。`,
+          };
+        }
+
+        // 只返回匹配的第一条
+        const fact = facts[0]!;
+        return {
+          success: true,
+          content: fact.content,
+          metadata: { factId: fact.id, category: fact.category },
+        };
+      }
+
+      // 返回所有信息（按分类分组）
+      const groupedFacts: Record<string, MemoryFact[]> = {};
+      for (const fact of facts) {
+        const cat = fact.category || 'context';
+        if (!groupedFacts[cat]) {
+          groupedFacts[cat] = [];
+        }
+        groupedFacts[cat]!.push(fact);
+      }
+
+      const lines: string[] = ['### 用户信息'];
+      
+      for (const [cat, catFacts] of Object.entries(groupedFacts)) {
+        const catKey = cat as keyof typeof FACT_CATEGORIES;
+        const catName = FACT_CATEGORIES[catKey]?.name || cat;
+        lines.push(`\n**${catName}**`);
+        for (const fact of catFacts.slice(0, 5)) {
+          lines.push(`- ${fact.content}`);
+        }
+      }
+      
+      // 兼容：也显示旧的 keyInfo
+      if (profile.keyInfo && Object.keys(profile.keyInfo).length > 0) {
+        lines.push('\n---\n**旧格式信息**（建议迁移）：');
+        for (const [k, v] of Object.entries(profile.keyInfo)) {
+          lines.push(`- ${k}: ${v}`);
+        }
+      }
 
       return {
         success: true,
-        content: `### 用户信息\n${content}`,
+        content: lines.join('\n'),
+        metadata: { count: facts.length },
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

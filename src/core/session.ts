@@ -14,10 +14,9 @@ import { join } from 'node:path';
 /**
  * 加载用户档案
  */
-function loadUserProfile(memoryDir: string): string | null {
+function loadUserProfile(memoryDir: string, agentId?: string): string | null {
   const profilePath = join(memoryDir, 'profiles', 'user.json');
   if (!existsSync(profilePath)) {
-    // 尝试 yaml 格式
     const yamlPath = join(memoryDir, 'profiles', 'owner.yaml');
     if (existsSync(yamlPath)) {
       const content = readFileSync(yamlPath, 'utf-8');
@@ -35,6 +34,50 @@ function loadUserProfile(memoryDir: string): string | null {
     if (profile.preferences?.length) lines.push(`- 偏好: ${profile.preferences.join(', ')}`);
     if (profile.projects?.length) lines.push(`- 项目: ${profile.projects.join(', ')}`);
     if (profile.notes) lines.push(`- 备注: ${profile.notes}`);
+    
+    // 加载独立的 agent facts（新格式）
+    const factsPath = join(memoryDir, 'profiles', 'facts.json');
+    if (existsSync(factsPath)) {
+      try {
+        const factsData = JSON.parse(readFileSync(factsPath, 'utf-8'));
+        const currentAgentId = agentId || 'default';
+        
+        // 获取当前 agent 的 facts
+        const agentFacts = factsData.agentFacts?.[currentAgentId] || [];
+        
+        if (agentFacts.length > 0) {
+          lines.push('\n### 已知事实');
+          const sortedFacts = [...agentFacts].sort((a: any, b: any) => b.confidence - a.confidence);
+          for (const fact of sortedFacts.slice(0, 10)) {
+            const cat = fact.category || 'context';
+            const conf = Math.round((fact.confidence || 0.5) * 100);
+            lines.push(`- [${cat}|${conf}%] ${fact.content}`);
+          }
+        }
+      } catch {
+        // 忽略 facts.json 读取错误
+      }
+    }
+    
+    // 兼容旧格式：从 user.json 读取 facts
+    if (profile.facts?.length) {
+      lines.push('\n### 已知事实（旧格式）');
+      const sortedFacts = [...profile.facts].sort((a: any, b: any) => b.confidence - a.confidence);
+      for (const fact of sortedFacts.slice(0, 10)) {
+        const cat = fact.category || 'context';
+        const conf = Math.round((fact.confidence || 0.5) * 100);
+        lines.push(`- [${cat}|${conf}%] ${fact.content}`);
+      }
+    }
+    
+    // 兼容：也显示旧的 keyInfo
+    if (profile.keyInfo && Object.keys(profile.keyInfo).length > 0) {
+      lines.push('\n### 用户信息（旧格式）');
+      for (const [k, v] of Object.entries(profile.keyInfo)) {
+        lines.push(`- ${k}: ${v}`);
+      }
+    }
+    
     return lines.join('\n');
   } catch {
     return null;
@@ -114,8 +157,8 @@ function loadRecentDailyNotes(memoryDir: string, days: number = 3): string | nul
 function loadMemoryContext(memoryDir: string, agentId: string): string {
   const sections: string[] = [];
   
-  // 1. 用户档案
-  const userProfile = loadUserProfile(memoryDir);
+  // 1. 用户档案（包含 agent 独立的 facts）
+  const userProfile = loadUserProfile(memoryDir, agentId);
   if (userProfile) sections.push(userProfile);
   
   // 2. Agent 档案

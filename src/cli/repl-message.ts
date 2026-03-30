@@ -1363,6 +1363,9 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
   let lastRoundHadToolCall = false;  // 上一轮是否有工具调用
   const MAX_PLAN_ATTEMPTS = 3;
   const MAX_NO_PROGRESS = 5;  // 连续 5 轮无进展则提示用户
+  const MAX_TOOL_FAILURES = 3;  // 同一工具连续失败3次停止
+  
+  const toolFailureCounts = new Map<string, number>();  // 跟踪每个工具的连续失败次数
   
   // ✅ 新增：记录每个步骤的等待提示次数（避免无限循环）
   const waitHintCounts = new Map<string, number>();
@@ -2288,6 +2291,30 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         description: `调用 ${toolCall.name}`,
         success: toolResult?.success ?? false,
       });
+      
+      // ★ 检查工具连续失败次数（防止死循环）
+      if (!toolResult?.success) {
+        const failCount = (toolFailureCounts.get(toolCall.name) || 0) + 1;
+        toolFailureCounts.set(toolCall.name, failCount);
+        
+        if (failCount >= MAX_TOOL_FAILURES) {
+          console.log();
+          console.log(chalk.red(`⚠️ 工具 ${toolCall.name} 已连续失败 ${failCount} 次`));
+          console.log(chalk.yellow('可能的原因：'));
+          console.log(chalk.gray('  - 工具不存在或未正确加载'));
+          console.log(chalk.gray('  - 参数格式不正确'));
+          console.log(chalk.gray('  - 目标资源不存在'));
+          console.log();
+          console.log(chalk.cyan('建议：尝试其他方法完成任务，或使用 /help 查看可用工具'));
+          
+          toolFailureCounts.delete(toolCall.name);
+          consecutiveNoProgress = MAX_NO_PROGRESS;  // 触发无进展提示
+          break;  // 跳出工具调用循环
+        }
+      } else {
+        // 成功则重置该工具的失败计数
+        toolFailureCounts.delete(toolCall.name);
+      }
       
       // ★ P0优化：处理步骤失败，提供用户选择
       // ★ P0优化：步骤失败时自动重试，不立即问用户

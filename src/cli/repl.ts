@@ -243,7 +243,7 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
         '/monitor', '/audit', '/plan', '/checkpoint',
         '/collab', '/errors', '/perf', '/summary',
         '/feedback', '/improve', '/skills', '/reload',
-        '/config', '/status', '/memory', '/rag',
+        '/config', '/status', '/memory', '/fact', '/rag',
         '/export', '/import', '/task', '/remember',
         '/patterns',
       ];
