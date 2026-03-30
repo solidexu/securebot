@@ -171,8 +171,9 @@ export class SkillLoader {
 
     for (const line of lines) {
       const match = line.match(/^(\w+):\s*(.*)$/);
-      if (match) {
-        const [, key, value] = match;
+      if (match && match[1]) {
+        const key = match[1];
+        const value = match[2] || '';
         
         // 数组
         if (value === '' && lines[lines.indexOf(line) + 1]?.match(/^\s*-/)) {
@@ -180,7 +181,7 @@ export class SkillLoader {
           // 读取数组项
           for (let i = lines.indexOf(line) + 1; i < lines.length; i++) {
             const arrayMatch = lines[i]?.match(/^\s*-\s+(.+)$/);
-            if (arrayMatch) {
+            if (arrayMatch && arrayMatch[1]) {
               result[key].push(arrayMatch[1].trim());
             } else {
               break;
