@@ -16,8 +16,11 @@ import {
   NodeResponse,
   END_NODE,
   AgentEvent,
+  RetryPolicy,
 } from './types.js';
 import { Graph } from './graph.js';
+import { NodeExecutionError, TimeoutError, GraphBubbleUp } from '../errors.js';
+import { runWithTimeout, DEFAULT_RETRY_POLICY, calculateBackoff, sleep } from '../retry.js';
 
 /**
  * LLM 客户端接口
@@ -246,50 +249,124 @@ export class GraphExecutor {
     const outEdges = this.getOutEdges(node.id);
     const handoffTools = this.buildHandoffTools(outEdges);
 
-    // 调用 LLM
+    // 获取超时和重试配置
+    const timeout = node.behavior?.timeout;
+    const retryPolicy = node.behavior?.retryPolicy;
+
+    // 记录 LLM 调用
     this.log('llm_call', { nodeId: node.id, toolCount: handoffTools.length });
 
-    const response = await llmClient.chat({
-      system: systemPrompt,
-      messages: this.state.messages,
-      tools: handoffTools.length > 0 ? handoffTools : undefined,
-    });
+    // 执行 LLM 调用（带重试）
+    const maxAttempts = retryPolicy?.maxAttempts || 1;
+    let attempts = 0;
+    let lastError: Error | undefined;
 
-    // 添加助手消息到状态
-    this.state.messages.push({
-      role: 'assistant',
-      content: response.content,
-      node: node.id,
-      timestamp: Date.now(),
-    });
+    while (attempts < maxAttempts) {
+      attempts++;
 
-    // 处理工具调用（Handoff）
-    if (response.toolCall) {
-      const handoff = this.parseHandoff(response.toolCall);
-      
-      if (handoff) {
-        this.log('handoff', {
-          from: node.id,
-          to: handoff.target,
-          message: handoff.message,
+      try {
+        // 调用 LLM（可选超时）
+        const response = timeout
+          ? await runWithTimeout(
+              () => llmClient.chat({
+                system: systemPrompt,
+                messages: this.state.messages,
+                tools: handoffTools.length > 0 ? handoffTools : undefined,
+              }),
+              timeout,
+              node.id
+            )
+          : await llmClient.chat({
+              system: systemPrompt,
+              messages: this.state.messages,
+              tools: handoffTools.length > 0 ? handoffTools : undefined,
+            });
+
+        // 添加助手消息到状态
+        this.state.messages.push({
+          role: 'assistant',
+          content: response.content,
+          node: node.id,
+          timestamp: Date.now(),
         });
 
+        // 处理工具调用（Handoff）
+        if (response.toolCall) {
+          const handoff = this.parseHandoff(response.toolCall);
+          
+          if (handoff) {
+            this.log('handoff', {
+              from: node.id,
+              to: handoff.target,
+              message: handoff.message,
+            });
+
+            return {
+              type: 'handoff',
+              content: response.content,
+              target: handoff.target,
+              message: handoff.message,
+            };
+          }
+        }
+
+        // 返回结果
+        this.log('node_complete', { nodeId: node.id, contentLength: response.content.length });
+        
         return {
-          type: 'handoff',
+          type: 'result',
           content: response.content,
-          target: handoff.target,
-          message: handoff.message,
         };
+
+      } catch (error: any) {
+        lastError = error;
+
+        // 检查是否应该重试
+        if (attempts < maxAttempts && this.shouldRetry(error)) {
+          const delay = calculateBackoff(attempts, {
+            ...DEFAULT_RETRY_POLICY,
+            ...retryPolicy
+          });
+          
+          this.log('node_retry', {
+            nodeId: node.id,
+            attempt: attempts,
+            delay,
+            error: error.message
+          });
+
+          await sleep(delay);
+          continue;
+        }
+
+        // 不可重试或重试耗尽
+        this.emitEvent({
+          type: 'node_error',
+          nodeId: node.id,
+          error: error.message,
+          timestamp: Date.now(),
+        });
+
+        throw new NodeExecutionError(node.id, node.name, error);
       }
     }
 
-    // 返回结果
-    this.log('node_complete', { nodeId: node.id, contentLength: response.content.length });
-    
-    return {
-      type: 'result',
-      content: response.content,
-    };
+    throw lastError;
+  }
+
+  /**
+   * 判断错误是否可重试
+   */
+  private shouldRetry(error: Error): boolean {
+    // 超时错误可重试
+    if (error instanceof TimeoutError) return true;
+    // 用户取消不重试
+    if (error instanceof GraphBubbleUp) return false;
+    // 网络错误可重试
+    const retryableMessages = ['ECONNRESET', 'ETIMEDOUT', 'network', 'timeout'];
+    return retryableMessages.some(msg => 
+      error.message.toLowerCase().includes(msg.toLowerCase())
+    );
   }
 
   /**

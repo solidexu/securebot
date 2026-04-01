@@ -70,6 +70,22 @@ export interface ModelConfig {
 }
 
 /**
+ * 重试策略
+ */
+export interface RetryPolicy {
+  /** 最大尝试次数 */
+  maxAttempts: number;
+  /** 初始间隔（毫秒） */
+  initialInterval: number;
+  /** 最大间隔（毫秒） */
+  maxInterval: number;
+  /** 退避因子 */
+  backoffFactor: number;
+  /** 是否添加抖动 */
+  jitter: boolean;
+}
+
+/**
  * Agent 行为配置
  */
 export interface AgentBehavior {
@@ -78,7 +94,7 @@ export interface AgentBehavior {
   /** 超时时间（毫秒） */
   timeout?: number;
   /** 重试策略 */
-  retryPolicy?: RetryPolicy;
+  retryPolicy?: Partial<RetryPolicy>;
 }
 
 /**

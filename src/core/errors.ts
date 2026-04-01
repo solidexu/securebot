@@ -1,36 +1,23 @@
 /**
- * 自定义错误类
- * 
- * 统一错误类型，便于错误处理和调试
+ * Agent 协作系统错误定义
  */
 
 /**
  * 基础错误类
  */
-export class SecureBotError extends Error {
-  public readonly code: string;
-  public readonly timestamp: string;
-  public readonly context?: Record<string, unknown>;
-  
+export class AgentError extends Error {
   constructor(
     message: string,
-    code: string,
-    context?: Record<string, unknown>
+    public readonly code: string,
+    public readonly context?: Record<string, unknown>
   ) {
     super(message);
-    this.name = 'SecureBotError';
-    this.code = code;
-    this.timestamp = new Date().toISOString();
-    this.context = context;
+    this.name = 'AgentError';
+    
+    // 保持正确的原型链
+    Object.setPrototypeOf(this, AgentError.prototype);
   }
-  
-  /**
-   * 获取用户友好的错误消息
-   */
-  getUserMessage(): string {
-    return this.message;
-  }
-  
+
   /**
    * 转换为 JSON
    */
@@ -39,7 +26,6 @@ export class SecureBotError extends Error {
       name: this.name,
       code: this.code,
       message: this.message,
-      timestamp: this.timestamp,
       context: this.context,
       stack: this.stack,
     };
@@ -47,148 +33,116 @@ export class SecureBotError extends Error {
 }
 
 /**
- * 模型调用错误
+ * 节点执行错误
  */
-export class ModelError extends SecureBotError {
+export class NodeExecutionError extends AgentError {
   constructor(
-    message: string,
-    public readonly model?: string,
-    context?: Record<string, unknown>
+    public readonly nodeId: string,
+    public readonly nodeName: string,
+    cause: Error
   ) {
-    super(message, 'MODEL_ERROR', { model, ...context });
-    this.name = 'ModelError';
-  }
-  
-  getUserMessage(): string {
-    return `模型调用失败: ${this.message}`;
+    super(
+      `Node "${nodeName}" (${nodeId}) failed: ${cause.message}`,
+      'NODE_EXECUTION_ERROR',
+      { nodeId, nodeName, cause: cause.message }
+    );
+    this.name = 'NodeExecutionError';
+    Object.setPrototypeOf(this, NodeExecutionError.prototype);
   }
 }
 
 /**
- * 工具执行错误
+ * 图中断错误
  */
-export class ToolError extends SecureBotError {
-  constructor(
-    message: string,
-    public readonly tool: string,
-    context?: Record<string, unknown>
-  ) {
-    super(message, 'TOOL_ERROR', { tool, ...context });
-    this.name = 'ToolError';
-  }
-  
-  getUserMessage(): string {
-    return `工具 ${this.tool} 执行失败: ${this.message}`;
-  }
-}
-
-/**
- * 配置错误
- */
-export class ConfigError extends SecureBotError {
-  constructor(
-    message: string,
-    public readonly configKey?: string,
-    context?: Record<string, unknown>
-  ) {
-    super(message, 'CONFIG_ERROR', { configKey, ...context });
-    this.name = 'ConfigError';
-  }
-  
-  getUserMessage(): string {
-    return `配置错误: ${this.message}`;
-  }
-}
-
-/**
- * 权限错误
- */
-export class PermissionError extends SecureBotError {
-  constructor(
-    message: string,
-    public readonly action: string,
-    context?: Record<string, unknown>
-  ) {
-    super(message, 'PERMISSION_ERROR', { action, ...context });
-    this.name = 'PermissionError';
-  }
-  
-  getUserMessage(): string {
-    return `权限不足: ${this.message}`;
+export class GraphBubbleUp extends AgentError {
+  constructor(public readonly reason: 'interrupt' | 'cancel' | 'timeout') {
+    super(`Graph execution bubbled up: ${reason}`, 'GRAPH_BUBBLE_UP', { reason });
+    this.name = 'GraphBubbleUp';
+    Object.setPrototypeOf(this, GraphBubbleUp.prototype);
   }
 }
 
 /**
  * 超时错误
  */
-export class TimeoutError extends SecureBotError {
+export class TimeoutError extends AgentError {
   constructor(
-    message: string,
-    public readonly timeoutMs: number,
-    context?: Record<string, unknown>
+    public readonly nodeId: string,
+    public readonly timeoutMs: number
   ) {
-    super(message, 'TIMEOUT_ERROR', { timeoutMs, ...context });
+    super(
+      `Node "${nodeId}" timed out after ${timeoutMs}ms`,
+      'TIMEOUT_ERROR',
+      { nodeId, timeoutMs }
+    );
     this.name = 'TimeoutError';
+    Object.setPrototypeOf(this, TimeoutError.prototype);
   }
-  
-  getUserMessage(): string {
-    return `操作超时 (${this.timeoutMs}ms): ${this.message}`;
+}
+
+/**
+ * 重试耗尽错误
+ */
+export class RetryExhaustedError extends AgentError {
+  constructor(
+    public readonly nodeId: string,
+    public readonly attempts: number,
+    public readonly lastError: Error
+  ) {
+    super(
+      `Node "${nodeId}" failed after ${attempts} attempts: ${lastError.message}`,
+      'RETRY_EXHAUSTED',
+      { nodeId, attempts, lastError: lastError.message }
+    );
+    this.name = 'RetryExhaustedError';
+    Object.setPrototypeOf(this, RetryExhaustedError.prototype);
+  }
+}
+
+/**
+ * 配置错误
+ */
+export class ConfigurationError extends AgentError {
+  constructor(message: string, public readonly field?: string) {
+    super(message, 'CONFIGURATION_ERROR', { field });
+    this.name = 'ConfigurationError';
+    Object.setPrototypeOf(this, ConfigurationError.prototype);
   }
 }
 
 /**
  * 验证错误
  */
-export class ValidationError extends SecureBotError {
-  constructor(
-    message: string,
-    public readonly field?: string,
-    context?: Record<string, unknown>
-  ) {
-    super(message, 'VALIDATION_ERROR', { field, ...context });
+export class ValidationError extends AgentError {
+  constructor(message: string, public readonly errors: string[]) {
+    super(message, 'VALIDATION_ERROR', { errors });
     this.name = 'ValidationError';
-  }
-  
-  getUserMessage(): string {
-    return this.field 
-      ? `验证失败 (${this.field}): ${this.message}`
-      : `验证失败: ${this.message}`;
+    Object.setPrototypeOf(this, ValidationError.prototype);
   }
 }
 
 /**
- * 存储错误
+ * 判断是否为可重试错误
  */
-export class StorageError extends SecureBotError {
-  constructor(
-    message: string,
-    public readonly operation: 'read' | 'write' | 'delete',
-    context?: Record<string, unknown>
-  ) {
-    super(message, 'STORAGE_ERROR', { operation, ...context });
-    this.name = 'StorageError';
-  }
-  
-  getUserMessage(): string {
-    return `存储操作失败 (${this.operation}): ${this.message}`;
-  }
-}
+export function isRetryableError(error: Error): boolean {
+  if (error instanceof TimeoutError) return true;
+  if (error instanceof RetryExhaustedError) return false;
+  if (error instanceof GraphBubbleUp) return false;
+  if (error instanceof ConfigurationError) return false;
+  if (error instanceof ValidationError) return false;
 
-/**
- * 判断是否为 SecureBotError
- */
-export function isSecureBotError(error: unknown): error is SecureBotError {
-  return error instanceof SecureBotError;
-}
+  // 网络错误可重试
+  const retryableMessages = [
+    'ECONNRESET',
+    'ETIMEDOUT',
+    'ENOTFOUND',
+    'EAI_AGAIN',
+    'socket hang up',
+    'network',
+    'timeout',
+  ];
 
-/**
- * 将任意错误转换为 SecureBotError
- */
-export function toSecureBotError(error: unknown, context?: Record<string, unknown>): SecureBotError {
-  if (error instanceof SecureBotError) {
-    return error;
-  }
-  
-  const message = error instanceof Error ? error.message : String(error);
-  return new SecureBotError(message, 'UNKNOWN_ERROR', context);
+  return retryableMessages.some(msg => 
+    error.message.toLowerCase().includes(msg.toLowerCase())
+  );
 }
