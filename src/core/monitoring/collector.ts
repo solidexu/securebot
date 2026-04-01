@@ -230,12 +230,12 @@ export class MetricsCollector {
     system: SystemMetrics;
   } {
     const agents: Record<string, AgentMetrics> = {};
-    for (const [id, metrics] of this.agentMetrics) {
+    for (const [id] of this.agentMetrics) {
       agents[id] = this.getAgentMetrics(id)!;
     }
 
     const workflows: Record<string, WorkflowMetrics> = {};
-    for (const [id, metrics] of this.workflowMetrics) {
+    for (const [id] of this.workflowMetrics) {
       workflows[id] = this.getWorkflowMetrics(id)!;
     }
 
