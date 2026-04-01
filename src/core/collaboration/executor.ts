@@ -17,6 +17,7 @@ import {
   END_NODE,
 } from './types';
 import { Graph } from './graph';
+import type { AgentEvent } from '../monitoring/types';
 
 /**
  * LLM 客户端接口
@@ -62,9 +63,12 @@ export class GraphExecutor {
   protected currentNodeId: string;
   protected history: ExecutionLog[] = [];
   protected threadId: string;
+  protected eventEmitter?: (event: AgentEvent) => void;
+  protected graphId: string;
 
   constructor(graph: Graph | AgentGraph) {
     this.graph = graph instanceof Graph ? graph.getRaw() : graph;
+    this.graphId = this.graph.id;
     this.state = {
       messages: [],
       currentNode: this.graph.entryPoint,
@@ -72,6 +76,23 @@ export class GraphExecutor {
     };
     this.currentNodeId = this.graph.entryPoint;
     this.threadId = `thread_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  /**
+   * 设置事件发射器
+   */
+  setEventEmitter(emitter: (event: AgentEvent) => void): this {
+    this.eventEmitter = emitter;
+    return this;
+  }
+
+  /**
+   * 发射事件
+   */
+  protected emitEvent(event: AgentEvent): void {
+    if (this.eventEmitter) {
+      this.eventEmitter(event);
+    }
   }
 
   /**
@@ -88,6 +109,15 @@ export class GraphExecutor {
     // 记录开始
     this.log('workflow_start', { input });
 
+    // 发射工作流开始事件
+    this.emitEvent({
+      type: 'workflow_start',
+      graphId: this.graphId,
+      threadId: this.threadId,
+      input,
+      timestamp: Date.now(),
+    });
+
     let iterations = 0;
     const maxIterations = 50;
 
@@ -103,15 +133,53 @@ export class GraphExecutor {
       // 记录进入节点
       this.log('node_enter', { nodeId: this.currentNodeId, nodeName: node.name });
 
+      // 发射节点进入事件
+      this.emitEvent({
+        type: 'node_enter',
+        nodeId: this.currentNodeId,
+        nodeName: node.name,
+        timestamp: Date.now(),
+      });
+
       // 执行节点
+      const startTime = Date.now();
       const response = await this.executeNode(node, llmClient);
+      const duration = Date.now() - startTime;
 
       // 处理响应
       if (response.type === 'result') {
+        // 发射节点完成事件
+        this.emitEvent({
+          type: 'node_exit',
+          nodeId: this.currentNodeId,
+          result: response.content,
+          duration,
+          timestamp: Date.now(),
+        });
+
         // 任务完成
         this.log('workflow_complete', { result: response.content });
+
+        // 发射工作流完成事件
+        this.emitEvent({
+          type: 'workflow_complete',
+          graphId: this.graphId,
+          threadId: this.threadId,
+          result: response.content,
+          timestamp: Date.now(),
+        });
+
         return this.createResult(true, response.content);
       }
+
+      // 发射节点完成事件
+      this.emitEvent({
+        type: 'node_exit',
+        nodeId: this.currentNodeId,
+        result: response.content,
+        duration,
+        timestamp: Date.now(),
+      });
 
       // 查找下一个节点
       const nextNodeId = this.findNextNode(response);
@@ -119,7 +187,28 @@ export class GraphExecutor {
       if (!nextNodeId || nextNodeId === END_NODE) {
         // 结束
         this.log('workflow_complete', { reason: 'end_node' });
+
+        // 发射工作流完成事件
+        this.emitEvent({
+          type: 'workflow_complete',
+          graphId: this.graphId,
+          threadId: this.threadId,
+          result: response.content,
+          timestamp: Date.now(),
+        });
+
         return this.createResult(true, response.content);
+      }
+
+      // 发射 Handoff 事件
+      if (response.type === 'handoff') {
+        this.emitEvent({
+          type: 'handoff',
+          from: this.currentNodeId,
+          to: nextNodeId,
+          message: response.message,
+          timestamp: Date.now(),
+        });
       }
 
       // 切换到下一个节点
@@ -130,6 +219,16 @@ export class GraphExecutor {
 
     // 超过最大迭代次数
     this.log('workflow_timeout', { iterations });
+
+    // 发射工作流完成事件（错误）
+    this.emitEvent({
+      type: 'workflow_complete',
+      graphId: this.graphId,
+      threadId: this.threadId,
+      error: 'Max iterations reached',
+      timestamp: Date.now(),
+    });
+
     return this.createResult(false, undefined, 'Max iterations reached');
   }
 
