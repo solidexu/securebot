@@ -6,6 +6,15 @@
 export * from './errors.js';
 export * from './retry.js';
 
+// 中间件系统
+export * from './middleware.js';
+
+// 生命周期钩子
+export * from './lifecycle.js';
+
+// 配置验证
+export * from './validation.js';
+
 // 协作系统
 export * from './collaboration/index.js';
 
