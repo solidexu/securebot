@@ -1,0 +1,129 @@
+# 模型闭环训练工作流
+
+id: model-training-loop
+name: 模型闭环训练
+mode: langgraph
+
+# 入口 Agent
+entry: coordinator
+
+# LangGraph 配置
+langgraph:
+  checkpointer:
+    type: sqlite
+    path: ./checkpoints/model-training.db
+  interrupts:
+    before:
+      - trainer
+  stateSchema:
+    fields:
+      messages:
+        type: array
+        reducer: append
+      trainingParams:
+        type: object
+        reducer: merge
+      evaluationResults:
+        type: array
+        reducer: append
+
+# Agents 定义
+agents:
+  - id: coordinator
+    name: Agent A
+    role: 项目经理
+    description: 管理模型开发进展，接受反馈，派发任务
+    systemPrompt: |
+      你是模型训练项目的协调者。你的职责是：
+      1. 监控项目进展
+      2. 分析其他 Agent 的反馈
+      3. 决定下一步行动
+      
+      当数据有问题时，交给 data-engineer
+      当需要评测时，交给 evaluator
+      当需要调整参数时，交给 trainer
+
+  - id: data-engineer
+    name: Agent B
+    role: 数据工程师
+    description: 根据模型问题调整/清洗数据
+    systemPrompt: |
+      你是数据工程师。你的职责是：
+      1. 分析数据质量问题
+      2. 清洗和调整数据
+      3. 报告处理结果
+
+  - id: evaluator
+    name: Agent C
+    role: 评测专家
+    description: 评测模型性能
+    systemPrompt: |
+      你是评测专家。你的职责是：
+      1. 设计评测方案
+      2. 执行评测
+      3. 生成评测报告
+
+  - id: trainer
+    name: Agent D
+    role: 训练专家
+    description: 根据评测和数据调整训练参数
+    systemPrompt: |
+      你是训练专家。你的职责是：
+      1. 分析评测结果
+      2. 调整训练参数
+      3. 启动训练任务
+
+# 边定义
+edges:
+  # Coordinator → 其他 Agent
+  - source: coordinator
+    target: data-engineer
+    type: conditional
+    condition:
+      keywords: [数据问题, 清洗数据, 调整数据]
+    metadata:
+      label: 数据问题
+
+  - source: coordinator
+    target: evaluator
+    type: conditional
+    condition:
+      keywords: [评测, 评估, 测试]
+    metadata:
+      label: 需要评测
+
+  - source: coordinator
+    target: trainer
+    type: conditional
+    condition:
+      keywords: [训练, 参数, 调参]
+    metadata:
+      label: 调整参数
+
+  # 其他 Agent → Coordinator
+  - source: data-engineer
+    target: coordinator
+    type: direct
+    metadata:
+      label: 完成
+
+  - source: evaluator
+    target: coordinator
+    type: direct
+    metadata:
+      label: 完成
+
+  - source: trainer
+    target: coordinator
+    type: direct
+    metadata:
+      label: 完成
+
+  # Evaluator → Trainer（特殊情况）
+  - source: evaluator
+    target: trainer
+    type: conditional
+    condition:
+      keywords: [参数问题, 需要调参]
+    metadata:
+      label: 参数问题
