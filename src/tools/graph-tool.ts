@@ -16,9 +16,9 @@ import {
   keywordsCondition,
   ExecutionResult,
   AgentNode,
-} from '../core/collaboration';
-import { HeartbeatManager, HeartbeatClient, createLocalHeartbeatClient } from '../core/heartbeat';
-import { EventBroadcaster, MetricsCollector, AlertSystem } from '../core/monitoring';
+} from '../core/collaboration/index.js';
+import { HeartbeatManager, HeartbeatClient, createLocalHeartbeatClient } from '../core/heartbeat/index.js';
+import { EventBroadcaster, MetricsCollector, AlertSystem } from '../core/monitoring/index.js';
 
 /**
  * 图工具配置

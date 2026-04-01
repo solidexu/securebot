@@ -15,10 +15,9 @@ import {
   GraphExecutor,
   UnifiedOrchestrator,
   createOrchestrator,
-  WorkflowConfig,
-} from '../core/collaboration';
-import { HeartbeatManager } from '../core/heartbeat';
-import { EventBroadcaster, MetricsCollector, AlertSystem, PREDEFINED_RULES } from '../core/monitoring';
+} from '../../core/collaboration/index.js';
+import { HeartbeatManager } from '../../core/heartbeat/index.js';
+import { EventBroadcaster, MetricsCollector, AlertSystem, PREDEFINED_RULES } from '../../core/monitoring/index.js';
 
 /**
  * 图管理器（全局状态）

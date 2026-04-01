@@ -15,9 +15,9 @@ import {
   ExecutionLog,
   NodeResponse,
   END_NODE,
-} from './types';
-import { Graph } from './graph';
-import type { AgentEvent } from '../monitoring/types';
+  AgentEvent,
+} from './types.js';
+import { Graph } from './graph.js';
 
 /**
  * LLM 客户端接口

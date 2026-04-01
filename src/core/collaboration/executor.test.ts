@@ -94,11 +94,12 @@ describe('GraphExecutor', () => {
 
     const executor = new GraphExecutor(graph);
     
-    // 无限循环的响应
-    const mockClient = createMockLLMClient([
-      { content: 'To A', toolCall: { name: 'transfer_to_agent-b', args: {} } },
-      { content: 'To B', toolCall: { name: 'transfer_to_agent-a', args: {} } },
-    ]);
+    // 无限循环的响应 - 提供足够的响应来触发最大迭代
+    const responses = [];
+    for (let i = 0; i < 60; i++) {
+      responses.push({ content: `Response ${i}`, toolCall: { name: i % 2 === 0 ? 'transfer_to_agent-b' : 'transfer_to_agent-a', args: {} } });
+    }
+    const mockClient = createMockLLMClient(responses);
 
     const result = await executor.run('Start', mockClient);
 

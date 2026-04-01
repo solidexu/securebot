@@ -120,23 +120,33 @@ describe('HeartbeatManager', () => {
     });
 
     it('应该标记离线', async () => {
-      manager.registerAgent('agent-a');
+      // 使用更快的超时配置
+      const fastManager = new HeartbeatManager({
+        interval: 100,
+        timeout: 50,       // 50ms 超时
+        checkInterval: 20,  // 20ms 检查
+        maxMissed: 1,       // 1 次就离线
+      });
       
-      // 发送一次心跳
-      manager.receiveHeartbeat({
+      fastManager.registerAgent('agent-a');
+      
+      // 发送一次心跳（已超时）
+      fastManager.receiveHeartbeat({
         agentId: 'agent-a',
         status: 'idle',
-        timestamp: Date.now() - 10000, // 10秒前
+        timestamp: Date.now() - 100,
       });
       
       // 启动检查
-      manager.start();
+      fastManager.start();
       
       // 等待检查周期
-      await new Promise((resolve) => setTimeout(resolve, 600));
+      await new Promise((resolve) => setTimeout(resolve, 100));
       
-      const state = manager.getAgentState('agent-a');
+      const state = fastManager.getAgentState('agent-a');
       expect(state?.status).toBe('offline');
+      
+      fastManager.stop();
     });
   });
 
@@ -173,18 +183,25 @@ describe('HeartbeatManager', () => {
     });
 
     it('应该触发 Agent 离线事件', async () => {
-      const callback = vi.fn();
-      manager.subscribe(callback);
-      
-      manager.registerAgent('agent-a');
-      manager.receiveHeartbeat({
-        agentId: 'agent-a',
-        status: 'idle',
-        timestamp: Date.now() - 10000,
+      const fastManager = new HeartbeatManager({
+        interval: 100,
+        timeout: 50,
+        checkInterval: 20,
+        maxMissed: 1,
       });
       
-      manager.start();
-      await new Promise((resolve) => setTimeout(resolve, 600));
+      const callback = vi.fn();
+      fastManager.subscribe(callback);
+      
+      fastManager.registerAgent('agent-a');
+      fastManager.receiveHeartbeat({
+        agentId: 'agent-a',
+        status: 'idle',
+        timestamp: Date.now() - 100,
+      });
+      
+      fastManager.start();
+      await new Promise((resolve) => setTimeout(resolve, 100));
       
       expect(callback).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -192,22 +209,31 @@ describe('HeartbeatManager', () => {
           agentId: 'agent-a',
         })
       );
+      
+      fastManager.stop();
     });
 
     it('应该触发任务孤儿事件', async () => {
-      const callback = vi.fn();
-      manager.subscribe(callback);
+      const fastManager = new HeartbeatManager({
+        interval: 100,
+        timeout: 50,
+        checkInterval: 20,
+        maxMissed: 1,
+      });
       
-      manager.registerAgent('agent-a');
-      manager.receiveHeartbeat({
+      const callback = vi.fn();
+      fastManager.subscribe(callback);
+      
+      fastManager.registerAgent('agent-a');
+      fastManager.receiveHeartbeat({
         agentId: 'agent-a',
         status: 'working',
         currentTask: 'task-123',
-        timestamp: Date.now() - 10000,
+        timestamp: Date.now() - 100,
       });
       
-      manager.start();
-      await new Promise((resolve) => setTimeout(resolve, 600));
+      fastManager.start();
+      await new Promise((resolve) => setTimeout(resolve, 100));
       
       expect(callback).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -216,6 +242,8 @@ describe('HeartbeatManager', () => {
           taskId: 'task-123',
         })
       );
+      
+      fastManager.stop();
     });
   });
 

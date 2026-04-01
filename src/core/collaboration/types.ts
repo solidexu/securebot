@@ -374,3 +374,23 @@ export const END_NODE = '__end__';
 
 /** 开始节点标识 */
 export const START_NODE = '__start__';
+
+// ============ 事件类型 ============
+
+/**
+ * Agent 事件类型（用于监控）
+ */
+export type AgentEvent =
+  | { type: 'node_enter'; nodeId: string; nodeName: string; timestamp: number }
+  | { type: 'node_exit'; nodeId: string; result: string; duration: number; timestamp: number }
+  | { type: 'node_error'; nodeId: string; error: string; timestamp: number }
+  | { type: 'edge_traverse'; from: string; to: string; condition?: string; timestamp: number }
+  | { type: 'llm_call'; nodeId: string; tokens?: number; duration?: number; timestamp: number }
+  | { type: 'llm_stream'; nodeId: string; chunk: string; timestamp: number }
+  | { type: 'tool_call'; nodeId: string; tool: string; args: Record<string, unknown>; timestamp: number }
+  | { type: 'tool_result'; nodeId: string; tool: string; result: unknown; timestamp: number }
+  | { type: 'handoff'; from: string; to: string; message: string; timestamp: number }
+  | { type: 'state_update'; key: string; value: unknown; timestamp: number }
+  | { type: 'workflow_start'; graphId: string; threadId: string; input: string; timestamp: number }
+  | { type: 'workflow_complete'; graphId: string; threadId: string; result?: string; error?: string; timestamp: number }
+  | { type: 'workflow_interrupt'; graphId: string; threadId: string; nodeId: string; reason: string; timestamp: number };
