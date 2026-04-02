@@ -11,4 +11,16 @@ export type { LLMClient, LLMResponse, ToolDefinition, RunOptions } from './execu
 export { LangGraphAdapter } from './langgraph-adapter.js';
 export type { LangGraphAdapterConfig, CompiledLangGraphApp, LangGraphModule } from './langgraph-adapter.js';
 export { UnifiedOrchestrator, createOrchestrator } from './orchestrator.js';
-export type { OrchestratorConfig, RunOptions, OrchestratorEvent } from './orchestrator.js';
+export type { OrchestratorConfig, RunOptions as OrchestratorRunOptions, OrchestratorEvent } from './orchestrator.js';
+
+// Reducers
+export { ReducerRegistry, getReducerRegistry, registerReducer, applyReducer } from './reducers.js';
+export type { ReducerFunction, ReducerDefinition } from './types.js';
+
+// Memory Store
+export { AgentMemoryStore, getMemoryStore, configureMemoryStore } from './memory-store.js';
+export type { MemoryEntry, MemoryType, MemoryQueryOptions, MemoryStoreConfig, SharingPolicy } from './memory-store.js';
+
+// Streaming
+export { StreamingExecutor, createStreamingExecutor, runWithStreaming } from './streaming.js';
+export type { StreamEvent, StreamEventType, StreamCallback, StreamOptions } from './streaming.js';

@@ -197,7 +197,44 @@ export interface StateField {
   /** 默认值 */
   default?: unknown;
   /** Reducer 类型 */
-  reducer?: 'append' | 'replace' | 'merge' | 'last';
+  reducer?: BuiltinReducer | string;
+}
+
+/**
+ * 内置 Reducer 类型
+ */
+export type BuiltinReducer =
+  | 'append'      // 数组追加
+  | 'prepend'     // 数组前置
+  | 'replace'     // 替换
+  | 'merge'       // 对象合并
+  | 'last'        // 取最后一个值
+  | 'first'       // 取第一个值
+  | 'max'         // 取最大值（数字）
+  | 'min'         // 取最小值（数字）
+  | 'sum'         // 求和（数字）
+  | 'count'       // 计数
+  | 'concat'      // 字符串连接
+  | 'unique'      // 数组去重追加
+  | 'toggle'      // 布尔切换
+  | 'increment'   // 递增
+  | 'decrement';  // 递减
+
+/**
+ * Reducer 函数类型
+ */
+export type ReducerFunction<T = unknown> = (current: T, incoming: T) => T;
+
+/**
+ * Reducer 定义
+ */
+export interface ReducerDefinition<T = unknown> {
+  /** Reducer 名称 */
+  name: string;
+  /** Reducer 函数 */
+  reducer: ReducerFunction<T>;
+  /** 描述 */
+  description?: string;
 }
 
 /**
