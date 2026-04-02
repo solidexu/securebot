@@ -633,6 +633,405 @@ export class PerformanceMonitor {
   }
 }
 
+// ============ 连接池 ============
+
+/**
+ * 连接池配置
+ */
+export interface ConnectionPoolConfig<T> {
+  /** 创建连接的工厂函数 */
+  factory: () => Promise<T>;
+  /** 销毁连接的函数 */
+  destroyer?: (conn: T) => Promise<void>;
+  /** 最大连接数 */
+  maxConnections: number;
+  /** 最小连接数（预热） */
+  minConnections: number;
+  /** 连接空闲超时（毫秒） */
+  idleTimeout: number;
+  /** 获取连接超时（毫秒） */
+  acquireTimeout: number;
+}
+
+/**
+ * 连接池项
+ */
+interface PoolItem<T> {
+  connection: T;
+  lastUsed: number;
+  inUse: boolean;
+}
+
+/**
+ * 连接池
+ * 
+ * 复用连接，提高性能
+ */
+export class ConnectionPool<T> {
+  private config: ConnectionPoolConfig<T>;
+  private pool: PoolItem<T>[] = [];
+  private waiting: Array<{
+    resolve: (conn: T) => void;
+    reject: (error: Error) => void;
+    timeout: NodeJS.Timeout;
+  }> = [];
+  private totalConnections = 0;
+  private cleanupInterval: NodeJS.Timeout | null = null;
+
+  constructor(config: Partial<ConnectionPoolConfig<T>> & { factory: () => Promise<T> }) {
+    this.config = {
+      factory: config.factory,
+      destroyer: config.destroyer,
+      maxConnections: config.maxConnections ?? 10,
+      minConnections: config.minConnections ?? 0,
+      idleTimeout: config.idleTimeout ?? 300000, // 5 分钟
+      acquireTimeout: config.acquireTimeout ?? 10000, // 10 秒
+    };
+
+    // 预热最小连接数
+    this.warmup();
+
+    // 定期清理空闲连接
+    this.cleanupInterval = setInterval(() => this.cleanupIdle(), 60000);
+  }
+
+  /**
+   * 预热连接
+   */
+  private async warmup(): Promise<void> {
+    const promises: Promise<void>[] = [];
+    for (let i = 0; i < this.config.minConnections; i++) {
+      promises.push(this.createConnection());
+    }
+    await Promise.all(promises);
+  }
+
+  /**
+   * 创建新连接
+   */
+  private async createConnection(): Promise<void> {
+    try {
+      const connection = await this.config.factory();
+      this.pool.push({
+        connection,
+        lastUsed: Date.now(),
+        inUse: false,
+      });
+      this.totalConnections++;
+    } catch (error) {
+      console.error('Failed to create connection:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 获取连接
+   */
+  async acquire(): Promise<T> {
+    // 查找空闲连接
+    const available = this.pool.find((item) => !item.inUse);
+    if (available) {
+      available.inUse = true;
+      available.lastUsed = Date.now();
+      return available.connection;
+    }
+
+    // 可以创建新连接
+    if (this.totalConnections < this.config.maxConnections) {
+      await this.createConnection();
+      return this.acquire();
+    }
+
+    // 等待连接释放
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        const index = this.waiting.findIndex((w) => w.reject === reject);
+        if (index >= 0) {
+          this.waiting.splice(index, 1);
+          reject(new Error('Connection acquire timeout'));
+        }
+      }, this.config.acquireTimeout);
+
+      this.waiting.push({ resolve, reject, timeout });
+    });
+  }
+
+  /**
+   * 释放连接
+   */
+  release(connection: T): void {
+    const item = this.pool.find((p) => p.connection === connection);
+    if (!item) {
+      console.warn('Releasing unknown connection');
+      return;
+    }
+
+    item.inUse = false;
+    item.lastUsed = Date.now();
+
+    // 唤醒等待者
+    const waiter = this.waiting.shift();
+    if (waiter) {
+      clearTimeout(waiter.timeout);
+      item.inUse = true;
+      waiter.resolve(connection);
+    }
+  }
+
+  /**
+   * 在连接上执行操作
+   */
+  async withConnection<R>(fn: (conn: T) => Promise<R>): Promise<R> {
+    const conn = await this.acquire();
+    try {
+      return await fn(conn);
+    } finally {
+      this.release(conn);
+    }
+  }
+
+  /**
+   * 清理空闲连接
+   */
+  private async cleanupIdle(): Promise<void> {
+    const now = Date.now();
+    const toRemove: PoolItem<T>[] = [];
+
+    for (const item of this.pool) {
+      if (!item.inUse && now - item.lastUsed > this.config.idleTimeout) {
+        if (this.totalConnections > this.config.minConnections) {
+          toRemove.push(item);
+        }
+      }
+    }
+
+    for (const item of toRemove) {
+      const index = this.pool.indexOf(item);
+      if (index >= 0) {
+        this.pool.splice(index, 1);
+        this.totalConnections--;
+        if (this.config.destroyer) {
+          await this.config.destroyer(item.connection);
+        }
+      }
+    }
+  }
+
+  /**
+   * 获取统计信息
+   */
+  getStats(): {
+    total: number;
+    inUse: number;
+    available: number;
+    waiting: number;
+  } {
+    return {
+      total: this.totalConnections,
+      inUse: this.pool.filter((p) => p.inUse).length,
+      available: this.pool.filter((p) => !p.inUse).length,
+      waiting: this.waiting.length,
+    };
+  }
+
+  /**
+   * 销毁连接池
+   */
+  async destroy(): Promise<void> {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
+
+    // 拒绝所有等待者
+    for (const waiter of this.waiting) {
+      clearTimeout(waiter.timeout);
+      waiter.reject(new Error('Connection pool destroyed'));
+    }
+    this.waiting = [];
+
+    // 销毁所有连接
+    if (this.config.destroyer) {
+      for (const item of this.pool) {
+        await this.config.destroyer(item.connection);
+      }
+    }
+
+    this.pool = [];
+    this.totalConnections = 0;
+  }
+}
+
+// ============ 批处理器 ============
+
+/**
+ * 批处理器配置
+ */
+export interface BatchProcessorConfig<T, R> {
+  /** 批处理函数 */
+  processor: (items: T[]) => Promise<R[]>;
+  /** 最大批次大小 */
+  maxBatchSize: number;
+  /** 最大等待时间（毫秒） */
+  maxWaitMs: number;
+  /** 错误处理：是否逐个重试 */
+  retryIndividually?: boolean;
+}
+
+/**
+ * 批处理队列项
+ */
+interface BatchItem<T, R> {
+  item: T;
+  resolve: (result: R) => void;
+  reject: (error: Error) => void;
+}
+
+/**
+ * 批处理器
+ * 
+ * 合并多个请求为批量操作，提高效率
+ */
+export class BatchProcessor<T, R> {
+  private config: BatchProcessorConfig<T, R>;
+  private queue: BatchItem<T, R>[] = [];
+  private timeoutId: NodeJS.Timeout | null = null;
+  private processing = false;
+  private metrics = {
+    totalItems: 0,
+    totalBatches: 0,
+    totalErrors: 0,
+    avgBatchSize: 0,
+  };
+
+  constructor(config: BatchProcessorConfig<T, R>) {
+    this.config = {
+      retryIndividually: true,
+      ...config,
+    };
+  }
+
+  /**
+   * 添加项目到批处理队列
+   */
+  async process(item: T): Promise<R> {
+    return new Promise((resolve, reject) => {
+      this.queue.push({ item, resolve, reject });
+      this.metrics.totalItems++;
+
+      // 达到最大批次大小，立即处理
+      if (this.queue.length >= this.config.maxBatchSize) {
+        this.flush();
+      } else if (!this.timeoutId) {
+        // 设置超时定时器
+        this.timeoutId = setTimeout(() => this.flush(), this.config.maxWaitMs);
+      }
+    });
+  }
+
+  /**
+   * 批量添加项目
+   */
+  async processBatch(items: T[]): Promise<R[]> {
+    return Promise.all(items.map((item) => this.process(item)));
+  }
+
+  /**
+   * 刷新队列，执行批处理
+   */
+  async flush(): Promise<void> {
+    // 清除定时器
+    if (this.timeoutId) {
+      clearTimeout(this.timeoutId);
+      this.timeoutId = null;
+    }
+
+    // 队列为空或正在处理
+    if (this.queue.length === 0 || this.processing) {
+      return;
+    }
+
+    this.processing = true;
+
+    // 取出当前队列
+    const batch = this.queue.splice(0, this.queue.length);
+    this.metrics.totalBatches++;
+    this.metrics.avgBatchSize =
+      (this.metrics.avgBatchSize * (this.metrics.totalBatches - 1) + batch.length) /
+      this.metrics.totalBatches;
+
+    try {
+      // 执行批处理
+      const items = batch.map((b) => b.item);
+      const results = await this.config.processor(items);
+
+      // 分发结果
+      batch.forEach((b, i) => {
+        b.resolve(results[i]);
+      });
+    } catch (error) {
+      this.metrics.totalErrors++;
+
+      // 逐个重试
+      if (this.config.retryIndividually) {
+        for (const item of batch) {
+          try {
+            const results = await this.config.processor([item.item]);
+            item.resolve(results[0]);
+          } catch (individualError) {
+            item.reject(individualError instanceof Error ? individualError : new Error(String(individualError)));
+          }
+        }
+      } else {
+        // 全部失败
+        const err = error instanceof Error ? error : new Error(String(error));
+        batch.forEach((b) => b.reject(err));
+      }
+    } finally {
+      this.processing = false;
+
+      // 如果队列中还有项目，继续处理
+      if (this.queue.length > 0) {
+        if (this.queue.length >= this.config.maxBatchSize) {
+          this.flush();
+        } else {
+          this.timeoutId = setTimeout(() => this.flush(), this.config.maxWaitMs);
+        }
+      }
+    }
+  }
+
+  /**
+   * 获取队列长度
+   */
+  getQueueLength(): number {
+    return this.queue.length;
+  }
+
+  /**
+   * 获取指标
+   */
+  getMetrics(): typeof this.metrics {
+    return { ...this.metrics };
+  }
+
+  /**
+   * 是否正在处理
+   */
+  isProcessing(): boolean {
+    return this.processing;
+  }
+
+  /**
+   * 等待队列清空
+   */
+  async drain(): Promise<void> {
+    while (this.queue.length > 0 || this.processing) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+}
+
 // ============ 全局实例 ============
 
 let globalMonitor: PerformanceMonitor | null = null;

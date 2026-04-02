@@ -8,6 +8,8 @@ import {
   ParallelExecutor,
   ChunkProcessor,
   PerformanceMonitor,
+  ConnectionPool,
+  BatchProcessor,
 } from './performance.js';
 
 describe('LazyLoader', () => {
@@ -273,5 +275,255 @@ describe('PerformanceMonitor', () => {
       const metrics = monitor.getMetrics();
       expect(metrics.size).toBe(0);
     });
+  });
+});
+
+describe('ConnectionPool', () => {
+  it('应该创建和复用连接', async () => {
+    let connectionCount = 0;
+    const pool = new ConnectionPool<{ id: number }>({
+      factory: async () => ({ id: ++connectionCount }),
+      maxConnections: 3,
+      minConnections: 0,
+    });
+
+    const conn1 = await pool.acquire();
+    const conn2 = await pool.acquire();
+    pool.release(conn1);
+    const conn3 = await pool.acquire(); // 应该复用 conn1
+
+    expect(connectionCount).toBe(2); // 只创建了 2 个连接
+    expect(conn3).toBe(conn1); // 复用了第一个连接
+
+    pool.release(conn2);
+    pool.release(conn3);
+    await pool.destroy();
+  });
+
+  it('应该等待连接释放', async () => {
+    let connectionCount = 0;
+    const pool = new ConnectionPool<{ id: number }>({
+      factory: async () => ({ id: ++connectionCount }),
+      maxConnections: 2,
+      acquireTimeout: 500,
+    });
+
+    const conn1 = await pool.acquire();
+    const conn2 = await pool.acquire();
+
+    // 第三个请求应该等待
+    const acquirePromise = pool.acquire();
+
+    // 释放一个连接
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    pool.release(conn1);
+
+    const conn3 = await acquirePromise;
+    expect(conn3).toBe(conn1); // 复用释放的连接
+
+    pool.release(conn2);
+    pool.release(conn3);
+    await pool.destroy();
+  });
+
+  it('应该超时拒绝请求', async () => {
+    const pool = new ConnectionPool<{ id: number }>({
+      factory: async () => ({ id: 1 }),
+      maxConnections: 1,
+      acquireTimeout: 100,
+    });
+
+    await pool.acquire(); // 占用唯一连接
+
+    await expect(pool.acquire()).rejects.toThrow('Connection acquire timeout');
+
+    await pool.destroy();
+  });
+
+  it('应该预热最小连接数', async () => {
+    let connectionCount = 0;
+    const pool = new ConnectionPool<{ id: number }>({
+      factory: async () => ({ id: ++connectionCount }),
+      maxConnections: 5,
+      minConnections: 2,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(connectionCount).toBe(2); // 预热了 2 个连接
+
+    await pool.destroy();
+  });
+
+  it('withConnection 应该自动释放连接', async () => {
+    let connectionCount = 0;
+    const pool = new ConnectionPool<{ id: number }>({
+      factory: async () => ({ id: ++connectionCount }),
+      maxConnections: 2,
+    });
+
+    await pool.withConnection(async (conn) => {
+      expect(conn.id).toBe(1);
+      return 'done';
+    });
+
+    const stats = pool.getStats();
+    expect(stats.inUse).toBe(0); // 已释放
+
+    await pool.destroy();
+  });
+
+  it('应该返回统计信息', async () => {
+    const pool = new ConnectionPool<{ id: number }>({
+      factory: async () => ({ id: 1 }),
+      maxConnections: 3,
+    });
+
+    await pool.acquire();
+    await pool.acquire();
+
+    const stats = pool.getStats();
+    expect(stats.total).toBe(2);
+    expect(stats.inUse).toBe(2);
+    expect(stats.available).toBe(0);
+
+    await pool.destroy();
+  });
+});
+
+describe('BatchProcessor', () => {
+  it('应该批量处理请求', async () => {
+    let batchCount = 0;
+    let lastBatchSize = 0;
+
+    const processor = new BatchProcessor<number, number>({
+      processor: async (items) => {
+        batchCount++;
+        lastBatchSize = items.length;
+        return items.map((n) => n * 2);
+      },
+      maxBatchSize: 5,
+      maxWaitMs: 1000,
+    });
+
+    const results = await Promise.all([
+      processor.process(1),
+      processor.process(2),
+      processor.process(3),
+    ]);
+
+    expect(results).toEqual([2, 4, 6]);
+    expect(batchCount).toBe(1);
+    expect(lastBatchSize).toBe(3);
+
+    await processor.drain();
+  });
+
+  it('应该在达到最大批次大小时立即处理', async () => {
+    let processCount = 0;
+
+    const processor = new BatchProcessor<number, number>({
+      processor: async (items) => {
+        processCount++;
+        return items.map((n) => n * 2);
+      },
+      maxBatchSize: 3,
+      maxWaitMs: 10000, // 长超时，应该不会触发
+    });
+
+    // 快速添加 3 个项目
+    const promises = [
+      processor.process(1),
+      processor.process(2),
+      processor.process(3),
+    ];
+
+    await Promise.all(promises);
+
+    expect(processCount).toBe(1); // 立即处理
+
+    await processor.drain();
+  });
+
+  it('应该在超时后处理', async () => {
+    let processCount = 0;
+
+    const processor = new BatchProcessor<number, number>({
+      processor: async (items) => {
+        processCount++;
+        return items.map((n) => n * 2);
+      },
+      maxBatchSize: 100, // 大批次，不会立即触发
+      maxWaitMs: 50, // 短超时
+    });
+
+    // 同时添加两个项目，它们应该在同一个批次中处理
+    const promise1 = processor.process(1);
+    const promise2 = processor.process(2);
+
+    await Promise.all([promise1, promise2]);
+
+    // 因为两个请求几乎同时到达，应该在同一个批次处理
+    expect(processCount).toBeGreaterThanOrEqual(1);
+
+    await processor.drain();
+  });
+
+  it('应该处理失败并逐个重试', async () => {
+    let processCalls: number[][] = [];
+
+    const processor = new BatchProcessor<number, number>({
+      processor: async (items) => {
+        processCalls.push(items);
+        if (items.length > 1) {
+          throw new Error('Batch failed');
+        }
+        return items.map((n) => n * 2);
+      },
+      maxBatchSize: 5,
+      maxWaitMs: 100,
+      retryIndividually: true,
+    });
+
+    const results = await Promise.all([
+      processor.process(1),
+      processor.process(2),
+    ]);
+
+    expect(results).toEqual([2, 4]);
+    expect(processCalls.length).toBe(3); // 1 次批量失败 + 2 次逐个处理
+
+    await processor.drain();
+  });
+
+  it('应该返回指标', async () => {
+    const processor = new BatchProcessor<number, number>({
+      processor: async (items) => items.map((n) => n * 2),
+      maxBatchSize: 3,
+      maxWaitMs: 100,
+    });
+
+    await processor.process(1);
+    await processor.process(2);
+
+    const metrics = processor.getMetrics();
+    expect(metrics.totalItems).toBe(2);
+    expect(metrics.totalBatches).toBeGreaterThan(0);
+
+    await processor.drain();
+  });
+
+  it('processBatch 应该批量添加', async () => {
+    const processor = new BatchProcessor<number, number>({
+      processor: async (items) => items.map((n) => n * 2),
+      maxBatchSize: 10,
+      maxWaitMs: 100,
+    });
+
+    const results = await processor.processBatch([1, 2, 3, 4, 5]);
+
+    expect(results).toEqual([2, 4, 6, 8, 10]);
+
+    await processor.drain();
   });
 });

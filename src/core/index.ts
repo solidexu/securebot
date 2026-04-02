@@ -15,6 +15,15 @@ export * from './lifecycle.js';
 // 配置验证
 export * from './validation.js';
 
+// 性能优化
+export * from './performance.js';
+
+// 日志系统
+export * from './logger.js';
+
+// 追踪系统
+export * from './tracing.js';
+
 // 协作系统
 export * from './collaboration/index.js';
 
