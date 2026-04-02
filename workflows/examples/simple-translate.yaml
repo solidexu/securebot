@@ -1,0 +1,44 @@
+# 简单翻译总结工作流 - 最简测试案例
+
+id: simple-translate
+name: 翻译总结
+mode: lightweight  # 轻量级模式，不需要持久化
+
+# 入口 Agent
+entry: translator
+
+# Agents 定义（只有 2 个）
+agents:
+  - id: translator
+    name: 翻译员
+    role: 英文翻译
+    description: 将用户输入翻译成英文
+    systemPrompt: |
+      你是翻译员。你的任务是：
+      1. 将用户输入的中文翻译成英文
+      2. 保持原意，语言自然流畅
+      3. 完成后调用 handoff_to_summarizer 将翻译结果传递给总结员
+
+    # 可用的工具
+    tools:
+      - handoff_to_summarizer
+
+  - id: summarizer
+    name: 总结员
+    role: 内容总结
+    description: 对翻译内容进行总结
+    systemPrompt: |
+      你是总结员。你的任务是：
+      1. 接收翻译员的英文内容
+      2. 用一句话总结核心内容
+      3. 输出最终结果（格式：翻译结果 + 总结）
+
+    # 不需要 handoff，这是最后一个 Agent
+
+# 边定义（只有 1 条边）
+edges:
+  - source: translator
+    target: summarizer
+    type: direct
+    metadata:
+      label: 翻译完成，进入总结
