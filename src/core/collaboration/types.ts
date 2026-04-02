@@ -98,20 +98,6 @@ export interface AgentBehavior {
 }
 
 /**
- * 重试策略
- */
-export interface RetryPolicy {
-  /** 最大重试次数 */
-  maxAttempts: number;
-  /** 初始延迟（毫秒） */
-  initialDelay: number;
-  /** 最大延迟（毫秒） */
-  maxDelay?: number;
-  /** 倍数 */
-  multiplier?: number;
-}
-
-/**
  * 图边（Agent 关系）
  */
 export interface GraphEdge {

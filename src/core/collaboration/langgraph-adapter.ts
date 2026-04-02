@@ -282,15 +282,14 @@ export class LangGraphAdapter {
         }
       }
 
-      // 检查条件表达式
+      // 检查条件表达式（使用安全解析）
       for (const edge of edges) {
         if (edge.condition?.expression) {
-          try {
-            const fn = new Function('state', `return ${edge.condition.expression}`);
-            if (fn(state)) {
-              return edge.target;
-            }
-          } catch {}
+          // 安全解析：不使用 new Function()
+          const result = this.evaluateConditionExpression(edge.condition.expression, state);
+          if (result) {
+            return edge.target;
+          }
         }
       }
 
@@ -534,5 +533,98 @@ export class LangGraphAdapter {
         mode: 'langgraph',
       };
     }
+  }
+
+  /**
+   * 安全表达式解析器
+   * 复用与 executor.ts 相同的安全逻辑
+   */
+  private evaluateConditionExpression(expression: string, state: any): boolean {
+    // 白名单验证：只允许安全的表达式模式
+    const safePattern = /^[\w\s.]+\s*(===|==|!==|!=|>|<|>=|<=|&&|\|\|)\s*[\w\s.'"]+$|^[\w\s.]+\s*(===|==|!==|!=|>|<|>=|<=|&&|\|\|)\s*[\w\s.'"]+\s*(&&|\|\|)\s*[\w\s.]+\s*(===|==|!==|!=|>|<|>=|<=)\s*[\w\s.'"]+$/;
+    
+    if (!safePattern.test(expression)) {
+      return false;
+    }
+
+    try {
+      // 替换 state.property 为实际值
+      const sanitizedExpr = expression
+        .replace(/state\.(\w+)/g, (_, prop) => {
+          const value = state[prop];
+          if (value === undefined) return 'undefined';
+          if (typeof value === 'string') return `"${value.replace(/"/g, '\\"')}"`;
+          if (typeof value === 'number') return String(value);
+          if (typeof value === 'boolean') return String(value);
+          return 'undefined';
+        });
+
+      // 直接解析而非 eval
+      return this.parseSimpleExpression(sanitizedExpr);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * 解析简单比较表达式
+   */
+  private parseSimpleExpression(expr: string): boolean {
+    // 处理逻辑运算符
+    if (expr.includes('&&')) {
+      const parts = expr.split('&&').map(p => this.parseSimpleExpression(p.trim()));
+      return parts.every(Boolean);
+    }
+    if (expr.includes('||')) {
+      const parts = expr.split('||').map(p => this.parseSimpleExpression(p.trim()));
+      return parts.some(Boolean);
+    }
+
+    // 处理比较运算符
+    const compOps = ['===', '==', '!==', '!=', '>=', '<=', '>', '<'];
+    for (const op of compOps) {
+      if (expr.includes(op)) {
+        const [left, right] = expr.split(op).map(s => s.trim());
+        return this.compareValues(left, right, op);
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * 比较两个值
+   */
+  private compareValues(left: string, right: string, op: string): boolean {
+    const leftVal = this.parseValue(left);
+    const rightVal = this.parseValue(right);
+
+    switch (op) {
+      case '===': return leftVal === rightVal;
+      case '==': return leftVal == rightVal;
+      case '!==': return leftVal !== rightVal;
+      case '!=': return leftVal != rightVal;
+      case '>': return leftVal > rightVal;
+      case '<': return leftVal < rightVal;
+      case '>=': return leftVal >= rightVal;
+      case '<=': return leftVal <= rightVal;
+      default: return false;
+    }
+  }
+
+  /**
+   * 解析字符串为值
+   */
+  private parseValue(str: string): string | number | boolean | undefined {
+    str = str.trim();
+    if (str === 'undefined') return undefined;
+    if (str === 'true') return true;
+    if (str === 'false') return false;
+    if (str.startsWith('"') && str.endsWith('"')) {
+      return str.slice(1, -1).replace(/\\"/g, '"');
+    }
+    const num = Number(str);
+    if (!isNaN(num)) return num;
+    return str;
   }
 }

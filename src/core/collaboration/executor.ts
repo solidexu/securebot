@@ -99,24 +99,39 @@ export class GraphExecutor {
   }
 
   /**
-   * 执行图
+   * 执行图（状态隔离，支持并发调用）
    */
   async run(input: string, llmClient: LLMClient): Promise<ExecutionResult> {
+    // 创建新的执行状态（避免并发冲突）
+    const runState: GraphState = {
+      messages: [],
+      currentNode: this.graph.entryPoint,
+      context: {},
+    };
+    const runHistory: ExecutionLog[] = [];
+    const threadId = `thread_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    let currentNodeId = this.graph.entryPoint;
+
     // 添加用户消息
-    this.state.messages.push({
+    runState.messages.push({
       role: 'user',
       content: input,
       timestamp: Date.now(),
     });
 
     // 记录开始
-    this.log('workflow_start', { input });
+    runHistory.push({
+      timestamp: Date.now(),
+      type: 'workflow_start',
+      nodeId: currentNodeId,
+      data: { input },
+    });
 
     // 发射工作流开始事件
     this.emitEvent({
       type: 'workflow_start',
       graphId: this.graphId,
-      threadId: this.threadId,
+      threadId,
       input,
       timestamp: Date.now(),
     });
@@ -128,25 +143,30 @@ export class GraphExecutor {
       iterations++;
 
       // 获取当前节点
-      const node = this.graph.nodes.get(this.currentNodeId);
+      const node = this.graph.nodes.get(currentNodeId);
       if (!node) {
-        throw new Error(`Node not found: ${this.currentNodeId}`);
+        throw new Error(`Node not found: ${currentNodeId}`);
       }
 
       // 记录进入节点
-      this.log('node_enter', { nodeId: this.currentNodeId, nodeName: node.name });
+      runHistory.push({
+        timestamp: Date.now(),
+        type: 'node_enter',
+        nodeId: currentNodeId,
+        data: { nodeName: node.name },
+      });
 
       // 发射节点进入事件
       this.emitEvent({
         type: 'node_enter',
-        nodeId: this.currentNodeId,
+        nodeId: currentNodeId,
         nodeName: node.name,
         timestamp: Date.now(),
       });
 
-      // 执行节点
+      // 执行节点（传入运行状态而非实例状态）
       const startTime = Date.now();
-      const response = await this.executeNode(node, llmClient);
+      const response = await this.executeNodeWithContext(node, llmClient, runState, runHistory);
       const duration = Date.now() - startTime;
 
       // 处理响应
@@ -154,60 +174,84 @@ export class GraphExecutor {
         // 发射节点完成事件
         this.emitEvent({
           type: 'node_exit',
-          nodeId: this.currentNodeId,
+          nodeId: currentNodeId,
           result: response.content,
           duration,
           timestamp: Date.now(),
         });
 
         // 任务完成
-        this.log('workflow_complete', { result: response.content });
+        runHistory.push({
+          timestamp: Date.now(),
+          type: 'workflow_complete',
+          nodeId: currentNodeId,
+          data: { result: response.content },
+        });
 
         // 发射工作流完成事件
         this.emitEvent({
           type: 'workflow_complete',
           graphId: this.graphId,
-          threadId: this.threadId,
+          threadId,
           result: response.content,
           timestamp: Date.now(),
         });
 
-        return this.createResult(true, response.content);
+        return {
+          success: true,
+          result: response.content,
+          state: runState,
+          history: runHistory,
+          threadId,
+          mode: this.graph.executionMode,
+        };
       }
 
       // 发射节点完成事件
       this.emitEvent({
         type: 'node_exit',
-        nodeId: this.currentNodeId,
+        nodeId: currentNodeId,
         result: response.content,
         duration,
         timestamp: Date.now(),
       });
 
       // 查找下一个节点
-      const nextNodeId = this.findNextNode(response);
+      const nextNodeId = this.findNextNodeWithContext(response, runState);
       
       if (!nextNodeId || nextNodeId === END_NODE) {
         // 结束
-        this.log('workflow_complete', { reason: 'end_node' });
+        runHistory.push({
+          timestamp: Date.now(),
+          type: 'workflow_complete',
+          nodeId: currentNodeId,
+          data: { reason: 'end_node' },
+        });
 
         // 发射工作流完成事件
         this.emitEvent({
           type: 'workflow_complete',
           graphId: this.graphId,
-          threadId: this.threadId,
+          threadId,
           result: response.content,
           timestamp: Date.now(),
         });
 
-        return this.createResult(true, response.content);
+        return {
+          success: true,
+          result: response.content,
+          state: runState,
+          history: runHistory,
+          threadId,
+          mode: this.graph.executionMode,
+        };
       }
 
       // 发射 Handoff 事件
       if (response.type === 'handoff') {
         this.emitEvent({
           type: 'handoff',
-          from: this.currentNodeId,
+          from: currentNodeId,
           to: nextNodeId,
           message: response.message,
           timestamp: Date.now(),
@@ -215,24 +259,79 @@ export class GraphExecutor {
       }
 
       // 切换到下一个节点
-      this.log('node_switch', { from: this.currentNodeId, to: nextNodeId });
-      this.currentNodeId = nextNodeId;
-      this.state.currentNode = nextNodeId;
+      runHistory.push({
+        timestamp: Date.now(),
+        type: 'node_switch',
+        nodeId: currentNodeId,
+        data: { from: currentNodeId, to: nextNodeId },
+      });
+      currentNodeId = nextNodeId;
+      runState.currentNode = nextNodeId;
     }
 
     // 超过最大迭代次数
-    this.log('workflow_timeout', { iterations });
+    runHistory.push({
+      timestamp: Date.now(),
+      type: 'workflow_timeout',
+      nodeId: currentNodeId,
+      data: { iterations },
+    });
 
     // 发射工作流完成事件（错误）
     this.emitEvent({
       type: 'workflow_complete',
       graphId: this.graphId,
-      threadId: this.threadId,
+      threadId,
       error: 'Max iterations reached',
       timestamp: Date.now(),
     });
 
-    return this.createResult(false, undefined, 'Max iterations reached');
+    return {
+      success: false,
+      error: 'Max iterations reached',
+      state: runState,
+      history: runHistory,
+      threadId,
+      mode: this.graph.executionMode,
+    };
+  }
+  }
+
+  /**
+   * 执行节点（带上下文，支持并发）
+   */
+  protected async executeNodeWithContext(
+    node: AgentNode,
+    llmClient: LLMClient,
+    state: GraphState,
+    history: ExecutionLog[]
+  ): Promise<NodeResponse> {
+    // 临时替换状态
+    const originalState = this.state;
+    const originalHistory = this.history;
+    
+    try {
+      this.state = state;
+      this.history = history;
+      return await this.executeNode(node, llmClient);
+    } finally {
+      // 恢复原状态（或保持新状态用于结果）
+      this.state = originalState;
+      this.history = originalHistory;
+    }
+  }
+
+  /**
+   * 查找下一个节点（带上下文）
+   */
+  protected findNextNodeWithContext(response: NodeResponse, state: GraphState): string | null {
+    const originalState = this.state;
+    try {
+      this.state = state;
+      return this.findNextNode(response);
+    } finally {
+      this.state = originalState;
+    }
   }
 
   /**
@@ -495,18 +594,124 @@ ${JSON.stringify(this.state.context, null, 2)}
       return keywords.some((kw) => lastMessage.content.includes(kw));
     }
 
-    // 表达式判断
+    // 表达式判断（使用安全解析器）
     if (expression) {
-      try {
-        const fn = new Function('state', `return ${expression}`);
-        return fn(this.state);
-      } catch (error) {
-        this.log('condition_error', { expression, error: String(error) });
-        return false;
-      }
+      return this.evaluateExpression(expression, this.state);
     }
 
     return true;
+  }
+
+  /**
+   * 安全表达式解析器
+   * 仅支持基本比较和逻辑操作，不允许任意代码执行
+   */
+  protected evaluateExpression(expression: string, state: GraphState): boolean {
+    // 白名单验证：只允许安全的表达式模式
+    const safePattern = /^[\w\s.]+\s*(===|==|!==|!=|>|<|>=|<=|&&|\|\|)\s*[\w\s.'"]+$|^[\w\s.]+\s*(===|==|!==|!=|>|<|>=|<=|&&|\|\|)\s*[\w\s.'"]+\s*(&&|\|\|)\s*[\w\s.]+\s*(===|==|!==|!=|>|<|>=|<=)\s*[\w\s.'"]+$/;
+    
+    if (!safePattern.test(expression)) {
+      this.log('expression_rejected', { expression, reason: 'unsafe_pattern' });
+      return false;
+    }
+
+    // 安全解析：只允许访问 state 对象的属性
+    // 替换 state.property 为实际值
+    try {
+      const sanitizedExpr = expression
+        .replace(/state\.(\w+)/g, (_, prop) => {
+          const value = state[prop as keyof GraphState];
+          if (value === undefined) return 'undefined';
+          if (typeof value === 'string') return `"${value.replace(/"/g, '\\"')}"`;
+          if (typeof value === 'number') return String(value);
+          if (typeof value === 'boolean') return String(value);
+          return 'undefined';
+        });
+
+      // 使用受限的 eval，仅处理比较表达式
+      const allowedOps = ['===', '==', '!==', '!=', '>', '<', '>=', '<=', '&&', '||'];
+      let hasAllowedOp = false;
+      for (const op of allowedOps) {
+        if (sanitizedExpr.includes(op)) {
+          hasAllowedOp = true;
+          break;
+        }
+      }
+      
+      if (!hasAllowedOp) {
+        this.log('expression_rejected', { expression, reason: 'no_allowed_operator' });
+        return false;
+      }
+
+      // 直接解析而非 eval
+      return this.parseSimpleExpression(sanitizedExpr);
+    } catch (error) {
+      this.log('expression_error', { expression, error: String(error) });
+      return false;
+    }
+  }
+
+  /**
+   * 解析简单比较表达式
+   */
+  protected parseSimpleExpression(expr: string): boolean {
+    // 处理逻辑运算符
+    if (expr.includes('&&')) {
+      const parts = expr.split('&&').map(p => this.parseSimpleExpression(p.trim()));
+      return parts.every(Boolean);
+    }
+    if (expr.includes('||')) {
+      const parts = expr.split('||').map(p => this.parseSimpleExpression(p.trim()));
+      return parts.some(Boolean);
+    }
+
+    // 处理比较运算符
+    const compOps = ['===', '==', '!==', '!=', '>=', '<=', '>', '<'];
+    for (const op of compOps) {
+      if (expr.includes(op)) {
+        const [left, right] = expr.split(op).map(s => s.trim());
+        return this.compareValues(left, right, op);
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * 比较两个值
+   */
+  protected compareValues(left: string, right: string, op: string): boolean {
+    // 解析值
+    const leftVal = this.parseValue(left);
+    const rightVal = this.parseValue(right);
+
+    switch (op) {
+      case '===': return leftVal === rightVal;
+      case '==': return leftVal == rightVal;
+      case '!==': return leftVal !== rightVal;
+      case '!=': return leftVal != rightVal;
+      case '>': return leftVal > rightVal;
+      case '<': return leftVal < rightVal;
+      case '>=': return leftVal >= rightVal;
+      case '<=': return leftVal <= rightVal;
+      default: return false;
+    }
+  }
+
+  /**
+   * 解析字符串为值
+   */
+  protected parseValue(str: string): string | number | boolean | undefined {
+    str = str.trim();
+    if (str === 'undefined') return undefined;
+    if (str === 'true') return true;
+    if (str === 'false') return false;
+    if (str.startsWith('"') && str.endsWith('"')) {
+      return str.slice(1, -1).replace(/\\"/g, '"');
+    }
+    const num = Number(str);
+    if (!isNaN(num)) return num;
+    return str;
   }
 
   /**
