@@ -794,4 +794,161 @@ ${JSON.stringify(this.state.context, null, 2)}
   getThreadId(): string {
     return this.threadId;
   }
+
+  // ============ 并行执行支持 ============
+
+  /**
+   * 并行执行多个目标节点（fan-out）
+   * 用于从单个节点分发任务到多个并行分支
+   */
+  async runParallel(
+    input: string,
+    llmClient: LLMClient,
+    targetNodes: string[],
+    options?: RunOptions
+  ): Promise<Map<string, ExecutionResult>> {
+    const results = new Map<string, ExecutionResult>();
+    const maxConcurrency = this.graph.config?.parallel?.maxConcurrency ?? 4;
+
+    // 分批并行执行
+    for (let i = 0; i < targetNodes.length; i += maxConcurrency) {
+      const batch = targetNodes.slice(i, i + maxConcurrency);
+      const batchResults = await Promise.all(
+        batch.map(async (nodeId) => {
+          const node = this.graph.nodes.get(nodeId);
+          if (!node) {
+            return [nodeId, {
+              success: false,
+              error: `Node not found: ${nodeId}`,
+              state: {},
+              history: [],
+              threadId: '',
+              mode: this.graph.executionMode,
+            }] as [string, ExecutionResult];
+          }
+
+          try {
+            // 为每个分支创建独立状态
+            const branchState: GraphState = {
+              messages: [{ role: 'user', content: input, timestamp: Date.now() }],
+              currentNode: nodeId,
+              context: {},
+            };
+            const branchHistory: ExecutionLog[] = [];
+
+            const response = await this.executeNodeWithContext(node, llmClient, branchState, branchHistory);
+            
+            return [nodeId, {
+              success: true,
+              result: response.content,
+              state: branchState,
+              history: branchHistory,
+              threadId: `${options?.threadId ?? 'parallel'}_${nodeId}`,
+              mode: this.graph.executionMode,
+            }] as [string, ExecutionResult];
+          } catch (error) {
+            return [nodeId, {
+              success: false,
+              error: error instanceof Error ? error.message : String(error),
+              state: {},
+              history: [],
+              threadId: '',
+              mode: this.graph.executionMode,
+            }] as [string, ExecutionResult];
+          }
+        })
+      );
+
+      for (const [nodeId, result] of batchResults) {
+        results.set(nodeId, result);
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * 汇聚多个分支的结果（fan-in）
+   * 用于等待所有并行分支完成并合并结果
+   */
+  async fanIn(
+    results: Map<string, ExecutionResult>,
+    aggregatorNodeId: string,
+    llmClient: LLMClient
+  ): Promise<ExecutionResult> {
+    const aggregatorNode = this.graph.nodes.get(aggregatorNodeId);
+    if (!aggregatorNode) {
+      return {
+        success: false,
+        error: `Aggregator node not found: ${aggregatorNodeId}`,
+        state: {},
+        history: [],
+        threadId: '',
+        mode: this.graph.executionMode,
+      };
+    }
+
+    // 收集所有分支的结果
+    const branchResults: string[] = [];
+    for (const [nodeId, result] of results) {
+      if (result.success && result.result) {
+        branchResults.push(`[${nodeId}]: ${result.result}`);
+      } else {
+        branchResults.push(`[${nodeId}]: Failed - ${result.error}`);
+      }
+    }
+
+    // 构建汇聚输入
+    const fanInInput = `并行执行结果汇总：\n${branchResults.join('\n')}`;
+
+    // 执行汇聚节点
+    const aggregatedState: GraphState = {
+      messages: [{ role: 'user', content: fanInInput, timestamp: Date.now() }],
+      currentNode: aggregatorNodeId,
+      context: { parallelResults: Object.fromEntries(results) },
+    };
+    const aggregatedHistory: ExecutionLog[] = [];
+
+    try {
+      const response = await this.executeNodeWithContext(aggregatorNode, llmClient, aggregatedState, aggregatedHistory);
+      
+      return {
+        success: true,
+        result: response.content,
+        state: aggregatedState,
+        history: aggregatedHistory,
+        threadId: `fanin_${aggregatorNodeId}`,
+        mode: this.graph.executionMode,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        state: aggregatedState,
+        history: aggregatedHistory,
+        threadId: '',
+        mode: this.graph.executionMode,
+      };
+    }
+  }
+
+  /**
+   * 检查节点是否支持并行执行
+   */
+  canRunParallel(nodeId: string): boolean {
+    const outEdges = this.getOutEdges(nodeId);
+    // 如果有多条直接边，可以并行执行
+    const directEdges = outEdges.filter(e => e.type === 'direct');
+    return directEdges.length > 1;
+  }
+
+  /**
+   * 获取可并行执行的子节点
+   */
+  getParallelTargets(nodeId: string): string[] {
+    const outEdges = this.getOutEdges(nodeId);
+    return outEdges
+      .filter(e => e.type === 'direct' && e.target !== END_NODE)
+      .map(e => e.target);
+  }
 }

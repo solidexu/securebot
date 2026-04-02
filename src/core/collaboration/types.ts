@@ -208,6 +208,24 @@ export interface ParallelConfig {
   enabled: boolean;
   /** 最大并发数 */
   maxConcurrency?: number;
+  /** 并行策略：fan-out（分发）或 fan-in（汇聚） */
+  strategy?: 'fan-out' | 'fan-in' | 'both';
+}
+
+/**
+ * 并行执行结果
+ */
+export interface ParallelResult {
+  /** 分支 ID */
+  branchId: string;
+  /** 目标节点 ID */
+  nodeId: string;
+  /** 执行结果 */
+  result: ExecutionResult;
+  /** 是否成功 */
+  success: boolean;
+  /** 错误信息 */
+  error?: string;
 }
 
 // ============ 上下文与状态 ============

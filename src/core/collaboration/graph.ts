@@ -327,10 +327,87 @@ export class Graph {
       }
     }
 
+    // 检测循环（环）
+    const cycleError = this.detectCycles();
+    if (cycleError) {
+      errors.push(cycleError);
+    }
+
+    // 检查孤立节点（不可达）
+    const unreachable = this.findUnreachableNodes();
+    if (unreachable.length > 0) {
+      errors.push(`Unreachable nodes found: ${unreachable.join(', ')}`);
+    }
+
     return {
       valid: errors.length === 0,
       errors,
     };
+  }
+
+  /**
+   * 检测图中的循环（使用 DFS）
+   */
+  private detectCycles(): string | null {
+    const visited = new Set<string>();
+    const recursionStack = new Set<string>();
+    const path: string[] = [];
+
+    const dfs = (nodeId: string): boolean => {
+      if (recursionStack.has(nodeId)) {
+        // 发现环，记录路径
+        const cycleStart = path.indexOf(nodeId);
+        const cyclePath = [...path.slice(cycleStart), nodeId].join(' → ');
+        return true;
+      }
+      if (visited.has(nodeId)) {
+        return false;
+      }
+
+      visited.add(nodeId);
+      recursionStack.add(nodeId);
+      path.push(nodeId);
+
+      const outEdges = this.getOutEdges(nodeId);
+      for (const edge of outEdges) {
+        if (edge.target !== END_NODE && dfs(edge.target)) {
+          return true;
+        }
+      }
+
+      recursionStack.delete(nodeId);
+      path.pop();
+      return false;
+    };
+
+    // 从入口点开始检测
+    if (this.graph.entryPoint) {
+      if (dfs(this.graph.entryPoint)) {
+        return 'Cycle detected in graph (may cause infinite loop)';
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * 查找不可达节点
+   */
+  private findUnreachableNodes(): string[] {
+    if (!this.graph.entryPoint) {
+      return Array.from(this.graph.nodes.keys());
+    }
+
+    const reachable = new Set(this.getReachableNodes(this.graph.entryPoint));
+    const unreachable: string[] = [];
+
+    for (const [nodeId] of this.graph.nodes) {
+      if (!reachable.has(nodeId)) {
+        unreachable.push(nodeId);
+      }
+    }
+
+    return unreachable;
   }
 
   // ============ 导出操作 ============
