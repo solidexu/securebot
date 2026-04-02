@@ -180,7 +180,7 @@ export class Graph {
     this.validateNodes(source, target);
     
     const edge: GraphEdge = {
-      id: `edge_${source}_${target}_${Date.now()}`,
+      id: `edge_${source}_${target}_${crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Date.now()}`,
       source,
       target,
       type: 'direct',
@@ -203,7 +203,7 @@ export class Graph {
     this.validateNodes(source, target);
     
     const edge: GraphEdge = {
-      id: `edge_${source}_${target}_${Date.now()}`,
+      id: `edge_${source}_${target}_${crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Date.now()}`,
       source,
       target,
       type: 'conditional',

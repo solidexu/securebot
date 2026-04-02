@@ -58,6 +58,16 @@ export interface LLMResponse {
 }
 
 /**
+ * 运行选项
+ */
+export interface RunOptions {
+  /** 最大迭代次数，默认 50 */
+  maxIterations?: number;
+  /** 线程 ID（可选，用于持久化） */
+  threadId?: string;
+}
+
+/**
  * 图执行器
  */
 export class GraphExecutor {
@@ -101,7 +111,11 @@ export class GraphExecutor {
   /**
    * 执行图（状态隔离，支持并发调用）
    */
-  async run(input: string, llmClient: LLMClient): Promise<ExecutionResult> {
+  async run(input: string, llmClient: LLMClient, options?: RunOptions): Promise<ExecutionResult> {
+    // 解析选项
+    const maxIterations = options?.maxIterations ?? 50;
+    const threadId = options?.threadId ?? `thread_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
     // 创建新的执行状态（避免并发冲突）
     const runState: GraphState = {
       messages: [],
@@ -109,7 +123,6 @@ export class GraphExecutor {
       context: {},
     };
     const runHistory: ExecutionLog[] = [];
-    const threadId = `thread_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     let currentNodeId = this.graph.entryPoint;
 
     // 添加用户消息
@@ -137,7 +150,6 @@ export class GraphExecutor {
     });
 
     let iterations = 0;
-    const maxIterations = 50;
 
     while (iterations < maxIterations) {
       iterations++;
