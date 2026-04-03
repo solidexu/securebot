@@ -882,16 +882,6 @@ export class CollaborationManager {
 
     return delegation;
   }
-  ): Promise<DelegationRequest> {
-    return this.delegationManager.delegate({
-      delegator,
-      delegatee,
-      task,
-      context: options?.context,
-      deadline: options?.deadline,
-      priority: options?.priority ?? 'normal',
-    });
-  }
 
   /**
    * 创建共享工作空间
