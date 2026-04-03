@@ -2,7 +2,7 @@
  * 图执行器测试
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { GraphExecutor, LLMClient } from './executor';
 import { GraphBuilder, createNode, keywordsCondition } from './builder';
 
@@ -90,18 +90,31 @@ describe('GraphExecutor', () => {
       .entry('agent-a')
       .addDirectEdge('agent-a', 'agent-b')
       .addDirectEdge('agent-b', 'agent-a')
+      .allowCycles(true) // 允许循环
+      .maxIterations(3) // 设置最大迭代次数
       .build();
 
     const executor = new GraphExecutor(graph);
     
-    // 无限循环的响应 - 提供足够的响应来触发最大迭代
-    const responses = [];
-    for (let i = 0; i < 60; i++) {
-      responses.push({ content: `Response ${i}`, toolCall: { name: i % 2 === 0 ? 'transfer_to_agent-b' : 'transfer_to_agent-a', args: {} } });
-    }
-    const mockClient = createMockLLMClient(responses);
+    // 创建无限循环的mock client - 总是返回handoff
+    let callCount = 0;
+    const mockClient = {
+      chat: async () => {
+        callCount++;
+        // 根据当前调用次数返回handoff响应，永远不结束
+        if (callCount % 2 === 1) {
+          return { content: 'A to B', toolCall: { name: 'transfer_to_agent-b', args: {} } };
+        } else {
+          return { content: 'B to A', toolCall: { name: 'transfer_to_agent-a', args: {} } };
+        }
+      },
+    };
 
-    const result = await executor.run('Start', mockClient);
+    const result = await executor.run('Start', mockClient, { maxIterations: 3 });
+
+    console.log('Debug: success =', result.success, 'error =', result.error);
+    console.log('Debug: history length =', result.history.length);
+    console.log('Debug: callCount =', callCount);
 
     // 应该因为达到最大迭代次数而停止
     expect(result.success).toBe(false);

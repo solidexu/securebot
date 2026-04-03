@@ -114,6 +114,22 @@ export class GraphBuilder {
   }
 
   /**
+   * 设置是否允许循环
+   */
+  allowCycles(allow: boolean): this {
+    this.graph.setAllowCycles(allow);
+    return this;
+  }
+
+  /**
+   * 设置最大迭代次数
+   */
+  maxIterations(max: number): this {
+    this.graph.setMaxIterations(max);
+    return this;
+  }
+
+  /**
    * 构建图
    */
   build(): Graph {

@@ -29,6 +29,8 @@ export class Graph {
       edges: [],
       entryPoint: '',
       executionMode: 'lightweight',
+      allowCycles: false,
+      maxIterations: 100,
     };
   }
 
@@ -92,6 +94,36 @@ export class Graph {
    */
   getConfig(): GraphConfig | undefined {
     return this.graph.config;
+  }
+
+  /**
+   * 设置是否允许循环
+   */
+  setAllowCycles(allow: boolean): this {
+    this.graph.allowCycles = allow;
+    return this;
+  }
+
+  /**
+   * 获取是否允许循环
+   */
+  getAllowCycles(): boolean {
+    return this.graph.allowCycles || false;
+  }
+
+  /**
+   * 设置最大迭代次数
+   */
+  setMaxIterations(max: number): this {
+    this.graph.maxIterations = max;
+    return this;
+  }
+
+  /**
+   * 获取最大迭代次数
+   */
+  getMaxIterations(): number {
+    return this.graph.maxIterations || 100;
   }
 
   // ============ 节点操作 ============
@@ -328,9 +360,11 @@ export class Graph {
     }
 
     // 检测循环（环）
-    const cycleError = this.detectCycles();
-    if (cycleError) {
-      errors.push(cycleError);
+    if (!this.graph.allowCycles) {
+      const cycleError = this.detectCycles();
+      if (cycleError) {
+        errors.push(cycleError);
+      }
     }
 
     // 检查孤立节点（不可达）

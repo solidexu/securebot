@@ -26,6 +26,10 @@ export interface AgentGraph {
   entryPoint: string;
   /** 执行模式 */
   executionMode: ExecutionMode;
+  /** 是否允许循环 */
+  allowCycles?: boolean;
+  /** 最大迭代次数（用于循环图） */
+  maxIterations?: number;
   /** 高级配置（LangGraph 模式） */
   config?: GraphConfig;
 }

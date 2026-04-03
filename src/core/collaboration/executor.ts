@@ -112,8 +112,8 @@ export class GraphExecutor {
    * 执行图（状态隔离，支持并发调用）
    */
   async run(input: string, llmClient: LLMClient, options?: RunOptions): Promise<ExecutionResult> {
-    // 解析选项
-    const maxIterations = options?.maxIterations ?? 50;
+    // 解析选项 - 优先使用图级别的maxIterations，然后是options中的，最后是默认值
+    const maxIterations = this.graph.maxIterations ?? options?.maxIterations ?? 50;
     const threadId = options?.threadId ?? `thread_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     // 创建新的执行状态（避免并发冲突）
@@ -192,7 +192,7 @@ export class GraphExecutor {
           timestamp: Date.now(),
         });
 
-        // 任务完成
+// 任务完成
         runHistory.push({
           timestamp: Date.now(),
           type: 'workflow_complete',
@@ -200,14 +200,10 @@ export class GraphExecutor {
           data: { result: response.content },
         });
 
-        // 发射工作流完成事件
-        this.emitEvent({
-          type: 'workflow_complete',
-          graphId: this.graphId,
-          threadId,
-          result: response.content,
-          timestamp: Date.now(),
-        });
+        // 保存到实例历史
+        this.history = runHistory;
+        this.state = runState;
+        this.threadId = threadId;
 
         return {
           success: true,
@@ -297,6 +293,11 @@ export class GraphExecutor {
       error: 'Max iterations reached',
       timestamp: Date.now(),
     });
+
+    // 保存到实例历史
+    this.history = runHistory;
+    this.state = runState;
+    this.threadId = threadId;
 
     return {
       success: false,
