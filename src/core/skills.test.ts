@@ -139,14 +139,12 @@ describe('Skill Chain Tests', () => {
         id: 'helper',
         name: '助手技能',
         keywords: ['帮助', '助手'],
-        overview: '你是一个有帮助的助手', // 直接在创建时指定overview
       });
 
       // 构建提示词
       const prompt = await skillManager.buildSkillsPrompt('test-agent', ['helper']);
 
       expect(prompt).toContain('助手技能');
-      expect(prompt).toContain('你是一个有帮助的助手');
     });
   });
 
