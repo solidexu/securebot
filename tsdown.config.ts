@@ -11,5 +11,8 @@ export default defineConfig({
   external: [
     'undici',
     'chokidar',
+    '@langchain/langgraph',
+    '@langchain/langgraph-checkpoint-sqlite',
+    '@langchain/langgraph-checkpoint-postgres',
   ],
 });
