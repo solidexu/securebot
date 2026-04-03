@@ -407,13 +407,15 @@ sandboxCmd
     await stopAllSandoxContainers();
   });
 
-sandboxCmd
-  .command('shell <agentId>')
-  .description('进入沙箱容器 shell')
-  .action(async (agentId: string) => {
-    const { enterSandboxShell } = await import('./commands/sandbox.js');
-    await enterSandboxShell(agentId);
-  });
+// graph 命令（Agent协作图管理）
+const graphCmd = program
+  .command('graph')
+  .description('Agent协作图管理');
 
-// 解析参数
+// 动态注册graph子命令
+(async () => {
+  const { registerGraphCommand } = await import('./commands/graph.js');
+  registerGraphCommand(graphCmd);
+})();
+
 program.parse();

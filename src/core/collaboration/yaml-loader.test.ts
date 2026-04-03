@@ -222,7 +222,7 @@ edges:
       const yaml = `
 id: syntax-error
 name: 语法错误
-invalid yaml content:
+invalid: [yaml content
   - unclosed bracket
 `;
 

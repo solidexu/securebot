@@ -13,9 +13,9 @@ import {
   UnifiedOrchestrator,
   createOrchestrator,
   loadFromYaml,
-} from '../core/collaboration';
-import { HeartbeatManager, createLocalHeartbeatClient } from '../core/heartbeat';
-import { EventBroadcaster, MetricsCollector, AlertSystem } from '../core/monitoring';
+} from '../../src/core/collaboration/index.js';
+import { HeartbeatManager, createLocalHeartbeatClient } from '../../src/core/heartbeat/index.js';
+import { EventBroadcaster, MetricsCollector, AlertSystem } from '../../src/core/monitoring/index.js';
 
 // ============ Mock LLM Client ============
 
@@ -327,7 +327,7 @@ describe('LangGraph 模式', () => {
       .entry('agent-a')
       .build();
 
-    const { LangGraphAdapter } = await import('../core/collaboration/langgraph-adapter');
+    const { LangGraphAdapter } = await import('../../src/core/collaboration/langgraph-adapter.js');
     
     // 不提供 langgraph 模块，测试降级
     const adapter = new LangGraphAdapter(graph);

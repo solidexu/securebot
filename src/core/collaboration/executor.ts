@@ -307,7 +307,6 @@ export class GraphExecutor {
       mode: this.graph.executionMode,
     };
   }
-  }
 
   /**
    * 执行节点（带上下文，支持并发）
