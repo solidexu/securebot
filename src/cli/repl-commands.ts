@@ -464,6 +464,29 @@ async function handleInitMemoryCommand(state: ReplState): Promise<void> {
       console.log();
       console.log(chalk.gray('RAG 未启用。配置 agent.rag.enabled = true 后可使用知识库检索功能。'));
     }
+    
+    // 注册委派处理器
+    try {
+      const { getCollaborationManager } = await import('../core/collaboration.js');
+      const collaborationManager = getCollaborationManager();
+      
+      // 为所有agent注册委派处理器
+      for (const [agentId] of state.agents) {
+        collaborationManager.getDelegationManager().registerHandler(agentId, async (delegation: any) => {
+          console.log(chalk.cyan(`\n📨 ${agentId} 收到委派任务:`));
+          console.log(chalk.gray(`  来自: ${delegation.delegator}`));
+          console.log(chalk.gray(`  任务: ${delegation.task}`));
+          console.log();
+          console.log(chalk.gray('使用 /collab delegations 查看任务列表'));
+          console.log(chalk.gray('使用 /collab accept <id> 接受任务'));
+          return true; // 自动接受
+        });
+      }
+      
+      console.log(chalk.green('✓ 已为所有 Agent 注册委派处理器'));
+    } catch (error) {
+      console.log(chalk.yellow('⚠ 委派处理器注册失败'));
+    }
   }
 }
 
@@ -1247,9 +1270,10 @@ async function handleCollabCommand(state: ReplState, arg: string | undefined, pa
   const collaborationManager = getCollaborationManager();
   
   if (arg === 'status') {
-    const stats = collaborationManager.getStats();
+    const stats = collaborationManager.getStats(state.currentAgentId);
     console.log(chalk.cyan('协作状态:'));
     console.log(`  待处理消息: ${stats.pendingMessages}`);
+    console.log(`  待处理委派: ${stats.pendingDelegations}`);
     console.log(`  活跃委派: ${stats.activeDelegations}`);
     console.log(`  共享空间: ${stats.sharedWorkspaces}`);
   } else if (arg === 'messages') {

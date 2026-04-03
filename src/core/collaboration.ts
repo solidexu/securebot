@@ -899,25 +899,34 @@ export class CollaborationManager {
   getStats(agentId?: string): {
     pendingMessages: number;
     activeDelegations: number;
+    pendingDelegations: number;
     sharedWorkspaces: number;
   } {
     let pendingMessages = 0;
     let activeDelegations = 0;
+    let pendingDelegations = 0;
     let sharedWorkspaces = 0;
 
     if (agentId) {
       pendingMessages = this.messageBus.getMessages(agentId, { status: 'pending' }).length;
-      activeDelegations = this.delegationManager.getDelegations(agentId)
-        .filter(d => d.status === 'in_progress' || d.status === 'accepted').length;
+      const delegations = this.delegationManager.getDelegations(agentId);
+      activeDelegations = delegations.filter(d => 
+        d.status === 'in_progress' || d.status === 'accepted'
+      ).length;
+      pendingDelegations = delegations.filter(d => 
+        d.status === 'pending' && d.delegatee === agentId
+      ).length;
       sharedWorkspaces = this.workspaceManager.getAgentWorkspaces(agentId).length;
     } else {
       // 使用公开方法获取全局统计
       pendingMessages = this.messageBus.getTotalPendingCount();
       activeDelegations = this.delegationManager.getActiveCount();
+      pendingDelegations = Array.from(this.delegationManager.getDelegations('') as DelegationRequest[])
+        .filter(d => d.status === 'pending').length;
       sharedWorkspaces = this.workspaceManager.getWorkspaceCount();
     }
 
-    return { pendingMessages, activeDelegations, sharedWorkspaces };
+    return { pendingMessages, activeDelegations, pendingDelegations, sharedWorkspaces };
   }
 }
 
