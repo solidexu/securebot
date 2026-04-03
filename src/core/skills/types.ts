@@ -15,6 +15,7 @@ export interface MarkdownSkill {
   name: string;
   version?: string;
   author?: string;
+  description?: string; // 添加description字段
   keywords: string[];
   tools?: string[];
   trigger?: SkillTrigger;
@@ -32,6 +33,7 @@ export interface MarkdownSkill {
   skillFile: string;
   category: 'public' | 'private';
   agentId?: string;
+  isPublic?: boolean; // 添加isPublic字段
 }
 
 /**

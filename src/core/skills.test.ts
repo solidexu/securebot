@@ -134,12 +134,12 @@ describe('Skill Chain Tests', () => {
     });
 
     it('should build skills prompt for agent', async () => {
-      // 创建技能
+      // 创建技能 - 直接使用overview
       await skillManager.createPrivateSkill('test-agent', {
         id: 'helper',
         name: '助手技能',
-        description: '通用助手',
-        systemPrompt: '你是一个有帮助的助手',
+        keywords: ['帮助', '助手'],
+        overview: '你是一个有帮助的助手', // 直接在创建时指定overview
       });
 
       // 构建提示词

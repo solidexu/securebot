@@ -148,7 +148,37 @@ export class SkillManager {
       skillFile,
       category: isPublic ? 'public' : 'private',
       agentId: isPublic ? undefined : agentId,
+      isPublic, // 添加isPublic字段
     } as MarkdownSkill;
+  }
+
+  /**
+   * 创建私有技能
+   */
+  async createPrivateSkill(agentId: string, skill: Partial<MarkdownSkill> & { id: string; name: string }): Promise<MarkdownSkill> {
+    return this.createSkill(skill, false, agentId);
+  }
+
+  /**
+   * 创建公共技能
+   */
+  async createPublicSkill(skill: Partial<MarkdownSkill> & { id: string; name: string }): Promise<MarkdownSkill> {
+    return this.createSkill(skill, true);
+  }
+
+  /**
+   * 更新技能
+   */
+  async updateSkill(skillId: string, updates: Partial<MarkdownSkill>, isPublic: boolean, agentId?: string): Promise<MarkdownSkill | null> {
+    const existing = await this.loadSkill(skillId);
+    if (!existing) return null;
+
+    // 如果没有提供isPublic和agentId，从existing推断
+    const finalIsPublic = isPublic ?? (existing.category === 'public');
+    const finalAgentId = agentId ?? existing.agentId;
+
+    const updated = { ...existing, ...updates };
+    return this.createSkill(updated, finalIsPublic, finalAgentId);
   }
 
   async deleteSkill(skillId: string, isPublic: boolean, agentId?: string): Promise<boolean> {
@@ -171,6 +201,9 @@ export class SkillManager {
     const frontmatter: string[] = ['---'];
     frontmatter.push(`id: ${skill.id}`);
     frontmatter.push(`name: ${skill.name}`);
+    if (skill.description) {
+      frontmatter.push(`description: ${skill.description}`);
+    }
     if (skill.keywords?.length) {
       frontmatter.push('keywords:');
       for (const kw of skill.keywords) {
