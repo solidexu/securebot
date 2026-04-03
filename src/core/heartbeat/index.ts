@@ -2,13 +2,13 @@
  * 心跳模块
  */
 
-export * from './types';
-export { HeartbeatManager } from './manager';
+export * from './types.js';
+export { HeartbeatManager } from './manager.js';
+export type { HeartbeatSender } from './client.js';
 export { 
-  HeartbeatClient, 
-  HeartbeatSender,
+  HeartbeatClient,
   HttpHeartbeatSender,
   LocalHeartbeatSender,
   createHttpHeartbeatClient,
   createLocalHeartbeatClient,
-} from './client';
+} from './client.js';
