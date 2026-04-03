@@ -802,7 +802,7 @@ describe('性能测试', () => {
   
   it('应该快速加载大型YAML配置', () => {
     // 构建大型YAML
-    const agents = [];
+    const agents: string[] = [];
     for (let i = 0; i < 50; i++) {
       agents.push(`
   - id: agent-${i}

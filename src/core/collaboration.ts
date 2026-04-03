@@ -340,10 +340,11 @@ export class AgentMessageBus {
  * 任务委派管理器
  */
 export class DelegationManager {
-  private config: CollaborationConfig;
   private dataDir: string;
   private delegations: Map<string, DelegationRequest> = new Map();
   private handlers: Map<string, (request: DelegationRequest) => Promise<boolean>> = new Map();
+  private config: Required<CollaborationConfig>;
+  private delegationProcessorInterval?: ReturnType<typeof setInterval>;
 
   constructor(config: Partial<CollaborationConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -370,6 +371,35 @@ export class DelegationManager {
   /**
    * 委派任务
    */
+  /**
+   * 启动委派任务处理循环
+   */
+  startDelegationProcessor(processor: (delegation: DelegationRequest) => Promise<void>): void {
+    // 每5秒检查一次pending任务
+    this.delegationProcessorInterval = setInterval(async () => {
+      const pendingDelegations = Array.from(this.delegations.values())
+        .filter(d => d.status === 'pending');
+      
+      for (const delegation of pendingDelegations) {
+        try {
+          await processor(delegation);
+        } catch (error) {
+          console.error(`处理委派任务失败 ${delegation.id}:`, error);
+        }
+      }
+    }, 5000);
+  }
+
+  /**
+   * 停止委派任务处理循环
+   */
+  stopDelegationProcessor(): void {
+    if (this.delegationProcessorInterval) {
+      clearInterval(this.delegationProcessorInterval);
+      this.delegationProcessorInterval = undefined;
+    }
+  }
+
   async delegate(request: Omit<DelegationRequest, 'id' | 'createdAt' | 'updatedAt' | 'status'>): Promise<DelegationRequest> {
     // 检查委派深度
     const depth = await this.getDelegationDepth(request.delegator);
@@ -388,13 +418,18 @@ export class DelegationManager {
     this.delegations.set(delegation.id, delegation);
     await this.persistDelegation(delegation);
 
-    // 通知受托者
+    // 立即尝试通知受托者
     const handler = this.handlers.get(request.delegatee);
     if (handler) {
-      const accepted = await handler(delegation);
-      delegation.status = accepted ? 'accepted' : 'rejected';
-      delegation.updatedAt = Date.now();
-      await this.persistDelegation(delegation);
+      try {
+        const accepted = await handler(delegation);
+        delegation.status = accepted ? 'accepted' : 'rejected';
+        delegation.updatedAt = Date.now();
+        await this.persistDelegation(delegation);
+      } catch (error) {
+        console.error(`委派处理器执行失败 ${request.delegatee}:`, error);
+        // 保持pending状态，等待后续处理
+      }
     }
 
     return delegation;
@@ -435,6 +470,26 @@ export class DelegationManager {
    */
   registerHandler(agentId: string, handler: (request: DelegationRequest) => Promise<boolean>): void {
     this.handlers.set(agentId, handler);
+    
+    // 处理队列中的pending任务
+    for (const delegation of this.delegations.values()) {
+      if (delegation.status === 'pending' && delegation.delegatee === agentId) {
+        handler(delegation).then(accepted => {
+          delegation.status = accepted ? 'accepted' : 'rejected';
+          delegation.updatedAt = Date.now();
+          this.persistDelegation(delegation);
+        }).catch(error => {
+          console.error(`处理委派任务失败 ${delegation.id}:`, error);
+        });
+      }
+    }
+  }
+
+  /**
+   * 检查是否注册了处理器
+   */
+  hasHandler(agentId: string): boolean {
+    return this.handlers.has(agentId);
   }
 
   /**
@@ -793,18 +848,40 @@ export class CollaborationManager {
     });
   }
 
-  /**
-   * 委派任务给其他 Agent
+/**
+   * 委派任务
    */
   async delegateTask(
     delegator: string,
     delegatee: string,
     task: string,
     options?: {
-      context?: string;
+      workspaceId?: string;
+      priority?: 'low' | 'medium' | 'high' | 'critical';
       deadline?: number;
-      priority?: 'low' | 'normal' | 'high';
     }
+  ): Promise<DelegationRequest> {
+    const delegation = await this.delegationManager.delegate({
+      delegator,
+      delegatee,
+      task,
+      workspaceId: options?.workspaceId,
+      priority: options?.priority ?? 'medium',
+      deadline: options?.deadline,
+    });
+
+    // 如果状态还是pending，尝试立即处理
+    if (delegation.status === 'pending') {
+      // 检查是否有handler
+      const hasHandler = this.delegationManager.hasHandler(delegatee);
+      if (!hasHandler) {
+        console.warn(`警告: Agent "${delegatee}" 未注册委派处理器，任务将保持pending状态`);
+        console.warn(`提示: 使用 agent.registerDelegationHandler() 注册处理器`);
+      }
+    }
+
+    return delegation;
+  }
   ): Promise<DelegationRequest> {
     return this.delegationManager.delegate({
       delegator,
