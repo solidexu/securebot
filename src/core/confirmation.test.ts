@@ -37,7 +37,10 @@ describe('ConfirmationManager', () => {
   let manager: ConfirmationManager;
 
   beforeEach(() => {
+    // 每次创建新的manager实例，确保测试隔离
     manager = new ConfirmationManager();
+    // 清除remembered decisions，避免测试间干扰
+    manager.clearRememberedDecisions();
   });
 
   describe('constructor', () => {
@@ -141,7 +144,11 @@ describe('ConfirmationManager', () => {
       const handler = vi.fn().mockResolvedValue({ confirmed: true });
       manager.setHandler(handler);
 
-      await manager.requestConfirmation('write', { path: '/test' }, mockContext);
+      const needsConfirm = manager.needsConfirmation('write', { path: '/test' }, mockContext);
+      console.log('needsConfirmation result:', needsConfirm);
+
+      const result = await manager.requestConfirmation('write', { path: '/test' }, mockContext);
+      console.log('requestConfirmation result:', result);
 
       expect(handler).toHaveBeenCalled();
     });
@@ -199,26 +206,27 @@ describe('createConfirmableTool', () => {
     expect(wrappedTool.description).toBe('Test tool');
   });
 
-  it('should ask for confirmation before executing', async () => {
-    const originalTool: Tool = {
-      name: 'write',
-      description: 'Write tool',
-      parameters: { type: 'object' },
-      execute: async () => ({ success: true, content: 'written' }),
-    };
+it('should ask for confirmation before executing', async () => {
+      const originalTool: Tool = {
+        name: 'write',
+        description: 'Write tool',
+        parameters: { type: 'object' },
+        execute: async () => ({ success: true, content: 'written' }),
+      };
 
-    const manager = new ConfirmationManager();
-    manager.updatePolicy({ alwaysConfirm: ['write'] });
-    
-    const handler = vi.fn().mockResolvedValue({ confirmed: false });
-    manager.setHandler(handler);
+      const manager = new ConfirmationManager();
+      manager.clearRememberedDecisions(); // 清除remembered decisions
+      manager.updatePolicy({ alwaysConfirm: ['write'] });
+      
+      const handler = vi.fn().mockResolvedValue({ confirmed: false });
+      manager.setHandler(handler);
 
-    const wrappedTool = createConfirmableTool(originalTool, manager);
-    const result = await wrappedTool.execute({ path: '/test' }, mockContext);
+      const wrappedTool = createConfirmableTool(originalTool, manager);
+      const result = await wrappedTool.execute({ path: '/test' }, mockContext);
 
-    expect(result.success).toBe(false);
-    expect(result.error).toBe('用户取消了操作');
-  });
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('用户取消了操作');
+    });
 
   it('should execute tool after confirmation', async () => {
     const originalTool: Tool = {
