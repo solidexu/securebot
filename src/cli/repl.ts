@@ -265,6 +265,20 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
   const completer = (line: string): [string[], string] => {
     // 命令补全
     if (line.startsWith('/')) {
+      const parts = line.split(/\s+/);
+      const cmd = parts[0]?.toLowerCase();
+      
+      // 二级命令补全
+      if (parts.length > 1 && cmd === '/collab') {
+        const subCommands = [
+          'status', 'messages', 'sent', 'inbox', 'tasks', 'delegate'
+        ];
+        const currentSub = parts[1] || '';
+        const hits = subCommands.filter(sub => sub.startsWith(currentSub));
+        return [hits.length ? hits.map(sub => `/collab ${sub}`) : subCommands.map(sub => `/collab ${sub}`), line];
+      }
+      
+      // 一级命令补全
       const commands = [
         '/help', '/h', '/?', '/exit', '/quit', '/q',
         '/agent', '/agents', '/clear', '/reset', '/history',
@@ -276,7 +290,7 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
         '/export', '/import', '/task', '/remember',
         '/patterns',
       ];
-      const hits = commands.filter(cmd => cmd.startsWith(line));
+      const hits = commands.filter(c => c.startsWith(line));
       return [hits.length ? hits : commands, line];
     }
     
