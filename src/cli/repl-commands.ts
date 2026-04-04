@@ -1476,41 +1476,59 @@ async function showTasksPanel(
     return;
   }
   
-  const statusCounts = {
-    pending: allDelegations.filter((d: any) => d.status === 'pending').length,
-    accepted: allDelegations.filter((d: any) => d.status === 'accepted').length,
-    in_progress: allDelegations.filter((d: any) => d.status === 'in_progress').length,
-    completed: allDelegations.filter((d: any) => d.status === 'completed').length,
-    failed: allDelegations.filter((d: any) => d.status === 'failed').length,
-  };
-  
   const delegations = allDelegations;
   
   console.log(chalk.cyan('\n任务管理面板'));
   console.log(chalk.gray('='.repeat(50)));
-  console.log(`  总任务数: ${delegations.length}`);
-  console.log(`  ${chalk.yellow('待处理')}: ${statusCounts.pending}  ${chalk.blue('已接受')}: ${statusCounts.accepted}  ${chalk.cyan('进行中')}: ${statusCounts.in_progress}`);
-  console.log(`  ${chalk.green('已完成')}: ${statusCounts.completed}  ${chalk.red('已失败')}: ${statusCounts.failed}`);
+  
+  const sentTasks = delegations.filter((d: any) => d.delegator === state.currentAgentId);
+  const receivedTasks = delegations.filter((d: any) => d.delegatee === state.currentAgentId);
+  
+  console.log(`  ${chalk.magenta('委派出去')}: ${sentTasks.length} 个任务`);
+  console.log(`  ${chalk.cyan('收到委派')}: ${receivedTasks.length} 个任务`);
+  console.log(`  总计: ${delegations.length} 个任务`);
   console.log(chalk.gray('='.repeat(50)));
   console.log(chalk.gray('\n输入序号查看详情，或输入 q 退出'));
   console.log();
   
   const renderTasks = () => {
-    for (let i = 0; i < delegations.length; i++) {
-      const d = delegations[i];
-      const time = new Date(d.createdAt).toLocaleTimeString('zh-CN');
-      const statusColor = d.status === 'completed' ? chalk.green :
-                         d.status === 'failed' ? chalk.red :
-                         d.status === 'accepted' ? chalk.blue :
-                         d.status === 'in_progress' ? chalk.cyan : chalk.yellow;
-      const roleIcon = d.delegator === state.currentAgentId ? '→' : '←';
-      
-      console.log(`  ${chalk.yellow(`[${i + 1}]`)} ${statusColor(`[${d.status}]`)} ${roleIcon} ${chalk.gray(time)} ${d.task.slice(0, 50)}...`);
+    let index = 1;
+    const taskMap: any[] = [];
+    
+    if (sentTasks.length > 0) {
+      console.log(chalk.magenta('【委派出去的任务】'));
+      for (const d of sentTasks) {
+        const time = new Date(d.createdAt).toLocaleTimeString('zh-CN');
+        const statusColor = d.status === 'completed' ? chalk.green :
+                           d.status === 'failed' ? chalk.red :
+                           d.status === 'accepted' ? chalk.blue :
+                           d.status === 'in_progress' ? chalk.cyan : chalk.yellow;
+        console.log(`  ${chalk.yellow(`[${index}]`)} ${statusColor(`[${d.status}]`)} → ${chalk.gray(d.delegatee)} ${chalk.gray(time)} ${d.task.slice(0, 40)}...`);
+        taskMap.push(d);
+        index++;
+      }
+      console.log();
     }
-    console.log();
+    
+    if (receivedTasks.length > 0) {
+      console.log(chalk.cyan('【收到委派的任务】'));
+      for (const d of receivedTasks) {
+        const time = new Date(d.createdAt).toLocaleTimeString('zh-CN');
+        const statusColor = d.status === 'completed' ? chalk.green :
+                           d.status === 'failed' ? chalk.red :
+                           d.status === 'accepted' ? chalk.blue :
+                           d.status === 'in_progress' ? chalk.cyan : chalk.yellow;
+        console.log(`  ${chalk.yellow(`[${index}]`)} ${statusColor(`[${d.status}]`)} ← ${chalk.gray(d.delegator)} ${chalk.gray(time)} ${d.task.slice(0, 40)}...`);
+        taskMap.push(d);
+        index++;
+      }
+      console.log();
+    }
+    
+    return taskMap;
   };
   
-  renderTasks();
+  let taskMap = renderTasks();
   
   while (true) {
     const answer = await rl.question(chalk.yellow('请选择任务序号 (1-' + delegations.length + ') 或 q 退出: '));
@@ -1522,12 +1540,12 @@ async function showTasksPanel(
     
     const index = parseInt(answer) - 1;
     
-    if (index < 0 || index >= delegations.length) {
+    if (index < 0 || index >= taskMap.length) {
       console.log(chalk.red('无效的序号，请重新输入'));
       continue;
     }
     
-    const delegation = delegations[index];
+    const delegation = taskMap[index];
     console.clear();
     console.log(chalk.cyan('\n任务详情'));
     console.log(chalk.gray('='.repeat(50)));
@@ -1629,13 +1647,13 @@ async function showTasksPanel(
       } else if (action.toLowerCase() === 'q') {
         console.log(chalk.gray('\n返回任务列表...'));
         console.log();
-        renderTasks();
+        taskMap = renderTasks();
         continue;
       }
       
       console.log(chalk.gray('\n返回任务列表...'));
       console.log();
-      renderTasks();
+      taskMap = renderTasks();
     } else if (delegation.status === 'in_progress') {
       console.log(chalk.yellow('操作选项:'));
       console.log('  1. 标记为已完成');
@@ -1662,13 +1680,13 @@ async function showTasksPanel(
       } else if (action.toLowerCase() === 'q') {
         console.log(chalk.gray('\n返回任务列表...'));
         console.log();
-        renderTasks();
+        taskMap = renderTasks();
         continue;
       }
       
       console.log(chalk.gray('\n返回任务列表...'));
       console.log();
-      renderTasks();
+      taskMap = renderTasks();
     } else {
       const back = await rl.question(chalk.yellow('按回车返回任务列表，或输入 q 退出: '));
       if (back.toLowerCase() === 'q') {
@@ -1677,7 +1695,7 @@ async function showTasksPanel(
       }
       console.log(chalk.gray('\n返回任务列表...'));
       console.log();
-      renderTasks();
+      taskMap = renderTasks();
     }
   }
 }
