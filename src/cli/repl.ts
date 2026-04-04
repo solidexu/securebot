@@ -262,16 +262,30 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
     state: ReplState,
     agent: any,
     task: string,
-    _delegationId: string
+    delegationId: string
   ): Promise<string | null> {
+    const { getAvailableTools, executeTool } = await import('../tools/index.js');
+    const { TaskMonitor } = await import('./task-monitor.js');
+    
+    // 创建任务监控器
+    const monitor = new TaskMonitor({
+      taskId: delegationId,
+      delegator: state.currentAgentId,
+      delegatee: agent.id,
+      task: task
+    });
+    
+    monitor.start();
+    
     try {
-      const { getAvailableTools, executeTool } = await import('../tools/index.js');
-      
       // 获取Agent可用的工具
       const tools = getAvailableTools(agent, state.config.tools);
       const toolNames = tools.map((t: any) => t.name).join(', ');
       
-      console.log(chalk.gray(`可用工具: ${toolNames}`));
+      monitor.addEvent('message', {
+        role: 'system',
+        content: `可用工具: ${toolNames}`
+      });
       
       // 构建系统提示
       const systemPrompt = agent.systemPrompt || '';
@@ -282,13 +296,53 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
         { role: 'user', content: task }
       ];
       
+      monitor.addEvent('message', {
+        role: 'user',
+        content: task
+      });
+      
       let finalResponse = '';
       let iterations = 0;
       const maxIterations = 20; // 最多20轮对话
       
       while (iterations < maxIterations) {
+        // 检查是否被取消
+        if (monitor.isCancelled()) {
+          monitor.addEvent('status_change', {
+            from: 'in_progress',
+            to: 'cancelled'
+          });
+          monitor.stop();
+          return null;
+        }
+        
+        // 检查是否有用户介入
+        const intervention = monitor.getUserIntervention();
+        if (intervention) {
+          messages.push({
+            role: 'user',
+            content: `[人工介入] ${intervention}`
+          });
+          monitor.addEvent('message', {
+            role: 'user',
+            content: `[人工介入] ${intervention}`
+          });
+        }
+        
+        // 等待暂停解除
+        while (monitor.isTaskPaused()) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          if (monitor.isCancelled()) {
+            monitor.stop();
+            return null;
+          }
+        }
+        
         iterations++;
-        console.log(chalk.gray(`执行轮次 ${iterations}/${maxIterations}...`));
+        monitor.addEvent('status_change', {
+          from: `iteration_${iterations - 1}`,
+          to: `iteration_${iterations}`
+        });
         
         const params: any = {
           model: agent.model || state.config.model.model,
@@ -304,13 +358,18 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
         
         // 如果有工具调用，执行工具
         if (response.toolCalls && response.toolCalls.length > 0) {
-          console.log(chalk.gray(`调用 ${response.toolCalls.length} 个工具...`));
-          
           messages.push({
             role: 'assistant',
             content: response.content || '',
             toolCalls: response.toolCalls
           });
+          
+          if (response.content) {
+            monitor.addEvent('message', {
+              role: 'assistant',
+              content: response.content
+            });
+          }
           
           for (const toolCall of response.toolCalls) {
             try {
@@ -319,11 +378,23 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
                 continue;
               }
               
+              monitor.addEvent('tool_call', {
+                tool: toolCall.name,
+                args: toolCall.arguments
+              });
+              
               const toolResult = await executeTool(toolCall.name, toolCall.arguments, {
                 agent,
                 session: {} as any,
                 workspace: process.cwd(),
                 logger: console,
+              });
+              
+              monitor.addEvent('tool_result', {
+                tool: toolCall.name,
+                success: toolResult.success,
+                result: toolResult.content,
+                error: toolResult.error
               });
               
               messages.push({
@@ -332,10 +403,11 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
                 content: toolResult.success ? toolResult.content : `错误: ${toolResult.error}`,
                 toolCallId: toolCall.id
               });
-              
-              console.log(chalk.gray(`  ${toolCall.name}: ${toolResult.success ? '成功' : '失败'}`));
             } catch (error) {
               const msg = error instanceof Error ? error.message : String(error);
+              monitor.addEvent('error', {
+                error: msg
+              });
               messages.push({
                 role: 'tool',
                 name: toolCall.name,
@@ -347,17 +419,39 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
         } else {
           // 没有工具调用，对话结束
           finalResponse = response.content || '';
+          if (response.content) {
+            monitor.addEvent('message', {
+              role: 'assistant',
+              content: response.content
+            });
+          }
           break;
         }
       }
       
       if (iterations >= maxIterations) {
-        console.log(chalk.yellow('达到最大迭代次数，任务执行停止'));
+        monitor.addEvent('status_change', {
+          from: 'iterating',
+          to: 'max_iterations_reached'
+        });
       }
+      
+      monitor.addEvent('complete', {
+        result: finalResponse
+      });
+      
+      // 等待一下让用户看到最终结果
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      monitor.stop();
       
       return finalResponse || '任务执行完成';
     } catch (error) {
-      console.error('任务执行失败:', error);
+      const msg = error instanceof Error ? error.message : String(error);
+      monitor.addEvent('error', {
+        error: msg
+      });
+      monitor.stop();
       return null;
     }
   }
