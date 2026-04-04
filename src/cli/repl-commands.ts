@@ -158,7 +158,7 @@ export async function handleCommand(
       break;
 
     case 'collab':
-      await handleCollabCommand(state, arg, parts);
+      await handleCollabCommand(state, arg, parts, _rl);
       break;
 
     case 'errors':
@@ -1265,7 +1265,12 @@ function handleCheckpointCommand(arg: string | undefined, parts: string[]): void
   }
 }
 
-async function handleCollabCommand(state: ReplState, arg: string | undefined, parts: string[]): Promise<void> {
+async function handleCollabCommand(
+  state: ReplState,
+  arg: string | undefined,
+  parts: string[],
+  rl: readlinePromises.Interface
+): Promise<void> {
   const { getCollaborationManager } = await import('../core/collaboration.js');
   const collaborationManager = getCollaborationManager();
   
@@ -1304,37 +1309,120 @@ async function handleCollabCommand(state: ReplState, arg: string | undefined, pa
       const msg = error instanceof Error ? error.message : String(error);
       console.log(chalk.red(`委派失败: ${msg}`));
     }
-  } else if (arg === 'delegations') {
+  } else if (arg === 'sent') {
     const delegations = collaborationManager.getDelegationManager()
-      .getDelegations(state.currentAgentId);
+      .getDelegations(state.currentAgentId, 'delegator');
     if (delegations.length === 0) {
-      console.log(chalk.gray('暂无委派'));
+      console.log(chalk.gray('暂无委派出去的任务'));
     } else {
-      console.log(chalk.cyan(`委派列表 (${delegations.length} 条):`));
+      console.log(chalk.cyan(`已委派任务 (${delegations.length} 条):`));
       for (const d of delegations.slice(0, 10)) {
         const time = new Date(d.createdAt).toLocaleTimeString('zh-CN');
         const statusColor = d.status === 'completed' ? chalk.green :
-                           d.status === 'failed' ? chalk.red : chalk.yellow;
-        console.log(`  ${chalk.gray(time)} [${statusColor(d.status)}] ${chalk.blue(d.id.slice(0,8))} ${d.task.slice(0, 40)}...`);
+                           d.status === 'failed' ? chalk.red :
+                           d.status === 'accepted' ? chalk.blue :
+                           d.status === 'in_progress' ? chalk.cyan : chalk.yellow;
+        console.log(`  ${chalk.gray(time)} [${statusColor(d.status)}] → ${chalk.magenta(d.delegatee)} ${d.task.slice(0, 40)}...`);
       }
-      console.log(chalk.gray('\n提示: 使用 /collab accept <id> 接受任务'));
     }
-  } else if (arg === 'accept' && parts[2]) {
-    const delegationId = parts[2];
-    try {
-      await collaborationManager.getDelegationManager().acceptDelegation(delegationId);
-      console.log(chalk.green(`✓ 已接受委派 ${delegationId.slice(0, 8)}`));
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      console.log(chalk.red(`接受失败: ${msg}`));
+  } else if (arg === 'inbox') {
+    const delegations = collaborationManager.getDelegationManager()
+      .getDelegations(state.currentAgentId, 'delegatee')
+      .filter(d => d.status === 'pending');
+    
+    if (delegations.length === 0) {
+      console.log(chalk.gray('暂无待处理的委派任务'));
+      return;
     }
+    
+    await showDelegationInbox(state, delegations, rl, collaborationManager);
   } else {
     console.log(chalk.cyan('协作命令:'));
     console.log('  /collab status              协作状态');
     console.log('  /collab messages            查看消息');
-    console.log('  /collab delegations         查看委派');
-    console.log('  /collab accept <id>         接受委派');
+    console.log('  /collab sent                查看已委派的任务');
+    console.log('  /collab inbox               查看收到的委派任务');
     console.log('  /collab delegate <agent> <task>  委派任务');
+  }
+}
+
+async function showDelegationInbox(
+  _state: ReplState,
+  delegations: any[],
+  rl: readlinePromises.Interface,
+  collaborationManager: any
+): Promise<void> {
+  console.log(chalk.cyan('\n收到的委派任务:'));
+  console.log(chalk.gray('输入序号查看详情，或输入 q 退出'));
+  console.log();
+  
+  for (let i = 0; i < delegations.length; i++) {
+    const d = delegations[i];
+    const time = new Date(d.createdAt).toLocaleTimeString('zh-CN');
+    console.log(`  ${chalk.yellow(`[${i + 1}]`)} ${chalk.gray(time)} 来自 ${chalk.magenta(d.delegator)}: ${d.task.slice(0, 60)}...`);
+  }
+  
+  console.log();
+  
+  while (true) {
+    const answer = await rl.question(chalk.yellow('请选择任务序号 (1-' + delegations.length + ') 或 q 退出: '));
+    
+    if (answer.toLowerCase() === 'q' || answer === '') {
+      console.log(chalk.gray('已退出委派列表'));
+      break;
+    }
+    
+    const index = parseInt(answer) - 1;
+    
+    if (index < 0 || index >= delegations.length) {
+      console.log(chalk.red('无效的序号，请重新输入'));
+      continue;
+    }
+    
+    const delegation = delegations[index];
+    console.clear();
+    console.log(chalk.cyan('\n委派任务详情:'));
+    console.log(`  委派ID: ${chalk.blue(delegation.id.slice(0, 8))}`);
+    console.log(`  来自: ${chalk.magenta(delegation.delegator)}`);
+    console.log(`  时间: ${chalk.gray(new Date(delegation.createdAt).toLocaleString('zh-CN'))}`);
+    console.log(`  任务内容:\n${chalk.white(delegation.task)}`);
+    
+    console.log();
+    const confirm = await rl.question(chalk.yellow('是否接受此任务? (y/n): '));
+    
+    if (confirm.toLowerCase() === 'y' || confirm.toLowerCase() === 'yes') {
+      try {
+        await collaborationManager.getDelegationManager().acceptDelegation(delegation.id);
+        console.log(chalk.green(`\n✓ 已接受委派任务 ${delegation.id.slice(0, 8)}`));
+        delegations.splice(index, 1);
+        
+        if (delegations.length === 0) {
+          console.log(chalk.gray('\n暂无更多待处理的委派任务'));
+          break;
+        }
+        
+        console.log(chalk.gray('\n返回任务列表...'));
+        console.log();
+        for (let i = 0; i < delegations.length; i++) {
+          const d = delegations[i];
+          const time = new Date(d.createdAt).toLocaleTimeString('zh-CN');
+          console.log(`  ${chalk.yellow(`[${i + 1}]`)} ${chalk.gray(time)} 来自 ${chalk.magenta(d.delegator)}: ${d.task.slice(0, 60)}...`);
+        }
+        console.log();
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        console.log(chalk.red(`接受失败: ${msg}`));
+      }
+    } else {
+      console.log(chalk.gray('\n已取消接受任务，返回任务列表...'));
+      console.log();
+      for (let i = 0; i < delegations.length; i++) {
+        const d = delegations[i];
+        const time = new Date(d.createdAt).toLocaleTimeString('zh-CN');
+        console.log(`  ${chalk.yellow(`[${i + 1}]`)} ${chalk.gray(time)} 来自 ${chalk.magenta(d.delegator)}: ${d.task.slice(0, 60)}...`);
+      }
+      console.log();
+    }
   }
 }
 
@@ -2225,8 +2313,8 @@ function printHelp(): void {
   console.log(chalk.cyan('协作系统:'));
   console.log('  /collab status            协作状态');
   console.log('  /collab messages          查看消息');
-  console.log('  /collab delegations       查看委派');
-  console.log('  /collab accept <id>       接受委派');
+  console.log('  /collab sent              查看已委派的任务');
+  console.log('  /collab inbox             查看收到的委派任务');
   console.log('  /collab delegate <agent> <task>  委派任务');
   console.log();
   console.log(chalk.cyan('RAG 知识库:'));
