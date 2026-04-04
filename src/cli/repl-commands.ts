@@ -1468,21 +1468,23 @@ async function showTasksPanel(
   rl: readlinePromises.Interface,
   collaborationManager: any
 ): Promise<void> {
-  const delegations = collaborationManager.getDelegationManager()
+  const allDelegations = collaborationManager.getDelegationManager()
     .getDelegations(state.currentAgentId);
   
-  if (delegations.length === 0) {
+  if (allDelegations.length === 0) {
     console.log(chalk.gray('暂无委派任务'));
     return;
   }
   
   const statusCounts = {
-    pending: delegations.filter((d: any) => d.status === 'pending').length,
-    accepted: delegations.filter((d: any) => d.status === 'accepted').length,
-    in_progress: delegations.filter((d: any) => d.status === 'in_progress').length,
-    completed: delegations.filter((d: any) => d.status === 'completed').length,
-    failed: delegations.filter((d: any) => d.status === 'failed').length,
+    pending: allDelegations.filter((d: any) => d.status === 'pending').length,
+    accepted: allDelegations.filter((d: any) => d.status === 'accepted').length,
+    in_progress: allDelegations.filter((d: any) => d.status === 'in_progress').length,
+    completed: allDelegations.filter((d: any) => d.status === 'completed').length,
+    failed: allDelegations.filter((d: any) => d.status === 'failed').length,
   };
+  
+  const delegations = allDelegations;
   
   console.log(chalk.cyan('\n任务管理面板'));
   console.log(chalk.gray('='.repeat(50)));
