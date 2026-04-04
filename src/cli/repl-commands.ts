@@ -1429,6 +1429,37 @@ async function showDelegationInbox(
   }
 }
 
+async function executeDelegatedTask(
+  state: ReplState,
+  agent: any,
+  task: string
+): Promise<string | null> {
+  try {
+    const messages: any[] = [
+      {
+        role: 'user',
+        content: task
+      }
+    ];
+    
+    const params: any = {
+      model: agent.model || state.config.model.model,
+      messages,
+    };
+    
+    const response = await state.modelAdapter.chat(params);
+    
+    if (response && response.content) {
+      return response.content;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('执行任务失败:', error);
+    return null;
+  }
+}
+
 async function showTasksPanel(
   state: ReplState,
   rl: readlinePromises.Interface,
@@ -1518,8 +1549,8 @@ async function showTasksPanel(
     
     if (delegation.status === 'accepted') {
       console.log(chalk.yellow('操作选项:'));
-      console.log('  1. 标记为进行中 (开始执行)');
-      console.log('  2. 标记为已完成');
+      console.log('  1. 标记为进行中并自动执行');
+      console.log('  2. 标记为已完成（手动输入结果）');
       console.log('  3. 标记为失败');
       console.log('  q. 返回任务列表');
       console.log();
@@ -1527,10 +1558,55 @@ async function showTasksPanel(
       const action = await rl.question(chalk.yellow('请选择操作 (1/2/3/q): '));
       
       if (action === '1') {
+        console.log(chalk.cyan('\n正在执行任务...'));
         delegation.status = 'in_progress';
         delegation.updatedAt = Date.now();
         await collaborationManager.getDelegationManager().persistDelegation(delegation);
-        console.log(chalk.green('\n✓ 任务已标记为进行中'));
+        
+        try {
+          const { getDefaultAgent } = await import('../core/agent.js');
+          const agent = getDefaultAgent(state.agents);
+          
+          if (!agent) {
+            console.log(chalk.red('错误: 无法找到默认 Agent'));
+            delegation.status = 'failed';
+            delegation.result = '无法找到默认 Agent';
+            delegation.updatedAt = Date.now();
+            await collaborationManager.getDelegationManager().persistDelegation(delegation);
+          } else {
+            console.log(chalk.gray(`使用 Agent: ${agent.id}`));
+            console.log(chalk.gray(`任务: ${delegation.task}`));
+            console.log();
+            
+            const result = await executeDelegatedTask(state, agent, delegation.task);
+            
+            if (result) {
+              delegation.status = 'completed';
+              delegation.result = result;
+              delegation.updatedAt = Date.now();
+              await collaborationManager.getDelegationManager().persistDelegation(delegation);
+              console.log(chalk.green('\n✓ 任务已完成'));
+              console.log(chalk.gray('\n执行结果:'));
+              console.log(chalk.white(result.slice(0, 300)));
+              if (result.length > 300) {
+                console.log(chalk.gray('...(结果已截断，完整结果已保存)'));
+              }
+            } else {
+              delegation.status = 'failed';
+              delegation.result = '任务执行失败，未获得结果';
+              delegation.updatedAt = Date.now();
+              await collaborationManager.getDelegationManager().persistDelegation(delegation);
+              console.log(chalk.red('\n✗ 任务执行失败'));
+            }
+          }
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          delegation.status = 'failed';
+          delegation.result = msg;
+          delegation.updatedAt = Date.now();
+          await collaborationManager.getDelegationManager().persistDelegation(delegation);
+          console.log(chalk.red(`\n执行失败: ${msg}`));
+        }
       } else if (action === '2') {
         const result = await rl.question(chalk.yellow('请输入执行结果: '));
         delegation.status = 'completed';
