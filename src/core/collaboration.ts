@@ -118,6 +118,32 @@ export interface ReviewRecord {
 }
 
 /**
+ * 对话消息
+ */
+export interface ConversationMessage {
+  /** 消息ID */
+  id: string;
+  /** 关联的任务ID */
+  delegationId: string;
+  /** 发送者 (delegator/delegatee/system) */
+  sender: string;
+  /** 消息内容 */
+  content: string;
+  /** 时间戳 */
+  timestamp: number;
+  /** 消息类型 */
+  type: 'text' | 'instruction' | 'feedback' | 'system' | 'tool_call' | 'tool_result';
+  /** 是否已读 */
+  read: boolean;
+  /** 元数据 */
+  metadata?: {
+    toolName?: string;
+    toolResult?: string;
+    executionTime?: number;
+  };
+}
+
+/**
  * 任务委派请求
  */
 export interface DelegationRequest {
@@ -160,6 +186,11 @@ export interface DelegationRequest {
   result?: string;
   /** 最新验收反馈 */
   reviewFeedback?: string;
+  
+  /** 对话历史 */
+  conversationHistory: ConversationMessage[];
+  /** 未读消息数 */
+  unreadCount?: number;
   
   /** 重试次数 */
   retryCount?: number;
@@ -512,6 +543,9 @@ export class DelegationManager {
         if (!delegation.expectedDeliverables) {
           delegation.expectedDeliverables = [];
         }
+        if (!delegation.conversationHistory) {
+          delegation.conversationHistory = [];
+        }
         if (!delegation.sharedWorkspace) {
           // 为旧任务创建共享工作空间
           if (!existsSync(this.workspaceDir)) {
@@ -563,7 +597,7 @@ export class DelegationManager {
     }
   }
 
-  async delegate(request: Omit<DelegationRequest, 'id' | 'createdAt' | 'updatedAt' | 'status' | 'currentRound' | 'maxRounds' | 'executionHistory' | 'reviewHistory' | 'sharedWorkspace'>): Promise<DelegationRequest> {
+  async delegate(request: Omit<DelegationRequest, 'id' | 'createdAt' | 'updatedAt' | 'status' | 'currentRound' | 'maxRounds' | 'executionHistory' | 'reviewHistory' | 'sharedWorkspace' | 'conversationHistory'>): Promise<DelegationRequest> {
     // 检查委派深度
     const depth = await this.getDelegationDepth(request.delegator);
     if (depth >= this.config.maxDelegationDepth) {
@@ -587,6 +621,7 @@ export class DelegationManager {
       maxRounds: 5,
       executionHistory: [],
       reviewHistory: [],
+      conversationHistory: [],
       sharedWorkspace: sharedWorkspacePath,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -854,6 +889,103 @@ export class DelegationManager {
     
     // 触发队列处理
     this.processQueue();
+  }
+  
+  /**
+   * 发送对话消息
+   */
+  async sendMessage(
+    delegationId: string,
+    sender: string,
+    content: string,
+    type: ConversationMessage['type'] = 'text'
+  ): Promise<ConversationMessage> {
+    const delegation = this.findDelegationById(delegationId);
+    if (!delegation) {
+      throw new Error('委派不存在');
+    }
+    
+    const message: ConversationMessage = {
+      id: uuidv4(),
+      delegationId,
+      sender,
+      content,
+      timestamp: Date.now(),
+      type,
+      read: false,
+    };
+    
+    delegation.conversationHistory = delegation.conversationHistory || [];
+    delegation.conversationHistory.push(message);
+    delegation.updatedAt = Date.now();
+    
+    await this.persistDelegation(delegation);
+    
+    // 触发消息事件
+    const listeners = this.eventListeners.get('message');
+    if (listeners) {
+      for (const listener of listeners) {
+        try {
+          (listener as any)(message);
+        } catch (error) {
+          console.error('消息事件监听器执行失败:', error);
+        }
+      }
+    }
+    
+    return message;
+  }
+  
+  /**
+   * 获取对话历史
+   */
+  getConversationHistory(delegationId: string): ConversationMessage[] {
+    const delegation = this.findDelegationById(delegationId);
+    if (!delegation) {
+      return [];
+    }
+    
+    return delegation.conversationHistory || [];
+  }
+  
+  /**
+   * 标记消息已读
+   */
+  async markMessagesAsRead(delegationId: string, reader: string): Promise<void> {
+    const delegation = this.findDelegationById(delegationId);
+    if (!delegation) {
+      return;
+    }
+    
+    let updated = false;
+    delegation.conversationHistory = delegation.conversationHistory || [];
+    
+    for (const message of delegation.conversationHistory) {
+      // 标记不是自己发送的消息为已读
+      if (message.sender !== reader && !message.read) {
+        message.read = true;
+        updated = true;
+      }
+    }
+    
+    if (updated) {
+      delegation.updatedAt = Date.now();
+      await this.persistDelegation(delegation);
+    }
+  }
+  
+  /**
+   * 获取未读消息数
+   */
+  getUnreadCount(delegationId: string, reader: string): number {
+    const delegation = this.findDelegationById(delegationId);
+    if (!delegation) {
+      return 0;
+    }
+    
+    return (delegation.conversationHistory || [])
+      .filter(m => m.sender !== reader && !m.read)
+      .length;
   }
   
   /**
