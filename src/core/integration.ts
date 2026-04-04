@@ -27,6 +27,7 @@ export interface AppConfig {
   enableCheckpoint?: boolean;
   enableSummary?: boolean;
   enableCollaboration?: boolean;
+  rootDir?: string;
 }
 
 // ============ 全局实例 ============
@@ -54,7 +55,7 @@ export async function initializeManagers(config: AppConfig): Promise<AppManagers
   const confirmationManager = getConfirmationManager();
 
   // 协作管理器
-  const collaborationManager = getCollaborationManager();
+  const collaborationManager = getCollaborationManager(undefined, config.rootDir);
 
   // 错误处理器
   const errorHandler = getErrorHandler({

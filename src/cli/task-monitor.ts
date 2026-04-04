@@ -22,6 +22,7 @@ export class TaskMonitor extends EventEmitter {
   private isRunning: boolean = false;
   private userIntervention: string | null = null;
   private shouldCancel: boolean = false;
+  private keyboardHandler?: (key: string) => void;
   
   constructor(private options: TaskMonitorOptions) {
     super();
@@ -51,17 +52,26 @@ export class TaskMonitor extends EventEmitter {
   stop(): void {
     this.isRunning = false;
     
-    // 恢复 stdin 设置
-    try {
-      process.stdin.setRawMode(false);
-      process.stdin.pause();
-    } catch (error) {
-      // 忽略错误
+    // 先移除键盘事件监听器
+    if (this.keyboardHandler) {
+      process.stdin.removeListener('data', this.keyboardHandler);
+      this.keyboardHandler = undefined;
     }
     
+    // 关闭 readline 接口
     if (this.rl) {
       this.rl.close();
       this.rl = undefined;
+    }
+    
+    // 恢复 stdin 设置
+    try {
+      if (process.stdin.isTTY) {
+        process.stdin.setRawMode(false);
+      }
+      process.stdin.resume();
+    } catch (error) {
+      // 忽略错误
     }
   }
   
@@ -82,9 +92,9 @@ export class TaskMonitor extends EventEmitter {
     process.stdin.resume();
     process.stdin.setEncoding('utf8');
     
-    const handler = (key: string) => {
+    this.keyboardHandler = (key: string) => {
       if (!this.isRunning) {
-        process.stdin.removeListener('data', handler);
+        process.stdin.removeListener('data', this.keyboardHandler!);
         return;
       }
       
@@ -111,7 +121,7 @@ export class TaskMonitor extends EventEmitter {
       }
     };
     
-    process.stdin.on('data', handler);
+    process.stdin.on('data', this.keyboardHandler);
   }
   
   private async handleIntervention(): Promise<void> {

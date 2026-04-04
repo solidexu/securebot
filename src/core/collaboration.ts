@@ -4,10 +4,12 @@
  * 支持 Agent 间消息传递、任务委派、共享工作空间
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync, promises as fsPromises } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { v4 as uuidv4 } from 'uuid';
+
+const { writeFile } = fsPromises;
 
 // ============ 类型定义 ============
 
@@ -42,6 +44,80 @@ export interface AgentMessage {
 }
 
 /**
+ * 执行记录
+ */
+export interface ExecutionRecord {
+  /** 执行轮数 */
+  round: number;
+  /** 执行者 */
+  executor: string;
+  /** 开始时间 */
+  startedAt: number;
+  /** 完成时间 */
+  completedAt: number;
+  /** 工作目录 */
+  workspace: string;
+  
+  /** 交付物 */
+  deliverables: {
+    files: Array<{
+      path: string;
+      type: 'created' | 'modified';
+      description: string;
+      linesOfCode?: number;
+      testCoverage?: number;
+    }>;
+    commands: Array<{
+      command: string;
+      result: 'passed' | 'failed';
+      output: string;
+    }>;
+  };
+  
+  /** 自评报告 */
+  selfAssessment: {
+    completionRate: number;
+    criteriaMet: Array<{
+      criteria: string;
+      met: boolean;
+      evidence: string;
+    }>;
+    notes: string;
+  };
+  
+  /** 问题解决（仅迭代时） */
+  issueResolution?: Array<{
+    issue: string;
+    resolution: string;
+  }>;
+  
+  /** 执行摘要 */
+  summary: string;
+}
+
+/**
+ * 验收记录
+ */
+export interface ReviewRecord {
+  /** 验收轮数 */
+  round: number;
+  /** 验收者 */
+  reviewer: string;
+  /** 验收时间 */
+  reviewedAt: number;
+  /** 验收结果 */
+  result: 'approved' | 'rejected';
+  /** 反馈 */
+  feedback: string;
+  /** 问题列表 */
+  issues?: Array<{
+    severity: 'high' | 'medium' | 'low';
+    description: string;
+    suggestion?: string;
+  }>;
+}
+
+/**
  * 任务委派请求
  */
 export interface DelegationRequest {
@@ -53,18 +129,38 @@ export interface DelegationRequest {
   delegatee: string;
   /** 任务描述 */
   task: string;
+  
+  /** 验收标准 */
+  acceptanceCriteria?: string[];
+  /** 期望交付物 */
+  expectedDeliverables?: string[];
   /** 任务上下文 */
   context?: string;
   /** 截止时间 */
   deadline?: number;
   /** 优先级 */
   priority: 'low' | 'normal' | 'high';
+  
+  /** 共享工作空间路径 */
+  sharedWorkspace?: string;
+  
   /** 状态 */
   status: 'pending' | 'accepted' | 'rejected' | 'in_progress' | 'pending_review' | 'completed' | 'failed';
-  /** 结果 */
+  /** 当前轮数 */
+  currentRound: number;
+  /** 最大轮数 */
+  maxRounds: number;
+  
+  /** 执行历史 */
+  executionHistory: ExecutionRecord[];
+  /** 验收历史 */
+  reviewHistory: ReviewRecord[];
+  
+  /** 最新执行结果 */
   result?: string;
-  /** 验收反馈 */
+  /** 最新验收反馈 */
   reviewFeedback?: string;
+  
   /** 重试次数 */
   retryCount?: number;
   /** 创建时间 */
@@ -345,6 +441,7 @@ export class AgentMessageBus {
  */
 export class DelegationManager {
   private dataDir: string;
+  private workspaceDir: string;
   private delegations: Map<string, DelegationRequest> = new Map();
   private handlers: Map<string, (request: DelegationRequest) => Promise<boolean>> = new Map();
   private config: Required<CollaborationConfig>;
@@ -353,11 +450,37 @@ export class DelegationManager {
   private isExecuting: boolean = false;
   private executor?: (delegation: DelegationRequest) => Promise<string | null>;
   private messageBus?: any;
+  private eventListeners: Map<string, Set<() => void>> = new Map();
 
-  constructor(config: Partial<CollaborationConfig> = {}) {
+  constructor(config: Partial<CollaborationConfig> = {}, rootDir?: string) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.dataDir = join(homedir(), '.securebot', 'collaboration');
+    this.workspaceDir = rootDir 
+      ? join(rootDir, 'agents', 'collab_workspaces')
+      : join(homedir(), '.securebot', 'agents', 'collab_workspaces');
     this.loadDelegations();
+  }
+  
+  // 事件监听
+  on(event: string, callback: () => void): void {
+    if (!this.eventListeners.has(event)) {
+      this.eventListeners.set(event, new Set());
+    }
+    this.eventListeners.get(event)!.add(callback);
+  }
+  
+  off(event: string, callback: () => void): void {
+    this.eventListeners.get(event)?.delete(callback);
+  }
+  
+  private emit(event: string): void {
+    this.eventListeners.get(event)?.forEach(callback => {
+      try {
+        callback();
+      } catch (error) {
+        // 忽略回调错误
+      }
+    });
   }
 
   private loadDelegations(): void {
@@ -369,6 +492,38 @@ export class DelegationManager {
       try {
         const content = readFileSync(join(delegationsDir, file), 'utf-8');
         const delegation = JSON.parse(content) as DelegationRequest;
+        
+        // 数据迁移：补充缺失的新字段
+        if (delegation.currentRound === undefined) {
+          delegation.currentRound = 0;
+        }
+        if (delegation.maxRounds === undefined) {
+          delegation.maxRounds = 5;
+        }
+        if (!delegation.executionHistory) {
+          delegation.executionHistory = [];
+        }
+        if (!delegation.reviewHistory) {
+          delegation.reviewHistory = [];
+        }
+        if (!delegation.acceptanceCriteria) {
+          delegation.acceptanceCriteria = [];
+        }
+        if (!delegation.expectedDeliverables) {
+          delegation.expectedDeliverables = [];
+        }
+        if (!delegation.sharedWorkspace) {
+          // 为旧任务创建共享工作空间
+          if (!existsSync(this.workspaceDir)) {
+            mkdirSync(this.workspaceDir, { recursive: true });
+          }
+          const sharedWorkspacePath = join(this.workspaceDir, `${delegation.delegator}-${delegation.delegatee}-${delegation.createdAt}`);
+          if (!existsSync(sharedWorkspacePath)) {
+            mkdirSync(sharedWorkspacePath, { recursive: true });
+          }
+          delegation.sharedWorkspace = sharedWorkspacePath;
+        }
+        
         this.delegations.set(delegation.id, delegation);
       } catch {
         // 忽略
@@ -408,17 +563,31 @@ export class DelegationManager {
     }
   }
 
-  async delegate(request: Omit<DelegationRequest, 'id' | 'createdAt' | 'updatedAt' | 'status'>): Promise<DelegationRequest> {
+  async delegate(request: Omit<DelegationRequest, 'id' | 'createdAt' | 'updatedAt' | 'status' | 'currentRound' | 'maxRounds' | 'executionHistory' | 'reviewHistory' | 'sharedWorkspace'>): Promise<DelegationRequest> {
     // 检查委派深度
     const depth = await this.getDelegationDepth(request.delegator);
     if (depth >= this.config.maxDelegationDepth) {
       throw new Error(`委派深度超过限制 (${this.config.maxDelegationDepth})`);
     }
 
+    // 创建共享工作空间
+    if (!existsSync(this.workspaceDir)) {
+      mkdirSync(this.workspaceDir, { recursive: true });
+    }
+    const sharedWorkspacePath = join(this.workspaceDir, `${request.delegator}-${request.delegatee}-${Date.now()}`);
+    if (!existsSync(sharedWorkspacePath)) {
+      mkdirSync(sharedWorkspacePath, { recursive: true });
+    }
+
     const delegation: DelegationRequest = {
       ...request,
       id: uuidv4(),
       status: 'pending',
+      currentRound: 0,
+      maxRounds: 5,
+      executionHistory: [],
+      reviewHistory: [],
+      sharedWorkspace: sharedWorkspacePath,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -516,52 +685,12 @@ export class DelegationManager {
     delegation.updatedAt = Date.now();
     await this.persistDelegation(delegation);
     
-    // 判断任务复杂度
-    const complexity = this.assessTaskComplexity(delegation.task);
+    // 所有任务都自动加入执行队列
+    this.executionQueue.push(delegation.id);
+    console.log(`任务 ${delegation.id.slice(0, 8)} 已加入执行队列，当前位置: ${this.executionQueue.length}`);
     
-    if (complexity === 'simple') {
-      // 简单任务自动加入执行队列
-      this.executionQueue.push(delegation.id);
-      console.log(`任务 ${delegation.id.slice(0, 8)} 已加入执行队列（简单任务），当前位置: ${this.executionQueue.length}`);
-      this.processQueue();
-    } else {
-      // 复杂任务等待确认
-      console.log(`任务 ${delegation.id.slice(0, 8)} 需要确认（复杂任务），请使用 /collab tasks 查看详情`);
-    }
-  }
-  
-  /**
-   * 评估任务复杂度
-   */
-  private assessTaskComplexity(task: string): 'simple' | 'complex' {
-    const complexKeywords = [
-      'review', '审查', '重构', 'refactor', '架构', 'architecture',
-      '设计', 'design', '优化', 'optimize', '分析', 'analyze',
-      '评估', 'evaluate', '规划', 'plan', '方案', 'solution',
-      '多', 'multiple', '复杂', 'complex', '完整', 'complete',
-      '系统性', 'systematic', '全面', 'comprehensive'
-    ];
-    
-    const taskLower = task.toLowerCase();
-    
-    // 检查复杂关键词
-    for (const keyword of complexKeywords) {
-      if (taskLower.includes(keyword.toLowerCase())) {
-        return 'complex';
-      }
-    }
-    
-    // 任务描述过长（超过100字）
-    if (task.length > 100) {
-      return 'complex';
-    }
-    
-    // 包含多个任务（包含"和"、"以及"、"、"等）
-    if (task.includes('和') || task.includes('以及') || task.includes('、') || task.includes('然后')) {
-      return 'complex';
-    }
-    
-    return 'simple';
+    // 触发队列处理
+    this.processQueue();
   }
   
   /**
@@ -602,19 +731,44 @@ export class DelegationManager {
         continue;
       }
       
+      let startedAt = Date.now();
+      
       try {
         console.log(`开始执行任务 ${delegation.id.slice(0, 8)}: ${delegation.task.slice(0, 50)}...`);
         
         delegation.status = 'in_progress';
+        delegation.currentRound++;
         delegation.updatedAt = Date.now();
         await this.persistDelegation(delegation);
         
         const result = await this.executor(delegation);
+        const completedAt = Date.now();
         
         if (result) {
           delegation.status = 'pending_review';
           delegation.result = result;
           delegation.retryCount = (delegation.retryCount || 0) + 1;
+          
+          // 保存执行记录到历史
+          const executionRecord: ExecutionRecord = {
+            round: delegation.currentRound,
+            executor: delegation.delegatee,
+            startedAt,
+            completedAt,
+            workspace: '',
+            deliverables: {
+              files: [],
+              commands: []
+            },
+            selfAssessment: {
+              completionRate: 100,
+              criteriaMet: [],
+              notes: '任务执行完成'
+            },
+            summary: result
+          };
+          
+          delegation.executionHistory.push(executionRecord);
         } else {
           delegation.status = 'failed';
           delegation.result = '执行失败，未获得结果';
@@ -631,7 +785,7 @@ export class DelegationManager {
               fromAgent: delegation.delegatee,
               toAgent: delegation.delegator,
               type: 'delegation',
-              content: `任务 "${delegation.task.slice(0, 50)}..." 已完成，等待验收。\n使用 /collab tasks 查看详情并验收。`,
+              content: `任务 "${delegation.task.slice(0, 50)}..." 已完成（第${delegation.currentRound}轮），等待验收。\n使用 /collab review 快速验收。`,
               createdAt: Date.now(),
               read: false,
             });
@@ -642,9 +796,32 @@ export class DelegationManager {
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
+        const stack = error instanceof Error ? error.stack : undefined;
+        
         delegation.status = 'failed';
-        delegation.result = msg;
+        delegation.result = `错误: ${msg}\n\n${stack || ''}`;
         delegation.updatedAt = Date.now();
+        
+        // 保存失败记录到执行历史
+        const failedRecord: ExecutionRecord = {
+          round: delegation.currentRound,
+          executor: delegation.delegatee,
+          startedAt,
+          completedAt: Date.now(),
+          workspace: delegation.sharedWorkspace || '',
+          deliverables: {
+            files: [],
+            commands: []
+          },
+          selfAssessment: {
+            completionRate: 0,
+            criteriaMet: [],
+            notes: `执行失败: ${msg}`
+          },
+          summary: `执行失败: ${msg}\n\n堆栈信息:\n${stack || '无'}`
+        };
+        
+        delegation.executionHistory.push(failedRecord);
         await this.persistDelegation(delegation);
         
         console.error(`任务 ${delegation.id.slice(0, 8)} 执行失败:`, msg);
@@ -652,6 +829,31 @@ export class DelegationManager {
     }
     
     this.isExecuting = false;
+  }
+  
+  /**
+   * 重试失败的任务
+   */
+  async retryDelegation(delegationId: string): Promise<void> {
+    const delegation = this.findDelegationById(delegationId);
+    if (!delegation) {
+      throw new Error('委派不存在');
+    }
+    
+    if (delegation.status !== 'failed') {
+      throw new Error('只能重试失败的任务');
+    }
+    
+    delegation.status = 'accepted';
+    delegation.updatedAt = Date.now();
+    await this.persistDelegation(delegation);
+    
+    // 重新加入执行队列
+    this.executionQueue.push(delegation.id);
+    console.log(`任务 ${delegation.id.slice(0, 8)} 已重新加入执行队列`);
+    
+    // 触发队列处理
+    this.processQueue();
   }
   
   /**
@@ -692,9 +894,33 @@ export class DelegationManager {
       throw new Error('只能验收待审核的任务');
     }
 
+    // 保存验收记录到历史
+    const reviewRecord: ReviewRecord = {
+      round: delegation.currentRound,
+      reviewer: delegation.delegator,
+      reviewedAt: Date.now(),
+      result: 'approved',
+      feedback: '验收通过'
+    };
+    
+    delegation.reviewHistory.push(reviewRecord);
     delegation.status = 'completed';
     delegation.updatedAt = Date.now();
     await this.persistDelegation(delegation);
+    
+    // 通知被委托者任务验收通过
+    if (this.messageBus) {
+      await this.messageBus.sendMessage({
+        id: uuidv4(),
+        fromAgent: delegation.delegator,
+        toAgent: delegation.delegatee,
+        type: 'delegation',
+        content: `任务 "${delegation.task.slice(0, 50)}..." 验收通过！\n感谢您的辛勤工作。`,
+        createdAt: Date.now(),
+        read: false,
+      });
+    }
+    
     console.log(`任务 ${delegation.id.slice(0, 8)} 验收通过`);
   }
   
@@ -711,6 +937,17 @@ export class DelegationManager {
       throw new Error('只能重新执行待审核的任务');
     }
 
+    // 保存验收记录到历史
+    const reviewRecord: ReviewRecord = {
+      round: delegation.currentRound,
+      reviewer: delegation.delegator,
+      reviewedAt: Date.now(),
+      result: 'rejected',
+      feedback,
+      issues: this.parseFeedbackToIssues(feedback)
+    };
+    
+    delegation.reviewHistory.push(reviewRecord);
     delegation.status = 'accepted';
     delegation.reviewFeedback = feedback;
     delegation.updatedAt = Date.now();
@@ -721,8 +958,68 @@ export class DelegationManager {
     console.log(`任务 ${delegation.id.slice(0, 8)} 验收不通过，已重新加入执行队列`);
     console.log(`反馈: ${feedback}`);
     
+    // 通知被委托者任务需要重新执行
+    if (this.messageBus) {
+      await this.messageBus.sendMessage({
+        id: uuidv4(),
+        fromAgent: delegation.delegator,
+        toAgent: delegation.delegatee,
+        type: 'delegation',
+        content: `任务 "${delegation.task.slice(0, 50)}..." 验收未通过（第${delegation.currentRound}轮）\n\n反馈：\n${feedback}\n\n请根据反馈改进后重新执行。`,
+        createdAt: Date.now(),
+        read: false,
+      });
+    }
+    
     // 尝试启动队列处理
     this.processQueue();
+  }
+  
+  /**
+   * 解析反馈文本为问题列表
+   */
+  private parseFeedbackToIssues(feedback: string): Array<{
+    severity: 'high' | 'medium' | 'low';
+    description: string;
+    suggestion?: string;
+  }> {
+    const issues: Array<{
+      severity: 'high' | 'medium' | 'low';
+      description: string;
+      suggestion?: string;
+    }> = [];
+    
+    const lines = feedback.split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      
+      // 检测严重程度标记
+      let severity: 'high' | 'medium' | 'low' = 'medium';
+      let description = trimmed;
+      
+      if (trimmed.startsWith('[高]') || trimmed.startsWith('[紧急]') || trimmed.startsWith('[重要]')) {
+        severity = 'high';
+        description = trimmed.replace(/^\[[^\]]+\]\s*/, '');
+      } else if (trimmed.startsWith('[低]') || trimmed.startsWith('[次要]')) {
+        severity = 'low';
+        description = trimmed.replace(/^\[[^\]]+\]\s*/, '');
+      } else if (trimmed.startsWith('[中]') || trimmed.startsWith('[一般]')) {
+        severity = 'medium';
+        description = trimmed.replace(/^\[[^\]]+\]\s*/, '');
+      }
+      
+      issues.push({
+        severity,
+        description,
+        suggestion: undefined
+      });
+    }
+    
+    return issues.length > 0 ? issues : [{
+      severity: 'medium',
+      description: feedback
+    }];
   }
 
   /**
@@ -738,6 +1035,81 @@ export class DelegationManager {
     delegation.result = result;
     delegation.updatedAt = Date.now();
     await this.persistDelegation(delegation);
+  }
+
+  /**
+   * 删除委派任务
+   * 
+   * 只有委托者可以删除，且只能删除特定状态的任务
+   */
+  async deleteDelegation(delegationId: string, requesterId: string): Promise<void> {
+    const delegation = this.findDelegationById(delegationId);
+    if (!delegation) {
+      throw new Error('委派不存在');
+    }
+
+    // 检查权限：只有委托者可以删除
+    if (delegation.delegator !== requesterId) {
+      throw new Error('只有委托者可以删除委派任务');
+    }
+
+    // 检查状态：不能删除正在执行的任务（除非明确中止）
+    const deletableStates = ['pending', 'accepted', 'rejected', 'completed', 'failed', 'pending_review', 'in_progress'];
+    if (!deletableStates.includes(delegation.status)) {
+      throw new Error(`不能删除状态为 ${delegation.status} 的任务`);
+    }
+    
+    // 如果是正在执行的任务，需要从执行队列中移除
+    if (delegation.status === 'in_progress') {
+      const queueIndex = this.executionQueue.indexOf(delegation.id);
+      if (queueIndex !== -1) {
+        this.executionQueue.splice(queueIndex, 1);
+      }
+    }
+
+    // 从内存中删除
+    this.delegations.delete(delegation.id);
+    
+    // 从执行队列中移除（如果在队列中）
+    const queueIndex = this.executionQueue.indexOf(delegation.id);
+    if (queueIndex !== -1) {
+      this.executionQueue.splice(queueIndex, 1);
+    }
+    
+    // 删除持久化文件
+    const filePath = join(this.dataDir, 'delegations', `${delegation.id}.json`);
+    if (existsSync(filePath)) {
+      unlinkSync(filePath);
+    }
+    
+    // 删除共享工作空间
+    if (delegation.sharedWorkspace && existsSync(delegation.sharedWorkspace)) {
+      try {
+        const { rmSync } = await import('node:fs');
+        rmSync(delegation.sharedWorkspace, { recursive: true, force: true });
+        console.log(`共享工作空间已删除: ${delegation.sharedWorkspace}`);
+      } catch (error) {
+        console.error(`删除共享工作空间失败: ${error}`);
+      }
+    }
+    
+    // 通知被委托者任务已取消
+    if (this.messageBus && delegation.status !== 'completed' && delegation.status !== 'failed') {
+      await this.messageBus.sendMessage({
+        id: uuidv4(),
+        fromAgent: delegation.delegator,
+        toAgent: delegation.delegatee,
+        type: 'delegation',
+        content: `任务 "${delegation.task.slice(0, 50)}..." 已被委托者取消`,
+        createdAt: Date.now(),
+        read: false,
+      });
+    }
+    
+    // 触发变更事件
+    this.emit('delegationChanged');
+    
+    console.log(`委派 ${delegation.id.slice(0, 8)} 已删除`);
   }
 
   /**
@@ -764,11 +1136,25 @@ export class DelegationManager {
   getDelegation(delegationId: string): DelegationRequest | undefined {
     return this.delegations.get(delegationId);
   }
+  
+  /**
+   * 重新从文件系统加载所有委派（用于多进程同步）
+   */
+  reloadDelegations(): void {
+    this.delegations.clear();
+    this.loadDelegations();
+  }
 
   /**
    * 获取 Agent 的委派列表
+   * @param reload 是否从文件重新加载（用于多进程同步）
    */
-  getDelegations(agentId: string, role?: 'delegator' | 'delegatee'): DelegationRequest[] {
+  getDelegations(agentId: string, role?: 'delegator' | 'delegatee', reload: boolean = false): DelegationRequest[] {
+    // 如果需要刷新，重新从文件加载
+    if (reload) {
+      this.reloadDelegations();
+    }
+    
     return Array.from(this.delegations.values())
       .filter(d => {
         if (role === 'delegator') return d.delegator === agentId;
@@ -777,13 +1163,50 @@ export class DelegationManager {
       })
       .sort((a, b) => b.createdAt - a.createdAt);
   }
+  
+  /**
+   * 获取委派的迭代历史
+   */
+  getDelegationHistory(delegationId: string): {
+    delegation: DelegationRequest | null;
+    summary: {
+      totalRounds: number;
+      executionHistory: ExecutionRecord[];
+      reviewHistory: ReviewRecord[];
+    };
+  } {
+    const delegation = this.findDelegationById(delegationId);
+    
+    if (!delegation) {
+      return {
+        delegation: null,
+        summary: {
+          totalRounds: 0,
+          executionHistory: [],
+          reviewHistory: []
+        }
+      };
+    }
+    
+    return {
+      delegation,
+      summary: {
+        totalRounds: delegation.currentRound,
+        executionHistory: delegation.executionHistory,
+        reviewHistory: delegation.reviewHistory
+      }
+    };
+  }
 
   /**
    * 持久化委派
    */
-  private async persistDelegation(delegation: DelegationRequest): Promise<void> {
+private async persistDelegation(delegation: DelegationRequest): Promise<void> {
     const filePath = join(this.dataDir, 'delegations', `${delegation.id}.json`);
-    writeFileSync(filePath, JSON.stringify(delegation, null, 2), 'utf-8');
+    await writeFile(filePath, JSON.stringify(delegation, null, 2));
+    
+    // 触发变更事件
+    this.emit('delegationChanged');
   }
 
   /**
@@ -1019,10 +1442,10 @@ export class CollaborationManager {
   private workspaceManager: SharedWorkspaceManager;
   private config: CollaborationConfig;
 
-  constructor(config: Partial<CollaborationConfig> = {}) {
+  constructor(config: Partial<CollaborationConfig> = {}, rootDir?: string) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.messageBus = new AgentMessageBus(this.config);
-    this.delegationManager = new DelegationManager(this.config);
+    this.delegationManager = new DelegationManager(this.config, rootDir);
     this.workspaceManager = new SharedWorkspaceManager();
     
     // 设置消息总线到委派管理器，用于发送通知
@@ -1074,8 +1497,8 @@ export class CollaborationManager {
   }
 
 /**
-   * 委派任务
-   */
+    * 委派任务
+    */
   async delegateTask(
     delegator: string,
     delegatee: string,
@@ -1083,6 +1506,9 @@ export class CollaborationManager {
     options?: {
       priority?: 'low' | 'normal' | 'high';
       deadline?: number;
+      acceptanceCriteria?: string[];
+      expectedDeliverables?: string[];
+      context?: string;
     }
   ): Promise<DelegationRequest> {
     const delegation = await this.delegationManager.delegate({
@@ -1091,6 +1517,9 @@ export class CollaborationManager {
       task,
       priority: options?.priority ?? 'normal',
       deadline: options?.deadline,
+      acceptanceCriteria: options?.acceptanceCriteria,
+      expectedDeliverables: options?.expectedDeliverables,
+      context: options?.context,
     });
 
     // 如果状态还是pending，尝试立即处理
@@ -1157,9 +1586,9 @@ export class CollaborationManager {
 
 let globalCollaborationManager: CollaborationManager | null = null;
 
-export function getCollaborationManager(config?: Partial<CollaborationConfig>): CollaborationManager {
+export function getCollaborationManager(config?: Partial<CollaborationConfig>, rootDir?: string): CollaborationManager {
   if (!globalCollaborationManager) {
-    globalCollaborationManager = new CollaborationManager(config);
+    globalCollaborationManager = new CollaborationManager(config, rootDir);
   }
   return globalCollaborationManager;
 }
