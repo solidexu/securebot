@@ -1972,12 +1972,21 @@ async function showTaskDetail(
   }
   
   // 显示对话历史
-  if (delegation.conversationHistory && delegation.conversationHistory.length > 0) {
-    console.log(chalk.cyan('\n  💬 对话记录:'));
-    console.log(chalk.gray('  ' + '─'.repeat(56)));
-    
+  const conversationHistory = delegation.conversationHistory || [];
+  const unreadCount = collaborationManager.getDelegationManager().getUnreadCount(delegation.id, state.currentAgentId);
+  
+  console.log(chalk.cyan('\n  💬 协作对话:'));
+  if (unreadCount > 0) {
+    console.log(chalk.yellow.bold(`    📬 有 ${unreadCount} 条未读消息`));
+  }
+  console.log(chalk.gray('  ' + '─'.repeat(56)));
+  
+  if (conversationHistory.length === 0) {
+    console.log(chalk.gray('    (暂无对话记录)'));
+    console.log(chalk.gray('    提示: 按 m 发送消息开始对话'));
+  } else {
     // 显示最近15条消息
-    const recentMessages = delegation.conversationHistory.slice(-15);
+    const recentMessages = conversationHistory.slice(-15);
     for (const msg of recentMessages) {
       const time = new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
       const senderName = msg.sender === delegation.delegator ? '委托者' : 
@@ -2000,8 +2009,8 @@ async function showTaskDetail(
       console.log(color(`    ${prefix} ${time}`));
       console.log(chalk.white(`      ${content}`));
     }
-    console.log(chalk.gray('  ' + '─'.repeat(56)));
   }
+  console.log(chalk.gray('  ' + '─'.repeat(56)));
   
   // 显示验收反馈（如果被驳回）
   if (delegation.reviewFeedback && delegation.status === 'accepted') {
