@@ -228,6 +228,27 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
   const { getCollaborationManager } = await import('../core/collaboration.js');
   const collaborationManager = getCollaborationManager();
   
+  // 设置消息总线到委派管理器
+  collaborationManager.getDelegationManager().setMessageBus(collaborationManager.getMessageBus());
+  
+  // 检查未读消息和待验收任务
+  const unreadMessages = collaborationManager.getMessageBus().getMessages(state.currentAgentId)
+    .filter((m: any) => !m.read);
+  const pendingReviewTasks = collaborationManager.getDelegationManager()
+    .getDelegations(state.currentAgentId)
+    .filter((d: any) => d.status === 'pending_review' && d.delegator === state.currentAgentId);
+  
+  if (unreadMessages.length > 0 || pendingReviewTasks.length > 0) {
+    console.log();
+    if (unreadMessages.length > 0) {
+      console.log(chalk.cyan(`📬 您有 ${unreadMessages.length} 条未读消息，使用 /collab messages 查看`));
+    }
+    if (pendingReviewTasks.length > 0) {
+      console.log(chalk.yellow(`⏳ 您有 ${pendingReviewTasks.length} 个任务待验收，使用 /collab tasks 验收`));
+    }
+    console.log();
+  }
+  
   collaborationManager.getDelegationManager().setExecutor(async (delegation) => {
     try {
       const { getDefaultAgent } = await import('../core/agent.js');
@@ -445,6 +466,9 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
       
       monitor.stop();
       
+      // 恢复 REPL 的 readline
+      console.log(chalk.green('\n✓ 任务执行完成，返回 REPL\n'));
+      
       return finalResponse || '任务执行完成';
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -452,6 +476,7 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
         error: msg
       });
       monitor.stop();
+      console.log(chalk.red('\n✗ 任务执行失败\n'));
       return null;
     }
   }

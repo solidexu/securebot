@@ -352,6 +352,7 @@ export class DelegationManager {
   private executionQueue: string[] = [];
   private isExecuting: boolean = false;
   private executor?: (delegation: DelegationRequest) => Promise<string | null>;
+  private messageBus?: any;
 
   constructor(config: Partial<CollaborationConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -571,6 +572,13 @@ export class DelegationManager {
   }
   
   /**
+   * 设置消息总线
+   */
+  setMessageBus(messageBus: any): void {
+    this.messageBus = messageBus;
+  }
+  
+  /**
    * 处理执行队列
    */
   private async processQueue(): Promise<void> {
@@ -615,7 +623,23 @@ export class DelegationManager {
         delegation.updatedAt = Date.now();
         await this.persistDelegation(delegation);
         
-        console.log(`任务 ${delegation.id.slice(0, 8)} 执行完成，状态: ${delegation.status}，等待验收`);
+        // 通知委托者任务已完成，等待验收
+        if (delegation.status === 'pending_review') {
+          if (this.messageBus) {
+            await this.messageBus.sendMessage({
+              id: uuidv4(),
+              fromAgent: delegation.delegatee,
+              toAgent: delegation.delegator,
+              type: 'delegation',
+              content: `任务 "${delegation.task.slice(0, 50)}..." 已完成，等待验收。\n使用 /collab tasks 查看详情并验收。`,
+              createdAt: Date.now(),
+              read: false,
+            });
+          }
+          console.log(`任务 ${delegation.id.slice(0, 8)} 执行完成，状态: ${delegation.status}，已通知委托者 ${delegation.delegator}`);
+        } else {
+          console.log(`任务 ${delegation.id.slice(0, 8)} 执行完成，状态: ${delegation.status}`);
+        }
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         delegation.status = 'failed';
@@ -1000,6 +1024,9 @@ export class CollaborationManager {
     this.messageBus = new AgentMessageBus(this.config);
     this.delegationManager = new DelegationManager(this.config);
     this.workspaceManager = new SharedWorkspaceManager();
+    
+    // 设置消息总线到委派管理器，用于发送通知
+    this.delegationManager.setMessageBus(this.messageBus);
   }
 
   /**

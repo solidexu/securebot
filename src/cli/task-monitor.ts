@@ -50,6 +50,15 @@ export class TaskMonitor extends EventEmitter {
   
   stop(): void {
     this.isRunning = false;
+    
+    // 恢复 stdin 设置
+    try {
+      process.stdin.setRawMode(false);
+      process.stdin.pause();
+    } catch (error) {
+      // 忽略错误
+    }
+    
     if (this.rl) {
       this.rl.close();
       this.rl = undefined;
@@ -128,26 +137,35 @@ export class TaskMonitor extends EventEmitter {
     console.log(chalk.gray('    3. 按 "P" 继续执行'));
     console.log();
     
-    process.stdin.setRawMode(false);
-    
-    const answer = await this.question(chalk.yellow('  请输入指导意见: '));
-    
-    if (answer.toLowerCase() === 'cancel') {
-      this.shouldCancel = true;
-      this.emit('cancel');
-      console.log(chalk.red('\n  任务已取消'));
-    } else if (answer.trim()) {
-      this.userIntervention = answer;
-      this.emit('intervention', answer);
-      console.log(chalk.green('\n  指导意见已记录，将继续执行'));
+    try {
+      process.stdin.setRawMode(false);
+      process.stdin.resume();
+      
+      const answer = await this.question(chalk.yellow('  请输入指导意见: '));
+      
+      if (answer.toLowerCase() === 'cancel') {
+        this.shouldCancel = true;
+        this.emit('cancel');
+        console.log(chalk.red('\n  任务已取消'));
+      } else if (answer.trim()) {
+        this.userIntervention = answer;
+        this.emit('intervention', answer);
+        console.log(chalk.green('\n  指导意见已记录，将继续执行'));
+        this.isPaused = false;
+      } else {
+        console.log(chalk.gray('\n  继续执行任务'));
+        this.isPaused = false;
+      }
+      
+      process.stdin.setRawMode(true);
+      process.stdin.resume();
+      this.render();
+    } catch (error) {
+      // 忽略错误，确保恢复状态
       this.isPaused = false;
-    } else {
-      console.log(chalk.gray('\n  继续执行任务'));
-      this.isPaused = false;
+      process.stdin.setRawMode(true);
+      process.stdin.resume();
     }
-    
-    process.stdin.setRawMode(true);
-    this.render();
   }
   
   private question(prompt: string): Promise<string> {
