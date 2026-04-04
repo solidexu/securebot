@@ -1324,7 +1324,8 @@ async function handleCollabCommand(
         const statusColor = d.status === 'completed' ? chalk.green :
                            d.status === 'failed' ? chalk.red :
                            d.status === 'accepted' ? chalk.blue :
-                           d.status === 'in_progress' ? chalk.cyan : chalk.yellow;
+                           d.status === 'in_progress' ? chalk.cyan :
+                           d.status === 'pending_review' ? chalk.magenta : chalk.yellow;
         console.log(`  ${chalk.gray(time)} [${statusColor(d.status)}] → ${chalk.magenta(d.delegatee)} ${d.task.slice(0, 40)}...`);
       }
     }
@@ -1531,7 +1532,8 @@ async function showTasksPanel(
         const statusColor = d.status === 'completed' ? chalk.green :
                            d.status === 'failed' ? chalk.red :
                            d.status === 'accepted' ? chalk.blue :
-                           d.status === 'in_progress' ? chalk.cyan : chalk.yellow;
+                           d.status === 'in_progress' ? chalk.cyan :
+                           d.status === 'pending_review' ? chalk.magenta : chalk.yellow;
         const complexity = assessTaskComplexity(d.task);
         const complexityIcon = complexity === 'complex' ? chalk.yellow('⚠') : '';
         console.log(`  ${chalk.yellow(`[${index}]`)} ${statusColor(`[${d.status}]`)} ${complexityIcon}→ ${chalk.gray(d.delegatee)} ${chalk.gray(time)} ${d.task.slice(0, 40)}...`);
@@ -1548,7 +1550,8 @@ async function showTasksPanel(
         const statusColor = d.status === 'completed' ? chalk.green :
                            d.status === 'failed' ? chalk.red :
                            d.status === 'accepted' ? chalk.blue :
-                           d.status === 'in_progress' ? chalk.cyan : chalk.yellow;
+                           d.status === 'in_progress' ? chalk.cyan :
+                           d.status === 'pending_review' ? chalk.magenta : chalk.yellow;
         const complexity = assessTaskComplexity(d.task);
         const complexityIcon = complexity === 'complex' ? chalk.yellow('⚠') : '';
         console.log(`  ${chalk.yellow(`[${index}]`)} ${statusColor(`[${d.status}]`)} ${complexityIcon}← ${chalk.gray(d.delegator)} ${chalk.gray(time)} ${d.task.slice(0, 40)}...`);
@@ -1732,6 +1735,45 @@ async function showTasksPanel(
       console.log(chalk.gray('\n返回任务列表...'));
       console.log();
       taskMap = renderTasks();
+    } else if (delegation.status === 'pending_review') {
+      // 只有委托者可以验收
+      if (delegation.delegator !== state.currentAgentId) {
+        console.log(chalk.yellow('此任务正在等待委托者验收'));
+        const back = await rl.question(chalk.yellow('按回车返回任务列表，或输入 q 退出: '));
+        if (back.toLowerCase() === 'q') {
+          console.log(chalk.gray('\n已退出任务管理面板'));
+          break;
+        }
+        console.log(chalk.gray('\n返回任务列表...'));
+        console.log();
+        taskMap = renderTasks();
+      } else {
+        console.log(chalk.yellow('验收选项:'));
+        console.log('  1. 验收通过');
+        console.log('  2. 验收不通过，要求重新执行');
+        console.log('  q. 返回任务列表');
+        console.log();
+        
+        const action = await rl.question(chalk.yellow('请选择操作 (1/2/q): '));
+        
+        if (action === '1') {
+          await collaborationManager.getDelegationManager().approveDelegation(delegation.id);
+          console.log(chalk.green('\n✓ 任务验收通过'));
+        } else if (action === '2') {
+          const feedback = await rl.question(chalk.yellow('请输入验收反馈（不满意的理由）: '));
+          await collaborationManager.getDelegationManager().rejectReview(delegation.id, feedback);
+          console.log(chalk.yellow('\n✓ 任务已要求重新执行'));
+        } else if (action.toLowerCase() === 'q') {
+          console.log(chalk.gray('\n返回任务列表...'));
+          console.log();
+          taskMap = renderTasks();
+          continue;
+        }
+        
+        console.log(chalk.gray('\n返回任务列表...'));
+        console.log();
+        taskMap = renderTasks();
+      }
     } else {
       const back = await rl.question(chalk.yellow('按回车返回任务列表，或输入 q 退出: '));
       if (back.toLowerCase() === 'q') {

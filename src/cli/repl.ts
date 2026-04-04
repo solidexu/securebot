@@ -237,14 +237,18 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
         return null;
       }
       
-      const params: any = {
-        model: agent.model || state.config.model.model,
-        messages: [{ role: 'user', content: delegation.task }],
-      };
+      console.log(chalk.gray(`\n使用完整 Agent 能力执行任务...`));
       
-      const response = await state.modelAdapter.chat(params);
+      // 构建完整任务提示
+      let taskPrompt = delegation.task;
+      if (delegation.reviewFeedback) {
+        taskPrompt = `${delegation.task}\n\n注意：之前的执行结果未通过验收，反馈如下：\n${delegation.reviewFeedback}\n\n请根据反馈改进执行结果。`;
+      }
       
-      return response?.content || null;
+      // 使用 Agent 的完整能力执行任务（多轮对话 + 工具调用）
+      const result = await executeTaskWithAgent(state, agent, taskPrompt, delegation.id);
+      
+      return result;
     } catch (error) {
       console.error('自动执行任务失败:', error);
       return null;
@@ -252,6 +256,111 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
   });
   
   console.log(chalk.green('✓ 委派任务执行队列已启动'));
+  
+  // 完整Agent任务执行器
+  async function executeTaskWithAgent(
+    state: ReplState,
+    agent: any,
+    task: string,
+    _delegationId: string
+  ): Promise<string | null> {
+    try {
+      const { getAvailableTools, executeTool } = await import('../tools/index.js');
+      
+      // 获取Agent可用的工具
+      const tools = getAvailableTools(agent, state.config.tools);
+      const toolNames = tools.map((t: any) => t.name).join(', ');
+      
+      console.log(chalk.gray(`可用工具: ${toolNames}`));
+      
+      // 构建系统提示
+      const systemPrompt = agent.systemPrompt || '';
+      
+      // 执行多轮对话，支持工具调用
+      const messages: any[] = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: task }
+      ];
+      
+      let finalResponse = '';
+      let iterations = 0;
+      const maxIterations = 20; // 最多20轮对话
+      
+      while (iterations < maxIterations) {
+        iterations++;
+        console.log(chalk.gray(`执行轮次 ${iterations}/${maxIterations}...`));
+        
+        const params: any = {
+          model: agent.model || state.config.model.model,
+          messages,
+          tools: tools.length > 0 ? tools : undefined,
+        };
+        
+        const response = await state.modelAdapter.chat(params);
+        
+        if (!response) {
+          break;
+        }
+        
+        // 如果有工具调用，执行工具
+        if (response.toolCalls && response.toolCalls.length > 0) {
+          console.log(chalk.gray(`调用 ${response.toolCalls.length} 个工具...`));
+          
+          messages.push({
+            role: 'assistant',
+            content: response.content || '',
+            toolCalls: response.toolCalls
+          });
+          
+          for (const toolCall of response.toolCalls) {
+            try {
+              const tool = tools.find((t: any) => t.name === toolCall.name);
+              if (!tool) {
+                continue;
+              }
+              
+              const toolResult = await executeTool(toolCall.name, toolCall.arguments, {
+                agent,
+                session: {} as any,
+                workspace: process.cwd(),
+                logger: console,
+              });
+              
+              messages.push({
+                role: 'tool',
+                name: toolCall.name,
+                content: toolResult.success ? toolResult.content : `错误: ${toolResult.error}`,
+                toolCallId: toolCall.id
+              });
+              
+              console.log(chalk.gray(`  ${toolCall.name}: ${toolResult.success ? '成功' : '失败'}`));
+            } catch (error) {
+              const msg = error instanceof Error ? error.message : String(error);
+              messages.push({
+                role: 'tool',
+                name: toolCall.name,
+                content: `执行失败: ${msg}`,
+                toolCallId: toolCall.id
+              });
+            }
+          }
+        } else {
+          // 没有工具调用，对话结束
+          finalResponse = response.content || '';
+          break;
+        }
+      }
+      
+      if (iterations >= maxIterations) {
+        console.log(chalk.yellow('达到最大迭代次数，任务执行停止'));
+      }
+      
+      return finalResponse || '任务执行完成';
+    } catch (error) {
+      console.error('任务执行失败:', error);
+      return null;
+    }
+  }
 
   // Ctrl+C 处理状态变量
   let ctrlCount = 0;

@@ -60,9 +60,13 @@ export interface DelegationRequest {
   /** 优先级 */
   priority: 'low' | 'normal' | 'high';
   /** 状态 */
-  status: 'pending' | 'accepted' | 'rejected' | 'in_progress' | 'completed' | 'failed';
+  status: 'pending' | 'accepted' | 'rejected' | 'in_progress' | 'pending_review' | 'completed' | 'failed';
   /** 结果 */
   result?: string;
+  /** 验收反馈 */
+  reviewFeedback?: string;
+  /** 重试次数 */
+  retryCount?: number;
   /** 创建时间 */
   createdAt: number;
   /** 更新时间 */
@@ -597,8 +601,9 @@ export class DelegationManager {
         const result = await this.executor(delegation);
         
         if (result) {
-          delegation.status = 'completed';
+          delegation.status = 'pending_review';
           delegation.result = result;
+          delegation.retryCount = (delegation.retryCount || 0) + 1;
         } else {
           delegation.status = 'failed';
           delegation.result = '执行失败，未获得结果';
@@ -607,7 +612,7 @@ export class DelegationManager {
         delegation.updatedAt = Date.now();
         await this.persistDelegation(delegation);
         
-        console.log(`任务 ${delegation.id.slice(0, 8)} 执行完成，状态: ${delegation.status}`);
+        console.log(`任务 ${delegation.id.slice(0, 8)} 执行完成，状态: ${delegation.status}，等待验收`);
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         delegation.status = 'failed';
@@ -645,6 +650,52 @@ export class DelegationManager {
     delegation.result = reason;
     delegation.updatedAt = Date.now();
     await this.persistDelegation(delegation);
+  }
+  
+  /**
+   * 验收通过
+   */
+  async approveDelegation(delegationId: string): Promise<void> {
+    const delegation = this.findDelegationById(delegationId);
+    if (!delegation) {
+      throw new Error('委派不存在');
+    }
+
+    if (delegation.status !== 'pending_review') {
+      throw new Error('只能验收待审核的任务');
+    }
+
+    delegation.status = 'completed';
+    delegation.updatedAt = Date.now();
+    await this.persistDelegation(delegation);
+    console.log(`任务 ${delegation.id.slice(0, 8)} 验收通过`);
+  }
+  
+  /**
+   * 验收不通过，重新执行
+   */
+  async rejectReview(delegationId: string, feedback: string): Promise<void> {
+    const delegation = this.findDelegationById(delegationId);
+    if (!delegation) {
+      throw new Error('委派不存在');
+    }
+
+    if (delegation.status !== 'pending_review') {
+      throw new Error('只能重新执行待审核的任务');
+    }
+
+    delegation.status = 'accepted';
+    delegation.reviewFeedback = feedback;
+    delegation.updatedAt = Date.now();
+    await this.persistDelegation(delegation);
+    
+    // 重新加入执行队列
+    this.executionQueue.push(delegation.id);
+    console.log(`任务 ${delegation.id.slice(0, 8)} 验收不通过，已重新加入执行队列`);
+    console.log(`反馈: ${feedback}`);
+    
+    // 尝试启动队列处理
+    this.processQueue();
   }
 
   /**
