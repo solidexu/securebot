@@ -1336,12 +1336,15 @@ async function handleCollabCommand(
     }
     
     await showDelegationInbox(state, delegations, rl, collaborationManager);
+  } else if (arg === 'tasks') {
+    await showTasksPanel(state, rl, collaborationManager);
   } else {
     console.log(chalk.cyan('协作命令:'));
     console.log('  /collab status              协作状态');
     console.log('  /collab messages            查看消息');
     console.log('  /collab sent                查看已委派的任务');
     console.log('  /collab inbox               查看收到的委派任务');
+    console.log('  /collab tasks               任务管理面板');
     console.log('  /collab delegate <agent> <task>  委派任务');
   }
 }
@@ -1422,6 +1425,178 @@ async function showDelegationInbox(
         console.log(`  ${chalk.yellow(`[${i + 1}]`)} ${chalk.gray(time)} 来自 ${chalk.magenta(d.delegator)}: ${d.task.slice(0, 60)}...`);
       }
       console.log();
+    }
+  }
+}
+
+async function showTasksPanel(
+  state: ReplState,
+  rl: readlinePromises.Interface,
+  collaborationManager: any
+): Promise<void> {
+  const delegations = collaborationManager.getDelegationManager()
+    .getDelegations(state.currentAgentId);
+  
+  if (delegations.length === 0) {
+    console.log(chalk.gray('暂无委派任务'));
+    return;
+  }
+  
+  const statusCounts = {
+    pending: delegations.filter((d: any) => d.status === 'pending').length,
+    accepted: delegations.filter((d: any) => d.status === 'accepted').length,
+    in_progress: delegations.filter((d: any) => d.status === 'in_progress').length,
+    completed: delegations.filter((d: any) => d.status === 'completed').length,
+    failed: delegations.filter((d: any) => d.status === 'failed').length,
+  };
+  
+  console.log(chalk.cyan('\n任务管理面板'));
+  console.log(chalk.gray('='.repeat(50)));
+  console.log(`  总任务数: ${delegations.length}`);
+  console.log(`  ${chalk.yellow('待处理')}: ${statusCounts.pending}  ${chalk.blue('已接受')}: ${statusCounts.accepted}  ${chalk.cyan('进行中')}: ${statusCounts.in_progress}`);
+  console.log(`  ${chalk.green('已完成')}: ${statusCounts.completed}  ${chalk.red('已失败')}: ${statusCounts.failed}`);
+  console.log(chalk.gray('='.repeat(50)));
+  console.log(chalk.gray('\n输入序号查看详情，或输入 q 退出'));
+  console.log();
+  
+  const renderTasks = () => {
+    for (let i = 0; i < delegations.length; i++) {
+      const d = delegations[i];
+      const time = new Date(d.createdAt).toLocaleTimeString('zh-CN');
+      const statusColor = d.status === 'completed' ? chalk.green :
+                         d.status === 'failed' ? chalk.red :
+                         d.status === 'accepted' ? chalk.blue :
+                         d.status === 'in_progress' ? chalk.cyan : chalk.yellow;
+      const roleIcon = d.delegator === state.currentAgentId ? '→' : '←';
+      
+      console.log(`  ${chalk.yellow(`[${i + 1}]`)} ${statusColor(`[${d.status}]`)} ${roleIcon} ${chalk.gray(time)} ${d.task.slice(0, 50)}...`);
+    }
+    console.log();
+  };
+  
+  renderTasks();
+  
+  while (true) {
+    const answer = await rl.question(chalk.yellow('请选择任务序号 (1-' + delegations.length + ') 或 q 退出: '));
+    
+    if (answer.toLowerCase() === 'q' || answer === '') {
+      console.log(chalk.gray('\n已退出任务管理面板'));
+      break;
+    }
+    
+    const index = parseInt(answer) - 1;
+    
+    if (index < 0 || index >= delegations.length) {
+      console.log(chalk.red('无效的序号，请重新输入'));
+      continue;
+    }
+    
+    const delegation = delegations[index];
+    console.clear();
+    console.log(chalk.cyan('\n任务详情'));
+    console.log(chalk.gray('='.repeat(50)));
+    console.log(`  委派ID: ${chalk.blue(delegation.id.slice(0, 8))}`);
+    console.log(`  角色: ${delegation.delegator === state.currentAgentId ? chalk.magenta('委派者') : chalk.cyan('受托者')}`);
+    console.log(`  ${delegation.delegator === state.currentAgentId ? '委派给' : '来自'}: ${chalk.magenta(delegation.delegator === state.currentAgentId ? delegation.delegatee : delegation.delegator)}`);
+    console.log(`  状态: ${chalk.yellow(delegation.status)}`);
+    console.log(`  优先级: ${delegation.priority}`);
+    console.log(`  创建时间: ${chalk.gray(new Date(delegation.createdAt).toLocaleString('zh-CN'))}`);
+    console.log(`  更新时间: ${chalk.gray(new Date(delegation.updatedAt).toLocaleString('zh-CN'))}`);
+    console.log(chalk.gray('='.repeat(50)));
+    console.log(`\n  ${chalk.cyan('任务内容:')}`);
+    console.log(chalk.white(delegation.task));
+    
+    if (delegation.result) {
+      console.log(`\n  ${chalk.green('执行结果:')}`);
+      console.log(chalk.white(delegation.result.slice(0, 200)));
+      if (delegation.result.length > 200) {
+        console.log(chalk.gray('...'));
+      }
+    }
+    
+    console.log();
+    
+    if (delegation.status === 'accepted') {
+      console.log(chalk.yellow('操作选项:'));
+      console.log('  1. 标记为进行中 (开始执行)');
+      console.log('  2. 标记为已完成');
+      console.log('  3. 标记为失败');
+      console.log('  q. 返回任务列表');
+      console.log();
+      
+      const action = await rl.question(chalk.yellow('请选择操作 (1/2/3/q): '));
+      
+      if (action === '1') {
+        delegation.status = 'in_progress';
+        delegation.updatedAt = Date.now();
+        await collaborationManager.getDelegationManager().persistDelegation(delegation);
+        console.log(chalk.green('\n✓ 任务已标记为进行中'));
+      } else if (action === '2') {
+        const result = await rl.question(chalk.yellow('请输入执行结果: '));
+        delegation.status = 'completed';
+        delegation.result = result;
+        delegation.updatedAt = Date.now();
+        await collaborationManager.getDelegationManager().persistDelegation(delegation);
+        console.log(chalk.green('\n✓ 任务已标记为已完成'));
+      } else if (action === '3') {
+        const reason = await rl.question(chalk.yellow('请输入失败原因: '));
+        delegation.status = 'failed';
+        delegation.result = reason;
+        delegation.updatedAt = Date.now();
+        await collaborationManager.getDelegationManager().persistDelegation(delegation);
+        console.log(chalk.red('\n✓ 任务已标记为失败'));
+      } else if (action.toLowerCase() === 'q') {
+        console.log(chalk.gray('\n返回任务列表...'));
+        console.log();
+        renderTasks();
+        continue;
+      }
+      
+      console.log(chalk.gray('\n返回任务列表...'));
+      console.log();
+      renderTasks();
+    } else if (delegation.status === 'in_progress') {
+      console.log(chalk.yellow('操作选项:'));
+      console.log('  1. 标记为已完成');
+      console.log('  2. 标记为失败');
+      console.log('  q. 返回任务列表');
+      console.log();
+      
+      const action = await rl.question(chalk.yellow('请选择操作 (1/2/q): '));
+      
+      if (action === '1') {
+        const result = await rl.question(chalk.yellow('请输入执行结果: '));
+        delegation.status = 'completed';
+        delegation.result = result;
+        delegation.updatedAt = Date.now();
+        await collaborationManager.getDelegationManager().persistDelegation(delegation);
+        console.log(chalk.green('\n✓ 任务已标记为已完成'));
+      } else if (action === '2') {
+        const reason = await rl.question(chalk.yellow('请输入失败原因: '));
+        delegation.status = 'failed';
+        delegation.result = reason;
+        delegation.updatedAt = Date.now();
+        await collaborationManager.getDelegationManager().persistDelegation(delegation);
+        console.log(chalk.red('\n✓ 任务已标记为失败'));
+      } else if (action.toLowerCase() === 'q') {
+        console.log(chalk.gray('\n返回任务列表...'));
+        console.log();
+        renderTasks();
+        continue;
+      }
+      
+      console.log(chalk.gray('\n返回任务列表...'));
+      console.log();
+      renderTasks();
+    } else {
+      const back = await rl.question(chalk.yellow('按回车返回任务列表，或输入 q 退出: '));
+      if (back.toLowerCase() === 'q') {
+        console.log(chalk.gray('\n已退出任务管理面板'));
+        break;
+      }
+      console.log(chalk.gray('\n返回任务列表...'));
+      console.log();
+      renderTasks();
     }
   }
 }
@@ -2315,6 +2490,7 @@ function printHelp(): void {
   console.log('  /collab messages          查看消息');
   console.log('  /collab sent              查看已委派的任务');
   console.log('  /collab inbox             查看收到的委派任务');
+  console.log('  /collab tasks             任务管理面板');
   console.log('  /collab delegate <agent> <task>  委派任务');
   console.log();
   console.log(chalk.cyan('RAG 知识库:'));
