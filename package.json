@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^0.10.1",
+    "@types/chokidar": "^1.7.5",
     "adm-zip": "^0.5.16",
     "archiver": "^7.0.1",
     "blessed": "^0.1.81",
