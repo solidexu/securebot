@@ -1289,15 +1289,33 @@ async function handleCollabCommand(
     console.log(`  共享空间: ${stats.sharedWorkspaces}`);
   } else if (arg === 'messages') {
     const messages = collaborationManager.getMessageBus().getMessages(state.currentAgentId);
-    if (messages.length === 0) {
+    const pendingReviewTasks = collaborationManager.getDelegationManager()
+      .getDelegations(state.currentAgentId)
+      .filter((d: any) => d.status === 'pending_review' && d.delegator === state.currentAgentId);
+    
+    if (messages.length === 0 && pendingReviewTasks.length === 0) {
       console.log(chalk.gray('暂无消息'));
     } else {
-      console.log(chalk.cyan(`消息列表 (${messages.length} 条):`));
-      for (const msg of messages.slice(0, 10)) {
-        const time = new Date(msg.createdAt).toLocaleTimeString('zh-CN');
-        const typeColor = msg.type === 'request' ? chalk.yellow : 
-                         msg.type === 'delegation' ? chalk.magenta : chalk.gray;
-        console.log(`  ${chalk.gray(time)} [${typeColor(msg.type)}] ${msg.fromAgent}: ${msg.content.slice(0, 50)}...`);
+      // 显示待验收任务（最重要）
+      if (pendingReviewTasks.length > 0) {
+        console.log(chalk.yellow.bold('\n⏳ 待验收任务:'));
+        for (const task of pendingReviewTasks) {
+          const time = new Date(task.createdAt).toLocaleTimeString('zh-CN');
+          console.log(chalk.white(`  • [${time}] 来自 ${chalk.magenta(task.delegatee)}`));
+          console.log(chalk.gray(`    任务: ${task.task.slice(0, 60)}...`));
+          console.log(chalk.gray(`    结果: ${(task.result || '').slice(0, 60)}...`));
+          console.log(chalk.cyan(`    验收: /collab tasks`));
+        }
+      }
+      
+      // 显示其他消息
+      const otherMessages = messages.filter((m: any) => m.type !== 'delegation' || m.read);
+      if (otherMessages.length > 0) {
+        console.log(chalk.cyan(`\n📬 其他消息 (${otherMessages.length} 条):`));
+        for (const msg of otherMessages.slice(0, 5)) {
+          const time = new Date(msg.createdAt).toLocaleTimeString('zh-CN');
+          console.log(chalk.gray(`  • [${time}] ${msg.fromAgent}: ${msg.content.slice(0, 50)}...`));
+        }
       }
     }
   } else if (arg === 'delegate' && parts[2] && parts[3]) {
