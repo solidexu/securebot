@@ -223,6 +223,35 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
 
   // 打印欢迎信息
   printWelcome(state);
+  
+  // 设置委派任务执行器
+  const { getCollaborationManager } = await import('../core/collaboration.js');
+  const collaborationManager = getCollaborationManager();
+  
+  collaborationManager.getDelegationManager().setExecutor(async (delegation) => {
+    try {
+      const { getDefaultAgent } = await import('../core/agent.js');
+      const agent = getDefaultAgent(state.agents);
+      
+      if (!agent) {
+        return null;
+      }
+      
+      const params: any = {
+        model: agent.model || state.config.model.model,
+        messages: [{ role: 'user', content: delegation.task }],
+      };
+      
+      const response = await state.modelAdapter.chat(params);
+      
+      return response?.content || null;
+    } catch (error) {
+      console.error('自动执行任务失败:', error);
+      return null;
+    }
+  });
+  
+  console.log(chalk.green('✓ 委派任务执行队列已启动'));
 
   // Ctrl+C 处理状态变量
   let ctrlCount = 0;

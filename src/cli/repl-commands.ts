@@ -1276,10 +1276,13 @@ async function handleCollabCommand(
   
   if (arg === 'status') {
     const stats = collaborationManager.getStats(state.currentAgentId);
+    const queueStatus = collaborationManager.getDelegationManager().getQueueStatus();
     console.log(chalk.cyan('协作状态:'));
     console.log(`  待处理消息: ${stats.pendingMessages}`);
     console.log(`  待处理委派: ${stats.pendingDelegations}`);
     console.log(`  活跃委派: ${stats.activeDelegations}`);
+    console.log(`  执行队列: ${queueStatus.queueLength} 个任务等待`);
+    console.log(`  执行状态: ${queueStatus.isExecuting ? chalk.green('执行中') : chalk.gray('空闲')}`);
     console.log(`  共享空间: ${stats.sharedWorkspaces}`);
   } else if (arg === 'messages') {
     const messages = collaborationManager.getMessageBus().getMessages(state.currentAgentId);

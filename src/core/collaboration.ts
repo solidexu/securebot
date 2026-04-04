@@ -345,6 +345,9 @@ export class DelegationManager {
   private handlers: Map<string, (request: DelegationRequest) => Promise<boolean>> = new Map();
   private config: Required<CollaborationConfig>;
   private delegationProcessorInterval?: ReturnType<typeof setInterval>;
+  private executionQueue: string[] = [];
+  private isExecuting: boolean = false;
+  private executor?: (delegation: DelegationRequest) => Promise<string | null>;
 
   constructor(config: Partial<CollaborationConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -504,6 +507,89 @@ export class DelegationManager {
     delegation.status = 'accepted';
     delegation.updatedAt = Date.now();
     await this.persistDelegation(delegation);
+    
+    // 自动加入执行队列
+    this.executionQueue.push(delegation.id);
+    console.log(`任务 ${delegation.id.slice(0, 8)} 已加入执行队列，当前位置: ${this.executionQueue.length}`);
+    
+    // 尝试启动队列处理
+    this.processQueue();
+  }
+  
+  /**
+   * 设置任务执行器
+   */
+  setExecutor(executor: (delegation: DelegationRequest) => Promise<string | null>): void {
+    this.executor = executor;
+  }
+  
+  /**
+   * 处理执行队列
+   */
+  private async processQueue(): Promise<void> {
+    if (this.isExecuting || this.executionQueue.length === 0) {
+      return;
+    }
+    
+    if (!this.executor) {
+      console.warn('未设置任务执行器，无法自动执行任务');
+      return;
+    }
+    
+    this.isExecuting = true;
+    
+    while (this.executionQueue.length > 0) {
+      const delegationId = this.executionQueue.shift();
+      if (!delegationId) break;
+      
+      const delegation = this.findDelegationById(delegationId);
+      if (!delegation || delegation.status !== 'accepted') {
+        continue;
+      }
+      
+      try {
+        console.log(`开始执行任务 ${delegation.id.slice(0, 8)}: ${delegation.task.slice(0, 50)}...`);
+        
+        delegation.status = 'in_progress';
+        delegation.updatedAt = Date.now();
+        await this.persistDelegation(delegation);
+        
+        const result = await this.executor(delegation);
+        
+        if (result) {
+          delegation.status = 'completed';
+          delegation.result = result;
+        } else {
+          delegation.status = 'failed';
+          delegation.result = '执行失败，未获得结果';
+        }
+        
+        delegation.updatedAt = Date.now();
+        await this.persistDelegation(delegation);
+        
+        console.log(`任务 ${delegation.id.slice(0, 8)} 执行完成，状态: ${delegation.status}`);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        delegation.status = 'failed';
+        delegation.result = msg;
+        delegation.updatedAt = Date.now();
+        await this.persistDelegation(delegation);
+        
+        console.error(`任务 ${delegation.id.slice(0, 8)} 执行失败:`, msg);
+      }
+    }
+    
+    this.isExecuting = false;
+  }
+  
+  /**
+   * 获取队列状态
+   */
+  getQueueStatus(): { queueLength: number; isExecuting: boolean } {
+    return {
+      queueLength: this.executionQueue.length,
+      isExecuting: this.isExecuting
+    };
   }
 
   /**
@@ -874,8 +960,7 @@ export class CollaborationManager {
     delegatee: string,
     task: string,
     options?: {
-      workspaceId?: string;
-      priority?: 'low' | 'medium' | 'high' | 'critical';
+      priority?: 'low' | 'normal' | 'high';
       deadline?: number;
     }
   ): Promise<DelegationRequest> {
@@ -883,8 +968,7 @@ export class CollaborationManager {
       delegator,
       delegatee,
       task,
-      workspaceId: options?.workspaceId,
-      priority: options?.priority ?? 'medium',
+      priority: options?.priority ?? 'normal',
       deadline: options?.deadline,
     });
 
