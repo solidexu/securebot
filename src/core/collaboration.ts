@@ -508,12 +508,52 @@ export class DelegationManager {
     delegation.updatedAt = Date.now();
     await this.persistDelegation(delegation);
     
-    // 自动加入执行队列
-    this.executionQueue.push(delegation.id);
-    console.log(`任务 ${delegation.id.slice(0, 8)} 已加入执行队列，当前位置: ${this.executionQueue.length}`);
+    // 判断任务复杂度
+    const complexity = this.assessTaskComplexity(delegation.task);
     
-    // 尝试启动队列处理
-    this.processQueue();
+    if (complexity === 'simple') {
+      // 简单任务自动加入执行队列
+      this.executionQueue.push(delegation.id);
+      console.log(`任务 ${delegation.id.slice(0, 8)} 已加入执行队列（简单任务），当前位置: ${this.executionQueue.length}`);
+      this.processQueue();
+    } else {
+      // 复杂任务等待确认
+      console.log(`任务 ${delegation.id.slice(0, 8)} 需要确认（复杂任务），请使用 /collab tasks 查看详情`);
+    }
+  }
+  
+  /**
+   * 评估任务复杂度
+   */
+  private assessTaskComplexity(task: string): 'simple' | 'complex' {
+    const complexKeywords = [
+      'review', '审查', '重构', 'refactor', '架构', 'architecture',
+      '设计', 'design', '优化', 'optimize', '分析', 'analyze',
+      '评估', 'evaluate', '规划', 'plan', '方案', 'solution',
+      '多', 'multiple', '复杂', 'complex', '完整', 'complete',
+      '系统性', 'systematic', '全面', 'comprehensive'
+    ];
+    
+    const taskLower = task.toLowerCase();
+    
+    // 检查复杂关键词
+    for (const keyword of complexKeywords) {
+      if (taskLower.includes(keyword.toLowerCase())) {
+        return 'complex';
+      }
+    }
+    
+    // 任务描述过长（超过100字）
+    if (task.length > 100) {
+      return 'complex';
+    }
+    
+    // 包含多个任务（包含"和"、"以及"、"、"等）
+    if (task.includes('和') || task.includes('以及') || task.includes('、') || task.includes('然后')) {
+      return 'complex';
+    }
+    
+    return 'simple';
   }
   
   /**

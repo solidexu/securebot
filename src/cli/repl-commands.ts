@@ -1463,6 +1463,34 @@ async function executeDelegatedTask(
   }
 }
 
+function assessTaskComplexity(task: string): 'simple' | 'complex' {
+  const complexKeywords = [
+    'review', '审查', '重构', 'refactor', '架构', 'architecture',
+    '设计', 'design', '优化', 'optimize', '分析', 'analyze',
+    '评估', 'evaluate', '规划', 'plan', '方案', 'solution',
+    '多', 'multiple', '复杂', 'complex', '完整', 'complete',
+    '系统性', 'systematic', '全面', 'comprehensive'
+  ];
+  
+  const taskLower = task.toLowerCase();
+  
+  for (const keyword of complexKeywords) {
+    if (taskLower.includes(keyword.toLowerCase())) {
+      return 'complex';
+    }
+  }
+  
+  if (task.length > 100) {
+    return 'complex';
+  }
+  
+  if (task.includes('和') || task.includes('以及') || task.includes('、') || task.includes('然后')) {
+    return 'complex';
+  }
+  
+  return 'simple';
+}
+
 async function showTasksPanel(
   state: ReplState,
   rl: readlinePromises.Interface,
@@ -1489,6 +1517,7 @@ async function showTasksPanel(
   console.log(`  总计: ${delegations.length} 个任务`);
   console.log(chalk.gray('='.repeat(50)));
   console.log(chalk.gray('\n输入序号查看详情，或输入 q 退出'));
+  console.log(chalk.gray(`图例: ${chalk.yellow('⚠')} 表示复杂任务（需要确认）`));
   console.log();
   
   const renderTasks = () => {
@@ -1503,7 +1532,9 @@ async function showTasksPanel(
                            d.status === 'failed' ? chalk.red :
                            d.status === 'accepted' ? chalk.blue :
                            d.status === 'in_progress' ? chalk.cyan : chalk.yellow;
-        console.log(`  ${chalk.yellow(`[${index}]`)} ${statusColor(`[${d.status}]`)} → ${chalk.gray(d.delegatee)} ${chalk.gray(time)} ${d.task.slice(0, 40)}...`);
+        const complexity = assessTaskComplexity(d.task);
+        const complexityIcon = complexity === 'complex' ? chalk.yellow('⚠') : '';
+        console.log(`  ${chalk.yellow(`[${index}]`)} ${statusColor(`[${d.status}]`)} ${complexityIcon}→ ${chalk.gray(d.delegatee)} ${chalk.gray(time)} ${d.task.slice(0, 40)}...`);
         taskMap.push(d);
         index++;
       }
@@ -1518,7 +1549,9 @@ async function showTasksPanel(
                            d.status === 'failed' ? chalk.red :
                            d.status === 'accepted' ? chalk.blue :
                            d.status === 'in_progress' ? chalk.cyan : chalk.yellow;
-        console.log(`  ${chalk.yellow(`[${index}]`)} ${statusColor(`[${d.status}]`)} ← ${chalk.gray(d.delegator)} ${chalk.gray(time)} ${d.task.slice(0, 40)}...`);
+        const complexity = assessTaskComplexity(d.task);
+        const complexityIcon = complexity === 'complex' ? chalk.yellow('⚠') : '';
+        console.log(`  ${chalk.yellow(`[${index}]`)} ${statusColor(`[${d.status}]`)} ${complexityIcon}← ${chalk.gray(d.delegator)} ${chalk.gray(time)} ${d.task.slice(0, 40)}...`);
         taskMap.push(d);
         index++;
       }
@@ -1554,6 +1587,12 @@ async function showTasksPanel(
     console.log(`  ${delegation.delegator === state.currentAgentId ? '委派给' : '来自'}: ${chalk.magenta(delegation.delegator === state.currentAgentId ? delegation.delegatee : delegation.delegator)}`);
     console.log(`  状态: ${chalk.yellow(delegation.status)}`);
     console.log(`  优先级: ${delegation.priority}`);
+    
+    const complexity = assessTaskComplexity(delegation.task);
+    const complexityColor = complexity === 'simple' ? chalk.green : chalk.yellow;
+    const complexityText = complexity === 'simple' ? '简单任务（可自动执行）' : '复杂任务（需要确认）';
+    console.log(`  复杂度: ${complexityColor(complexityText)}`);
+    
     console.log(`  创建时间: ${chalk.gray(new Date(delegation.createdAt).toLocaleString('zh-CN'))}`);
     console.log(`  更新时间: ${chalk.gray(new Date(delegation.updatedAt).toLocaleString('zh-CN'))}`);
     console.log(chalk.gray('='.repeat(50)));
@@ -1571,6 +1610,12 @@ async function showTasksPanel(
     console.log();
     
     if (delegation.status === 'accepted') {
+      const complexity = assessTaskComplexity(delegation.task);
+      
+      if (complexity === 'complex') {
+        console.log(chalk.yellow('此任务是复杂任务，建议您先确认是否执行：'));
+      }
+      
       console.log(chalk.yellow('操作选项:'));
       console.log('  1. 标记为进行中并自动执行');
       console.log('  2. 标记为已完成（手动输入结果）');
