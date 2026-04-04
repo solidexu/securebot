@@ -64,6 +64,14 @@ export function loadFromConfig(config: WorkflowConfig): Graph {
     builder.setConfig(config.langgraph);
   }
 
+  // 设置循环和迭代配置
+  if (config.allowCycles) {
+    builder.allowCycles(config.allowCycles);
+  }
+  if (config.maxIterations) {
+    builder.maxIterations(config.maxIterations);
+  }
+
   return builder.build();
 }
 
@@ -193,8 +201,15 @@ export function validateYamlConfig(yamlContent: string): {
 /**
  * 从文件路径加载图
  */
-export async function loadFromFile(filePath: string): Promise<Graph> {
+export async function loadFromFile(filePath: string): Promise<Graph | null> {
   const fs = await import('node:fs/promises');
-  const content = await fs.readFile(filePath, 'utf-8');
-  return loadFromYaml(content);
+  try {
+    const content = await fs.readFile(filePath, 'utf-8');
+    return loadFromYaml(content);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return null;
+    }
+    throw error;
+  }
 }

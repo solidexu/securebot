@@ -496,7 +496,7 @@ export class DelegationManager {
    * 接受委派
    */
   async acceptDelegation(delegationId: string): Promise<void> {
-    const delegation = this.delegations.get(delegationId);
+    const delegation = this.findDelegationById(delegationId);
     if (!delegation) {
       throw new Error('委派不存在');
     }
@@ -510,7 +510,7 @@ export class DelegationManager {
    * 拒绝委派
    */
   async rejectDelegation(delegationId: string, reason?: string): Promise<void> {
-    const delegation = this.delegations.get(delegationId);
+    const delegation = this.findDelegationById(delegationId);
     if (!delegation) {
       throw new Error('委派不存在');
     }
@@ -525,7 +525,7 @@ export class DelegationManager {
    * 完成委派
    */
   async completeDelegation(delegationId: string, result: string): Promise<void> {
-    const delegation = this.delegations.get(delegationId);
+    const delegation = this.findDelegationById(delegationId);
     if (!delegation) {
       throw new Error('委派不存在');
     }
@@ -534,6 +534,24 @@ export class DelegationManager {
     delegation.result = result;
     delegation.updatedAt = Date.now();
     await this.persistDelegation(delegation);
+  }
+
+  /**
+   * 查找委派（支持部分ID匹配）
+   */
+  private findDelegationById(id: string): DelegationRequest | undefined {
+    // 先尝试完整匹配
+    const fullMatch = this.delegations.get(id);
+    if (fullMatch) return fullMatch;
+    
+    // 尝试部分匹配（前8位或更多）
+    for (const [fullId, delegation] of this.delegations) {
+      if (fullId.startsWith(id)) {
+        return delegation;
+      }
+    }
+    
+    return undefined;
   }
 
   /**

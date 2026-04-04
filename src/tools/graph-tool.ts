@@ -75,7 +75,7 @@ export class GraphTool {
    * 加载图
    */
   async loadGraph(source: string): Promise<string> {
-    let graph: Graph;
+    let graph: Graph | null;
 
     // 判断是文件路径还是 YAML 内容
     if (source.includes('\n') || source.includes(':')) {
@@ -84,6 +84,10 @@ export class GraphTool {
     } else {
       // 文件路径
       graph = await loadFromFile(source);
+    }
+
+    if (!graph) {
+      throw new Error(`Failed to load graph from: ${source}`);
     }
 
     const graphId = graph.getId();

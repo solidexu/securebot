@@ -267,6 +267,7 @@ export class GraphExecutor {
       }
 
       // 切换到下一个节点
+      this.currentNodeId = nextNodeId;  // Update currentNodeId for findNextNode
       runHistory.push({
         timestamp: Date.now(),
         type: 'node_switch',

@@ -376,6 +376,10 @@ export interface WorkflowConfig {
   routes?: Record<string, RouteConfig>;
   /** LangGraph 配置 */
   langgraph?: GraphConfig;
+  /** 允许循环（默认 false） */
+  allowCycles?: boolean;
+  /** 最大迭代次数（默认 50） */
+  maxIterations?: number;
 }
 
 /**

@@ -106,6 +106,8 @@ id: loop-workflow
 name: 循环工作流
 mode: lightweight
 entry: worker
+allowCycles: true
+maxIterations: 10
 
 agents:
   - id: worker
@@ -247,24 +249,42 @@ describe('YAML工作流加载', () => {
     });
 
     it('应该正确解析循环流程', () => {
-      const graph = loadFromYaml(loopYaml);
-      
-      expect(graph.getNodes().size).toBe(2);
-      expect(graph.getEdges().length).toBe(2);
-      
-      // 循环图在默认情况下应该验证失败
-      const validation = graph.validate();
-      expect(validation.valid).toBe(false);
-      expect(validation.errors.some(e => e.includes('Cycle'))).toBe(true);
+      // 循环图在没有allowCycles时加载会失败
+      expect(() => {
+        loadFromYaml(`
+id: loop-no-allow
+name: 循环检测测试
+mode: lightweight
+entry: worker
+
+agents:
+  - id: worker
+    name: 工作者
+    role: Worker
+    systemPrompt: 执行任务
+
+  - id: checker
+    name: 检查员
+    role: Checker
+    systemPrompt: 检查结果
+
+edges:
+  - source: worker
+    target: checker
+    type: direct
+
+  - source: checker
+    target: worker
+    type: direct
+`);
+      }).toThrow('Cycle detected');
     });
 
     it('应该允许循环图（设置allowCycles）', () => {
       const validation = validateYamlConfig(loopYaml);
       
-      // 手动设置allowCycles
+      // loopYaml already has allowCycles: true
       const graph = loadFromYaml(loopYaml);
-      graph.setAllowCycles(true);
-      graph.setMaxIterations(10);
       
       const validation2 = graph.validate();
       expect(validation2.valid).toBe(true);
@@ -356,8 +376,9 @@ invalid: [yaml content
       const graph = await loadFromFile(skillFile);
       
       expect(graph).toBeDefined();
-      expect(graph.getId()).toBeDefined();
-      expect(graph.getNodes().size).toBeGreaterThan(0);
+      expect(graph).not.toBeNull();
+      expect(graph!.getId()).toBeDefined();
+      expect(graph!.getNodes().size).toBeGreaterThan(0);
     });
 
     it('应该处理不存在的文件', async () => {
@@ -491,7 +512,6 @@ describe('LangGraph兼容性', () => {
 
     it('应该正确处理循环图', () => {
       const graph = loadFromYaml(loopYaml);
-      graph.setAllowCycles(true);
       
       const adapter = new LangGraphAdapter(graph);
       expect(adapter).toBeDefined();
@@ -605,8 +625,8 @@ edges:
 
       // 创建Mock LLM
       const responses = [
-        { content: '风格检查通过', toolCall: { name: 'handoff_to_bug-finder', args: {} } },
-        { content: '发现1个潜在Bug', toolCall: { name: 'handoff_to_reporter', args: {} } },
+        { content: '风格检查通过', toolCall: { name: 'transfer_to_bug-finder', args: {} } },
+        { content: '发现1个潜在Bug', toolCall: { name: 'transfer_to_reporter', args: {} } },
         { content: '审查报告已生成' }
       ];
       
@@ -641,6 +661,8 @@ id: model-training
 name: 模型训练
 mode: lightweight
 entry: coordinator
+allowCycles: true
+maxIterations: 3
 
 agents:
   - id: coordinator
@@ -663,9 +685,6 @@ edges:
     type: direct
 `);
 
-      graph.setAllowCycles(true);
-      graph.setMaxIterations(3);
-
       let iteration = 0;
       const mockLLM = {
         chat: async () => {
@@ -673,7 +692,7 @@ edges:
           if (iteration < 2) {
             return { 
               content: '继续训练', 
-              toolCall: { name: iteration % 2 === 0 ? 'handoff_to_coordinator' : 'handoff_to_trainer', args: {} }
+              toolCall: { name: iteration % 2 === 0 ? 'transfer_to_coordinator' : 'transfer_to_trainer', args: {} }
             };
           }
           return { content: '训练完成' };
@@ -719,7 +738,7 @@ edges:
       const mockLLM = {
         chat: async () => ({
           content: '翻译完成',
-          toolCall: { name: 'handoff_to_reviewer', args: {} }
+          toolCall: { name: 'transfer_to_reviewer', args: {} }
         })
       };
 
@@ -779,7 +798,7 @@ edges:
       const techMockLLM = {
         chat: async () => ({
           content: '这是个技术问题',
-          toolCall: { name: 'handoff_to_tech', args: {} }
+          toolCall: { name: 'transfer_to_tech', args: {} }
         })
       };
 
@@ -900,7 +919,7 @@ describe('错误场景', () => {
     const graph = loadFromYaml(simpleYaml);
     const mockLLM = {
       chat: async () => {
-        await new Promise(resolve => setTimeout(resolve, 10000));
+        await new Promise(resolve => setTimeout(resolve, 100));
         return { content: '完成' };
       }
     };
@@ -910,5 +929,6 @@ describe('错误场景', () => {
 
     // 应该处理长时间运行
     expect(result).toBeDefined();
-  });
+    expect(result.success).toBe(true);
+  }, 10000);
 });

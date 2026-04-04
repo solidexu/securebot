@@ -1315,14 +1315,25 @@ async function handleCollabCommand(state: ReplState, arg: string | undefined, pa
         const time = new Date(d.createdAt).toLocaleTimeString('zh-CN');
         const statusColor = d.status === 'completed' ? chalk.green :
                            d.status === 'failed' ? chalk.red : chalk.yellow;
-        console.log(`  ${chalk.gray(time)} [${statusColor(d.status)}] ${d.task.slice(0, 40)}...`);
+        console.log(`  ${chalk.gray(time)} [${statusColor(d.status)}] ${chalk.blue(d.id.slice(0,8))} ${d.task.slice(0, 40)}...`);
       }
+      console.log(chalk.gray('\n提示: 使用 /collab accept <id> 接受任务'));
+    }
+  } else if (arg === 'accept' && parts[2]) {
+    const delegationId = parts[2];
+    try {
+      await collaborationManager.getDelegationManager().acceptDelegation(delegationId);
+      console.log(chalk.green(`✓ 已接受委派 ${delegationId.slice(0, 8)}`));
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.log(chalk.red(`接受失败: ${msg}`));
     }
   } else {
     console.log(chalk.cyan('协作命令:'));
     console.log('  /collab status              协作状态');
     console.log('  /collab messages            查看消息');
     console.log('  /collab delegations         查看委派');
+    console.log('  /collab accept <id>         接受委派');
     console.log('  /collab delegate <agent> <task>  委派任务');
   }
 }
@@ -2215,6 +2226,7 @@ function printHelp(): void {
   console.log('  /collab status            协作状态');
   console.log('  /collab messages          查看消息');
   console.log('  /collab delegations       查看委派');
+  console.log('  /collab accept <id>       接受委派');
   console.log('  /collab delegate <agent> <task>  委派任务');
   console.log();
   console.log(chalk.cyan('RAG 知识库:'));
