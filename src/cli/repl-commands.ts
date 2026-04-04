@@ -1971,6 +1971,38 @@ async function showTaskDetail(
     }
   }
   
+  // 显示对话历史
+  if (delegation.conversationHistory && delegation.conversationHistory.length > 0) {
+    console.log(chalk.cyan('\n  💬 对话记录:'));
+    console.log(chalk.gray('  ' + '─'.repeat(56)));
+    
+    // 显示最近15条消息
+    const recentMessages = delegation.conversationHistory.slice(-15);
+    for (const msg of recentMessages) {
+      const time = new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+      const senderName = msg.sender === delegation.delegator ? '委托者' : 
+                         msg.sender === delegation.delegatee ? '被委托者' : 
+                         msg.sender;
+      
+      const prefix = msg.type === 'system' ? '[系统]' :
+                     msg.type === 'tool_call' ? '[工具调用]' :
+                     msg.type === 'tool_result' ? '[工具结果]' :
+                     `[${senderName}]`;
+      
+      const color = msg.sender === delegation.delegator ? chalk.magenta :
+                    msg.sender === delegation.delegatee ? chalk.cyan :
+                    msg.type === 'system' ? chalk.gray :
+                    chalk.yellow;
+      
+      // 截断过长的消息
+      const content = msg.content.length > 100 ? msg.content.slice(0, 100) + '...' : msg.content;
+      
+      console.log(color(`    ${prefix} ${time}`));
+      console.log(chalk.white(`      ${content}`));
+    }
+    console.log(chalk.gray('  ' + '─'.repeat(56)));
+  }
+  
   // 显示验收反馈（如果被驳回）
   if (delegation.reviewFeedback && delegation.status === 'accepted') {
     console.log(chalk.red('\n  ⚠️ 验收反馈 (上一轮):'));
@@ -2074,6 +2106,43 @@ async function showTaskDetail(
       }
     });
   }
+  
+  // 发送消息功能（所有状态）
+  actions.push({
+    key: 'm',
+    label: '发送消息',
+    handler: async () => {
+      console.log(chalk.cyan('\n💬 发送消息给对方'));
+      console.log(chalk.gray('─'.repeat(50)));
+      
+      const content = await rl.question(chalk.yellow('请输入消息内容: '));
+      
+      if (!content.trim()) {
+        console.log(chalk.gray('\n消息不能为空'));
+        await new Promise(r => setTimeout(r, 1000));
+        return false;
+      }
+      
+      try {
+        const message = await collaborationManager.getDelegationManager().sendMessage(
+          delegation.id,
+          state.currentAgentId,
+          content.trim(),
+          'text'
+        );
+        
+        console.log(chalk.green('\n✓ 消息已发送'));
+        console.log(chalk.gray(`时间: ${new Date(message.timestamp).toLocaleTimeString('zh-CN')}`));
+        await new Promise(r => setTimeout(r, 1000));
+        return true;
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        console.log(chalk.red(`\n✗ 发送失败: ${msg}`));
+        await rl.question(chalk.gray('按回车继续...'));
+        return false;
+      }
+    }
+  });
   
   // 重试操作（failed 状态）
   if (delegation.status === 'failed') {

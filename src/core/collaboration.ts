@@ -905,11 +905,26 @@ export class DelegationManager {
       throw new Error('委派不存在');
     }
     
+    // 权限验证：只有委托者和被委托者可以发送消息
+    if (sender !== delegation.delegator && sender !== delegation.delegatee) {
+      throw new Error(`无权限：只有委托者 (${delegation.delegator}) 和被委托者 (${delegation.delegatee}) 可以发送消息`);
+    }
+    
+    // 内容验证
+    if (!content || content.trim().length === 0) {
+      throw new Error('消息内容不能为空');
+    }
+    
+    // 限制消息长度
+    if (content.length > 10000) {
+      throw new Error('消息长度不能超过 10000 字符');
+    }
+    
     const message: ConversationMessage = {
       id: uuidv4(),
       delegationId,
       sender,
-      content,
+      content: content.trim(),
       timestamp: Date.now(),
       type,
       read: false,

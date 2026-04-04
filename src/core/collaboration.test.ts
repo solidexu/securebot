@@ -20,6 +20,9 @@ vi.mock('node:fs', () => ({
   writeFileSync: vi.fn(),
   readdirSync: vi.fn(() => []),
   unlinkSync: vi.fn(),
+  promises: {
+    writeFile: vi.fn(),
+  },
 }));
 
 vi.mock('uuid', () => ({
@@ -485,6 +488,139 @@ describe('CollaborationManager', () => {
       expect(stats.pendingMessages).toBe(1);
       expect(stats.activeDelegations).toBe(0); // pending, not accepted yet
       expect(stats.sharedWorkspaces).toBe(1);
+    });
+  });
+});
+
+describe('Conversation Management', () => {
+  let manager: DelegationManager;
+  let delegationId: string;
+
+  beforeEach(async () => {
+    manager = new DelegationManager();
+    const delegation = await manager.delegate({
+      delegator: 'agent1',
+      delegatee: 'agent2',
+      task: 'Test task for conversation',
+      priority: 'normal',
+      deadline: undefined,
+      acceptanceCriteria: undefined,
+      expectedDeliverables: undefined,
+      context: undefined,
+    });
+    delegationId = delegation.id;
+  });
+
+  describe('sendMessage', () => {
+    it('should send a text message', async () => {
+      const message = await manager.sendMessage(
+        delegationId,
+        'agent1',
+        'Hello from agent1',
+        'text'
+      );
+
+      expect(message.id).toBeDefined();
+      expect(message.sender).toBe('agent1');
+      expect(message.content).toBe('Hello from agent1');
+      expect(message.type).toBe('text');
+      expect(message.read).toBe(false);
+    });
+
+    it('should add message to conversation history', async () => {
+      await manager.sendMessage(delegationId, 'agent1', 'Message 1', 'text');
+      await manager.sendMessage(delegationId, 'agent2', 'Message 2', 'text');
+
+      const history = manager.getConversationHistory(delegationId);
+      expect(history.length).toBe(2);
+      expect(history[0]?.content).toBe('Message 1');
+      expect(history[1]?.content).toBe('Message 2');
+    });
+
+    it('should throw error for non-existent delegation', async () => {
+      await expect(
+        manager.sendMessage('invalid-id', 'agent1', 'Test', 'text')
+      ).rejects.toThrow('委派不存在');
+    });
+
+    it('should throw error for unauthorized sender', async () => {
+      await expect(
+        manager.sendMessage(delegationId, 'agent3', 'Test', 'text')
+      ).rejects.toThrow('无权限');
+    });
+
+    it('should throw error for empty content', async () => {
+      await expect(
+        manager.sendMessage(delegationId, 'agent1', '', 'text')
+      ).rejects.toThrow('消息内容不能为空');
+    });
+
+    it('should throw error for content exceeding limit', async () => {
+      const longContent = 'a'.repeat(10001);
+      await expect(
+        manager.sendMessage(delegationId, 'agent1', longContent, 'text')
+      ).rejects.toThrow('消息长度不能超过 10000 字符');
+    });
+  });
+
+  describe('getConversationHistory', () => {
+    it('should return empty array for non-existent delegation', () => {
+      const history = manager.getConversationHistory('invalid-id');
+      expect(history).toEqual([]);
+    });
+
+    it('should return conversation history', async () => {
+      await manager.sendMessage(delegationId, 'agent1', 'Hi', 'text');
+      await manager.sendMessage(delegationId, 'agent2', 'Hello', 'text');
+
+      const history = manager.getConversationHistory(delegationId);
+      expect(history.length).toBe(2);
+    });
+  });
+
+  describe('markMessagesAsRead', () => {
+    it('should mark messages as read', async () => {
+      await manager.sendMessage(delegationId, 'agent1', 'Message from agent1', 'text');
+      await manager.sendMessage(delegationId, 'agent2', 'Message from agent2', 'text');
+
+      await manager.markMessagesAsRead(delegationId, 'agent1');
+
+      const history = manager.getConversationHistory(delegationId);
+      // agent1's own message should not be marked as read
+      expect(history[0]?.read).toBe(false);
+      // agent2's message should be marked as read
+      expect(history[1]?.read).toBe(true);
+    });
+
+    it('should not fail for non-existent delegation', async () => {
+      await expect(
+        manager.markMessagesAsRead('invalid-id', 'agent1')
+      ).resolves.not.toThrow();
+    });
+  });
+
+  describe('getUnreadCount', () => {
+    it('should return unread message count', async () => {
+      await manager.sendMessage(delegationId, 'agent1', 'Message 1', 'text');
+      await manager.sendMessage(delegationId, 'agent1', 'Message 2', 'text');
+      await manager.sendMessage(delegationId, 'agent2', 'Message 3', 'text');
+
+      const unreadCount = manager.getUnreadCount(delegationId, 'agent2');
+      // agent2 has 2 unread messages from agent1
+      expect(unreadCount).toBe(2);
+    });
+
+    it('should return 0 for non-existent delegation', () => {
+      const count = manager.getUnreadCount('invalid-id', 'agent1');
+      expect(count).toBe(0);
+    });
+
+    it('should return 0 after marking as read', async () => {
+      await manager.sendMessage(delegationId, 'agent1', 'Message', 'text');
+
+      await manager.markMessagesAsRead(delegationId, 'agent2');
+      const count = manager.getUnreadCount(delegationId, 'agent2');
+      expect(count).toBe(0);
     });
   });
 });
