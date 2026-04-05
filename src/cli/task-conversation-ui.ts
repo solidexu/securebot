@@ -38,6 +38,23 @@ export class TaskConversationUI {
   async start(): Promise<void> {
     this.isRunning = true;
     
+    // 初始化工作目录（如果设置了 workspace）
+    if (this.taskInfo.workspace && existsSync(this.taskInfo.workspace)) {
+      try {
+        const items = readdirSync(this.taskInfo.workspace);
+        this.workspaceFiles = items.filter(item => {
+          return !item.startsWith('.') && !item.startsWith('__pycache__');
+        }).map(item => {
+          const itemPath = join(this.taskInfo.workspace!, item);
+          const stat = statSync(itemPath);
+          const icon = stat.isDirectory() ? '📁' : '📄';
+          return `${icon} ${item}`;
+        });
+      } catch {
+        this.workspaceFiles = [];
+      }
+    }
+    
     // 只使用 raw mode，不创建 readline（避免重复监听）
     if (process.stdin.isTTY) {
       process.stdin.setRawMode(true);
@@ -70,30 +87,37 @@ export class TaskConversationUI {
 
   addMessage(message: Message): void {
     this.messages.push(message);
-    this.render();
+    if (this.isRunning) {
+      this.render();
+    }
   }
 
   setTodos(todos: string[]): void {
     this.todos = todos;
-    this.render();
+    if (this.isRunning) {
+      this.render();
+    }
   }
 
   setContext(context: string[]): void {
     this.context = context;
-    this.render();
+    if (this.isRunning) {
+      this.render();
+    }
   }
 
   updateWorkspace(): void {
     if (!this.taskInfo.workspace || !existsSync(this.taskInfo.workspace)) {
       this.workspaceFiles = [];
+      if (this.isRunning) {
+        this.render();
+      }
       return;
     }
 
     try {
       const items = readdirSync(this.taskInfo.workspace);
       this.workspaceFiles = items.filter(item => {
-        const itemPath = join(this.taskInfo.workspace!, item);
-        const stat = statSync(itemPath);
         return !item.startsWith('.') && !item.startsWith('__pycache__');
       }).map(item => {
         const itemPath = join(this.taskInfo.workspace!, item);
@@ -101,11 +125,13 @@ export class TaskConversationUI {
         const icon = stat.isDirectory() ? '📁' : '📄';
         return `${icon} ${item}`;
       });
-    } catch (error) {
+    } catch {
       this.workspaceFiles = [];
     }
     
-    this.render();
+    if (this.isRunning) {
+      this.render();
+    }
   }
 
   private render(): void {
@@ -165,19 +191,20 @@ export class TaskConversationUI {
     if (row < messageAreaHeight + 1) {
       // 消息内容
       const messageIndex = row - 1 + this.scrollOffset;
-      if (messageIndex < this.messages.length) {
+      if (messageIndex >= 0 && messageIndex < this.messages.length) {
         const msg = this.messages[messageIndex];
-        return this.formatMessage(msg, width);
-      } else {
-        return ' '.repeat(width);
+        if (msg) {
+          return this.formatMessage(msg, width);
+        }
       }
+      return ' '.repeat(width);
     }
     
     // 底部分隔线
     return chalk.gray('─'.repeat(width));
   }
 
-  private renderRightContent(row: number, width: number, totalHeight: number): string {
+  private renderRightContent(row: number, width: number, _totalHeight: number): string {
     const sections = [
       { title: '📋 TODO', items: this.todos },
       { title: '📝 Context', items: this.context },
@@ -221,10 +248,6 @@ export class TaskConversationUI {
       minute: '2-digit' 
     });
     
-    const senderName = msg.sender === this.taskInfo.delegator ? '委派者' :
-                      msg.sender === this.taskInfo.delegatee ? '受托者' :
-                      msg.sender === 'system' ? '系统' : msg.sender;
-    
     let prefix: string;
     let contentColor: (text: string) => string;
     
@@ -247,9 +270,8 @@ export class TaskConversationUI {
 
   private renderInputArea(width: number): void {
     console.log(chalk.cyan('─'.repeat(width)));
-    console.log(chalk.yellow('  输入消息（直接输入，Enter发送，Esc退出）:'));
+    console.log(chalk.yellow('  输入消息（Enter发送，Esc/Ctrl+C退出）:'));
     
-    // 显示输入缓冲区
     const prompt = chalk.bold.green('> ');
     const inputLine = this.inputBuffer + '█';
     console.log(prompt + inputLine);
@@ -262,38 +284,44 @@ export class TaskConversationUI {
         return;
       }
 
+      // SIGINT 信号处理（Ctrl+C）
+      const sigintHandler = () => {
+        this.stop();
+        resolve();
+      };
+      process.once('SIGINT', sigintHandler);
+
       this.stdinHandler = (key: string) => {
         if (!this.isRunning) {
           process.stdin.removeListener('data', this.stdinHandler!);
+          process.removeListener('SIGINT', sigintHandler);
           resolve();
           return;
         }
 
-        // 处理特殊按键
-        if (key === '\u001b') { // ESC
+        // Ctrl+C (SIGINT 在 raw mode 下也会发送 \u0003)
+        if (key === '\u0003' || key === '\u001b') {
           this.stop();
+          process.removeListener('SIGINT', sigintHandler);
           resolve();
           return;
         }
 
-        if (key === '\r' || key === '\n') { // Enter
-          if (this.inputBuffer.trim()) {
-            if (this.messageCallback) {
-              this.messageCallback(this.inputBuffer.trim());
-            }
+        if (key === '\r' || key === '\n') {
+          if (this.inputBuffer.trim() && this.messageCallback) {
+            this.messageCallback(this.inputBuffer.trim());
             this.inputBuffer = '';
             this.render();
           }
           return;
         }
 
-        if (key === '\u007f' || key === '\b') { // Backspace
+        if (key === '\u007f' || key === '\b') {
           this.inputBuffer = this.inputBuffer.slice(0, -1);
           this.render();
           return;
         }
 
-        // 普通字符输入
         if (key.length === 1 && key.charCodeAt(0) >= 32) {
           this.inputBuffer += key;
           this.render();
