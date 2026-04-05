@@ -53,27 +53,19 @@ const HeaderBar: React.FC<{ agent: string }> = ({ agent }) => (
  */
 const StatusBar: React.FC = () => {
   const { isStreaming, currentAgent, messages } = useApp();
-  const cols = process.stdout.columns || 80;
 
   return (
-    <Box width="100%" flexDirection="column">
-      {/* 状态栏内容行 */}
-      <Box paddingLeft={0} paddingRight={0}>
-        <Text color="gray" bold>
-          {'\u2503'}{' '}
-          [{messages.length} msgs]
-          {' | '}
-          <Text color={isStreaming ? 'yellow' : 'green'}>
-            {isStreaming ? '\u25b6 Gen...' : '\u25cb Ready'}
-          </Text>
-          {' '}
-          <Text color="magenta">|</Text>{' '}
-          [<Text color="cyan">{currentAgent}</Text>]
+    <Box width="100%">
+      <Text color="gray" dimColor bold>
+        {' ['}
+        {messages.length} msgs
+        {'] | '}
+        <Text color={isStreaming ? 'yellow' : 'green'}>
+          {isStreaming ? '\u25b6 Gen...' : '\u25cb Ready'}
         </Text>
-      </Box>
-      {/* 底部分隔线 */}
-      <Text color="gray">
-        {'\u2500'.repeat(cols)}
+        {' | '}
+        <Text color="magenta">{currentAgent}</Text>
+        {' ]'}
       </Text>
     </Box>
   );
