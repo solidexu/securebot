@@ -2153,8 +2153,8 @@ async function showTaskDetailInner(
       key: 'r',
       label: '验收任务',
       handler: async () => {
-        await reviewTask(state, delegation, rl, collaborationManager);
-        return true;
+        await reviewTask(state, delegation, rl, collaborationManager, conversationStorage);
+        return false;  // 保持在任务详情界面
       }
     });
   }
@@ -2451,13 +2451,14 @@ async function reviewTask(
   state: ReplState,
   delegation: any,
   rl: readlinePromises.Interface,
-  collaborationManager: any
+  collaborationManager: any,
+  conversationStorage: any
 ): Promise<void> {
-  console.log(chalk.cyan('\n🔍 正在生成 review 总结...'));
+  console.log(chalk.cyan('\n🔍 正在生成验收总结...'));
   const reviewSummary = await generateReviewSummary(state, delegation);
   
   console.log();
-  console.log(chalk.cyan.bold('📋 Review 总结'));
+  console.log(chalk.cyan.bold('📋 验收总结'));
   console.log(chalk.gray('─'.repeat(50)));
   console.log(chalk.white(reviewSummary));
   console.log(chalk.gray('─'.repeat(50)));
@@ -2466,19 +2467,50 @@ async function reviewTask(
   const action = await rl.question(chalk.yellow('验收结果? (y=通过, n=驳回, v=查看详情): '));
   
   if (action.toLowerCase() === 'y') {
+    // 发送验收通过的系统消息
+    const approveMessage = await collaborationManager.getDelegationManager().sendMessage(
+      delegation.id,
+      'system',
+      `✅ 任务验收通过\n\n验收总结:\n${reviewSummary}`,
+      'system'
+    );
+    
+    if (conversationStorage) {
+      conversationStorage.appendMessage(approveMessage);
+    }
+    
+    // 执行验收通过
     await collaborationManager.getDelegationManager().approveDelegation(delegation.id);
+    
     console.log(chalk.green.bold('\n✓ 任务验收通过！'));
-    await new Promise(r => setTimeout(r, 1500));
+    console.log(chalk.gray('验收结果已记录到任务对话'));
+    await new Promise(r => setTimeout(r, 1000));
   } else if (action.toLowerCase() === 'n') {
     console.log(chalk.yellow('\n请输入驳回理由:'));
     const feedback = await rl.question(chalk.yellow('理由: '));
     
     if (feedback.trim()) {
+      // 发送驳回的系统消息
+      const rejectMessage = await collaborationManager.getDelegationManager().sendMessage(
+        delegation.id,
+        'system',
+        `❌ 任务验收驳回\n\n驳回理由: ${feedback}\n\n任务将重新执行`,
+        'system'
+      );
+      
+      if (conversationStorage) {
+        conversationStorage.appendMessage(rejectMessage);
+      }
+      
+      // 执行驳回
       await collaborationManager.getDelegationManager().rejectReview(delegation.id, feedback);
+      
       console.log(chalk.yellow.bold('\n✓ 任务已驳回，将重新执行'));
-      await new Promise(r => setTimeout(r, 1500));
+      console.log(chalk.gray('驳回理由已记录到任务对话'));
+      await new Promise(r => setTimeout(r, 1000));
     } else {
       console.log(chalk.gray('\n已取消驳回'));
+      await new Promise(r => setTimeout(r, 800));
     }
   } else if (action.toLowerCase() === 'v') {
     console.log(chalk.cyan('\n📄 详细执行结果:'));
