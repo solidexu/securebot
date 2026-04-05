@@ -22,7 +22,7 @@ export interface TaskInfo {
 export class TaskConversationUI {
   private messages: Message[] = [];
   private taskInfo: TaskInfo;
-  private todos: string[] = [];
+  private _todos: string[] = [];  // 暂不显示，保留以备后用
   private context: string[] = [];
   private workspaceFiles: string[] = [];
   private isRunning: boolean = false;
@@ -95,31 +95,21 @@ export class TaskConversationUI {
 
   addMessage(message: Message): void {
     this.messages.push(message);
-    if (this.isRunning) {
-      this.render();
-    }
+    this.scheduleRender();
   }
 
   setTodos(todos: string[]): void {
-    this.todos = todos;
-    if (this.isRunning) {
-      this.render();
-    }
+    this._todos = todos;
   }
 
   setContext(context: string[]): void {
     this.context = context;
-    if (this.isRunning) {
-      this.render();
-    }
+    this.scheduleRender();
   }
 
   updateWorkspace(): void {
     if (!this.taskInfo.workspace || !existsSync(this.taskInfo.workspace)) {
       this.workspaceFiles = [];
-      if (this.isRunning) {
-        this.render();
-      }
       return;
     }
 
@@ -140,6 +130,22 @@ export class TaskConversationUI {
     if (this.isRunning) {
       this.render();
     }
+  }
+
+  private scheduleRender(): void {
+    if (!this.isRunning) return;
+    
+    // 清除之前的渲染定时器
+    if (this.renderTimer) {
+      clearTimeout(this.renderTimer);
+    }
+    
+    // 延迟 50ms 渲染，避免频繁重绘
+    this.renderTimer = setTimeout(() => {
+      if (this.isRunning) {
+        this.render();
+      }
+    }, 50);
   }
 
   private render(): void {
@@ -212,8 +218,8 @@ export class TaskConversationUI {
   }
 
   private renderRightContent(row: number, width: number, _totalHeight: number): string {
+    // 暂时不显示 TODO，因为验收标准太长
     const sections = [
-      { title: '📋 TODO', items: this.todos },
       { title: '📝 Context', items: this.context },
       { title: '📁 工作目录', items: this.workspaceFiles },
     ];
