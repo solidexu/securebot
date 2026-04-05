@@ -2235,12 +2235,14 @@ async function showTaskDetailInner(
             await collaborationManager.getDelegationManager().acceptDelegation(delegation.id);
             
             console.log(chalk.green('\n✓ 任务已被自动接受'));
-            console.log(chalk.gray('任务将开始执行...'));
+            console.log(chalk.gray('任务将开始执行，保持在对话界面查看进度...'));
             if (conversationStorage) {
               console.log(chalk.gray(`对话已保存到: ${conversationStorage.getConversationFilePath()}`));
             }
-            await new Promise(r => setTimeout(r, 1500));
-            return true;
+            await new Promise(r => setTimeout(r, 1000));
+            
+            // 不退出，保持在任务详情界面
+            return false;
           } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             console.log(chalk.red(`\n✗ 自动接受失败: ${msg}`));
