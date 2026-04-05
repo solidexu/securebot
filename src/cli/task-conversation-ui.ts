@@ -19,7 +19,8 @@ export interface TaskInfo {
   workspace?: string;
 }
 
-const MAX_MESSAGES = 500;  // 最大保留消息数
+const MAX_MESSAGES = 500;
+const MIN_RENDER_INTERVAL = 300;  // 最小渲染间隔（毫秒）
 
 export class TaskConversationUI {
   private messages: Message[] = [];
@@ -34,7 +35,9 @@ export class TaskConversationUI {
   private renderTimer?: ReturnType<typeof setTimeout>;
   private selectedParticipant: 'delegator' | 'delegatee' | null = null;
   private currentUserId: string;
-  private messageAreaHeight: number = 0;  // 消息区域高度
+  private messageAreaHeight: number = 0;
+  private lastRenderTime: number = 0;  // 上次渲染时间
+  private pendingMessages: Message[] = [];  // 待渲染消息队列
 
   constructor(taskInfo: TaskInfo, currentUserId?: string) {
     this.taskInfo = taskInfo;
@@ -98,13 +101,12 @@ export class TaskConversationUI {
 
   addMessage(message: Message): void {
     this.messages.push(message);
+    this.pendingMessages.push(message);
     
-    // 超过最大消息数时，删除旧消息
     if (this.messages.length > MAX_MESSAGES) {
       this.messages = this.messages.slice(-MAX_MESSAGES);
     }
     
-    // 自动滚动到底部
     this.scrollToBottom();
     this.scheduleRender();
   }
@@ -119,7 +121,7 @@ export class TaskConversationUI {
     if (statusLine) {
       this.taskInfo.status = statusLine.replace('状态:', '').trim();
     }
-    this.scheduleRender();
+    // context 变化不立即渲染，等待下次消息更新
   }
 
   updateWorkspace(): void {
@@ -141,10 +143,6 @@ export class TaskConversationUI {
     } catch {
       this.workspaceFiles = [];
     }
-    
-    if (this.isRunning) {
-      this.render();
-    }
   }
 
   private scrollToBottom(): void {
@@ -163,18 +161,34 @@ export class TaskConversationUI {
   private scheduleRender(): void {
     if (!this.isRunning) return;
     
-    if (this.renderTimer) {
-      clearTimeout(this.renderTimer);
-    }
+    const now = Date.now();
+    const timeSinceLastRender = now - this.lastRenderTime;
     
-    this.renderTimer = setTimeout(() => {
-      if (this.isRunning) {
-        this.render();
+    // 如果距离上次渲染时间太短，延迟渲染
+    if (timeSinceLastRender < MIN_RENDER_INTERVAL) {
+      if (this.renderTimer) {
+        clearTimeout(this.renderTimer);
       }
-    }, 50);
+      
+      this.renderTimer = setTimeout(() => {
+        if (this.isRunning) {
+          this.render();
+          this.pendingMessages = [];
+        }
+      }, MIN_RENDER_INTERVAL - timeSinceLastRender);
+    } else {
+      // 立即渲染
+      if (this.renderTimer) {
+        clearTimeout(this.renderTimer);
+      }
+      this.render();
+      this.pendingMessages = [];
+    }
   }
 
   private render(): void {
+    this.lastRenderTime = Date.now();
+    
     const output: string[] = [];
     const width = process.stdout.columns || 120;
     const height = process.stdout.rows || 40;
@@ -185,7 +199,7 @@ export class TaskConversationUI {
     output.push(this.renderHeader(leftWidth));
     
     const contentHeight = height - 5;
-    this.messageAreaHeight = contentHeight - 2;  // 减去头尾分隔线
+    this.messageAreaHeight = contentHeight - 2;
     
     for (let row = 0; row < contentHeight; row++) {
       const leftLine = this.renderConversationLine(row, leftWidth, contentHeight);
@@ -379,7 +393,6 @@ export class TaskConversationUI {
     }
     
     // 显示消息统计
-    const showing = Math.min(visible, total);
     const start = this.scrollOffset + 1;
     const end = Math.min(this.scrollOffset + visible, total);
     
