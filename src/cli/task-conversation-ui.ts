@@ -27,7 +27,7 @@ export interface AgentStatus {
 export class TaskConversationUI {
   private screen: blessed.Widgets.Screen;
   private chatBox: blessed.Widgets.BoxElement;
-  private inputBox: blessed.Widgets.TextboxElement;
+  private inputBox: blessed.Widgets.BoxElement;
   private statusBox: blessed.Widgets.BoxElement;
   private agentBox: blessed.Widgets.BoxElement;
   private logBox: blessed.Widgets.BoxElement;
@@ -38,6 +38,8 @@ export class TaskConversationUI {
   private recentLogs: string[] = [];
   private messageCallback?: (message: string) => void;
   private currentUserId: string;
+  private inputBuffer: string = '';
+  private stdinHandler?: (key: string) => void;
 
   constructor(taskInfo: TaskInfo, currentUserId?: string) {
     this.taskInfo = taskInfo;
@@ -80,21 +82,19 @@ export class TaskConversationUI {
       vi: true,
     });
 
-    // 底部输入框 (70% 宽度, 15% 高度)
-    this.inputBox = blessed.textbox({
+    // 底部输入框显示区 (用 box 而不是 textbox)
+    this.inputBox = blessed.box({
       parent: this.screen,
       bottom: 0,
       left: 0,
       width: '70%',
       height: 3,
       label: ' 输入消息 (Enter 发送, Esc 退出) ',
-      inputOnFocus: true,
+      tags: true,
       border: { type: 'line' },
       style: {
         border: { fg: 'green' },
-        focus: { border: { fg: 'yellow' } },
       },
-      keys: true,
     });
 
     // 右侧状态栏 (30% 宽度)
@@ -142,46 +142,64 @@ export class TaskConversationUI {
         style: { inverse: true },
       },
     });
-
-    this.setupEvents();
-  }
-
-  private setupEvents(): void {
-    // Enter 发送消息
-    this.inputBox.key('enter', async () => {
-      const message = this.inputBox.getValue();
-      if (message.trim() && this.messageCallback) {
-        this.messageCallback(message.trim());
-        this.inputBox.clearValue();
-        this.screen.render();
-      }
-    });
-
-    // Esc 退出
-    this.inputBox.key('escape', () => {
-      this.stop();
-    });
-
-    // Ctrl+C 退出
-    this.screen.key(['C-c'], () => {
-      this.stop();
-    });
-
-    // 聚焦输入框
-    this.inputBox.focus();
   }
 
   async start(): Promise<void> {
     this.updateDisplay();
     
+    // 设置原始模式输入
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(true);
+    }
+    process.stdin.resume();
+    process.stdin.setEncoding('utf8');
+    
     return new Promise((resolve) => {
-      // 保存 resolve 以便在 stop() 中调用
       (this as any)._resolveStart = resolve;
+      
+      this.stdinHandler = (key: string) => {
+        // Esc 或 Ctrl+C 退出
+        if (key === '\u001b' || key === '\u0003') {
+          this.stop();
+          return;
+        }
+        
+        // Enter 发送
+        if (key === '\r' || key === '\n') {
+          if (this.inputBuffer.trim() && this.messageCallback) {
+            this.messageCallback(this.inputBuffer.trim());
+            this.inputBuffer = '';
+            this.updateInputBox();
+          }
+          return;
+        }
+        
+        // Backspace
+        if (key === '\u007f' || key === '\b') {
+          this.inputBuffer = this.inputBuffer.slice(0, -1);
+          this.updateInputBox();
+          return;
+        }
+        
+        // 普通字符（包括中文）
+        if (key.charCodeAt(0) >= 32 || key.length > 1) {
+          this.inputBuffer += key;
+          this.updateInputBox();
+        }
+      };
+      
+      process.stdin.on('data', this.stdinHandler);
       this.screen.render();
     });
   }
 
   stop(): void {
+    if (this.stdinHandler) {
+      process.stdin.removeListener('data', this.stdinHandler);
+    }
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(false);
+    }
     this.screen.destroy();
     if ((this as any)._resolveStart) {
       (this as any)._resolveStart();
@@ -197,9 +215,7 @@ export class TaskConversationUI {
     this.updateChatBox();
   }
 
-  setTodos(_todos: string[]): void {
-    // 保留接口兼容性
-  }
+  setTodos(_todos: string[]): void {}
 
   setContext(context: string[]): void {
     const statusLine = context.find(c => c.startsWith('状态:'));
@@ -209,9 +225,7 @@ export class TaskConversationUI {
     this.updateStatusBox();
   }
 
-  updateWorkspace(): void {
-    // 保留接口兼容性
-  }
+  updateWorkspace(): void {}
 
   updateAgentStatus(agentId: string, status: AgentStatus['status'], task?: string): void {
     const agent = this.agents.find(a => a.id === agentId);
@@ -239,6 +253,13 @@ export class TaskConversationUI {
     this.updateAgentBox();
     this.updateLogBox();
     this.updateChatBox();
+    this.updateInputBox();
+  }
+
+  private updateInputBox(): void {
+    const content = `  ${this.inputBuffer}█`;
+    this.inputBox.setContent(content);
+    this.screen.render();
   }
 
   private updateChatBox(): void {
@@ -273,7 +294,7 @@ export class TaskConversationUI {
     }
     
     this.chatBox.setContent(lines.join('\n'));
-    this.chatBox.setScrollPerc(100);  // 滚动到底部
+    this.chatBox.setScrollPerc(100);
     this.screen.render();
   }
 
