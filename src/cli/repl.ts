@@ -357,6 +357,14 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
       const maxIterations = 20; // 最多20轮对话
       
       while (iterations < maxIterations) {
+        // 检查任务是否还存在或被中止
+        const currentDelegation = collaborationManager.getDelegationManager()
+          .findDelegationById(delegation.id);
+        if (!currentDelegation || currentDelegation.status !== 'in_progress') {
+          console.log('任务已被中止或删除，停止执行');
+          return null;
+        }
+        
         // 检查是否被取消
         if (monitor.isCancelled()) {
           // 不需要调用 monitor.stop()
