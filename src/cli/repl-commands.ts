@@ -2166,7 +2166,36 @@ async function showTaskDetailInner(
         const choice = await sessionManager.showAutoAcceptDialog(rl, delegation.delegator, delegation.delegatee);
         
         if (choice === 'auto') {
-          console.log(chalk.green('\n✓ 已设置自动接受'));
+          try {
+            // 先发送消息
+            await collaborationManager.getDelegationManager().sendMessage(
+              delegation.id,
+              state.currentAgentId,
+              content.trim(),
+              'text'
+            );
+            
+            // 发送系统消息
+            await collaborationManager.getDelegationManager().sendMessage(
+              delegation.id,
+              'system',
+              `${delegation.delegatee} 已自动接受任务`,
+              'system'
+            );
+            
+            // 自动接受任务
+            await collaborationManager.getDelegationManager().acceptDelegation(delegation.id);
+            
+            console.log(chalk.green('\n✓ 任务已被自动接受'));
+            console.log(chalk.gray('任务将开始执行...'));
+            await new Promise(r => setTimeout(r, 1500));
+            return true;
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            console.log(chalk.red(`\n✗ 自动接受失败: ${msg}`));
+            await rl.question(chalk.gray('按回车继续...'));
+            return false;
+          }
         } else if (choice === 'cancel') {
           console.log(chalk.gray('\n已取消发送'));
           await new Promise(r => setTimeout(r, 1000));
