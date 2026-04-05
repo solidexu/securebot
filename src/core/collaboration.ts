@@ -771,6 +771,18 @@ export class DelegationManager {
       try {
         console.log(`开始执行任务 ${delegation.id.slice(0, 8)}: ${delegation.task.slice(0, 50)}...`);
         
+        // 发送开始执行的系统消息到对话
+        delegation.conversationHistory = delegation.conversationHistory || [];
+        delegation.conversationHistory.push({
+          id: uuidv4(),
+          delegationId: delegation.id,
+          sender: 'system',
+          content: `🔄 任务开始执行（第${delegation.currentRound + 1}轮）\n\n执行者: ${delegation.delegatee}\n任务: ${delegation.task}`,
+          timestamp: Date.now(),
+          type: 'system',
+          read: false
+        });
+        
         delegation.status = 'in_progress';
         delegation.currentRound++;
         delegation.updatedAt = Date.now();
@@ -804,9 +816,31 @@ export class DelegationManager {
           };
           
           delegation.executionHistory.push(executionRecord);
+          
+          // 发送执行完成的系统消息到对话
+          delegation.conversationHistory.push({
+            id: uuidv4(),
+            delegationId: delegation.id,
+            sender: 'system',
+            content: `✅ 任务执行完成（第${delegation.currentRound}轮）\n\n执行时间: ${Math.round((completedAt - startedAt) / 1000)}秒\n\n执行结果:\n${result.slice(0, 500)}${result.length > 500 ? '...' : ''}`,
+            timestamp: Date.now(),
+            type: 'system',
+            read: false
+          });
         } else {
           delegation.status = 'failed';
           delegation.result = '执行失败，未获得结果';
+          
+          // 发送执行失败的系统消息到对话
+          delegation.conversationHistory.push({
+            id: uuidv4(),
+            delegationId: delegation.id,
+            sender: 'system',
+            content: `❌ 任务执行失败\n\n原因: 未获得执行结果\n请检查任务配置或重试`,
+            timestamp: Date.now(),
+            type: 'system',
+            read: false
+          });
         }
         
         delegation.updatedAt = Date.now();
