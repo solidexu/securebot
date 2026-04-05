@@ -905,8 +905,8 @@ export class DelegationManager {
       throw new Error('委派不存在');
     }
     
-    // 权限验证：只有委托者和被委托者可以发送消息
-    if (sender !== delegation.delegator && sender !== delegation.delegatee) {
+    // 权限验证：只有委托者、被委托者和系统可以发送消息
+    if (sender !== delegation.delegator && sender !== delegation.delegatee && sender !== 'system') {
       throw new Error(`无权限：只有委托者 (${delegation.delegator}) 和被委托者 (${delegation.delegatee}) 可以发送消息`);
     }
     

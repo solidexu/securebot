@@ -2208,7 +2208,7 @@ async function showTaskDetailInner(
             // 先发送消息
             const userMessage = await collaborationManager.getDelegationManager().sendMessage(
               delegation.id,
-              state.currentAgentId,
+              delegation.delegator,  // 使用委托者ID而不是currentAgentId
               content.trim(),
               'text'
             );
@@ -2255,9 +2255,10 @@ async function showTaskDetailInner(
       }
       
       try {
+        const senderId = isDelegator ? delegation.delegator : delegation.delegatee;
         const message = await collaborationManager.getDelegationManager().sendMessage(
           delegation.id,
-          state.currentAgentId,
+          senderId,  // 使用正确的发送者ID
           content.trim(),
           'text'
         );
