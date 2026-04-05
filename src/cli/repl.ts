@@ -440,6 +440,14 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
               
               executionLog.toolCallsCount++;
               
+              // 发送工具调用消息到UI
+              collaborationManager.getDelegationManager().sendExecutionMessage(delegation.id, {
+                type: 'tool_call',
+                sender: 'system',
+                content: `🔧 调用工具: ${toolCall.name}`,
+                timestamp: Date.now()
+              });
+              
               const toolResult = await executeTool(toolCall.name, toolCall.arguments, {
                 agent,
                 session: {} as any,
@@ -468,6 +476,18 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
                   `[${toolCall.name}] ${toolResult.content.slice(0, 200)}`
                 );
               }
+              
+              // 发送工具结果消息到UI
+              const resultPreview = toolResult.success 
+                ? (toolResult.content?.slice(0, 100) || '完成')
+                : `✗ ${toolResult.error?.slice(0, 100) || '失败'}`;
+              
+              collaborationManager.getDelegationManager().sendExecutionMessage(delegation.id, {
+                type: 'tool_result',
+                sender: 'system',
+                content: `${toolResult.success ? '✓' : '✗'} ${toolCall.name}: ${resultPreview}`,
+                timestamp: Date.now()
+              });
               
               monitor.addEvent('tool_result', {
                 tool: toolCall.name,

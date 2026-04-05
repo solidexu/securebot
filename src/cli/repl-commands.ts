@@ -2334,6 +2334,25 @@ async function showTaskDetailInner(
         }
       });
       
+      // 注册执行过程消息回调
+      collaborationManager.getDelegationManager().setConversationUICallback(
+        delegation.id,
+        (msg: any) => {
+          ui.addMessage({
+            id: `exec-${Date.now()}-${Math.random()}`,
+            sender: 'system',
+            content: msg.content,
+            timestamp: msg.timestamp || Date.now(),
+            type: 'system'
+          });
+          
+          // 更新工作目录（如果有文件变更）
+          if (msg.type === 'tool_result' && (msg.content?.includes('write') || msg.content?.includes('edit'))) {
+            ui.updateWorkspace();
+          }
+        }
+      );
+      
       // 启动UI
       await ui.start();
       
