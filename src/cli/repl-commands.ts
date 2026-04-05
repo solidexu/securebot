@@ -1889,11 +1889,29 @@ async function showTaskDetail(
   sessionManager.startWatching(delegation.id, dataDir);
 
   try {
-    const result = await showTaskDetailInner(state, delegation, rl, collaborationManager, sessionManager);
-    if (sessionManager.getPendingDecisionCount() > 0) {
-      console.log(chalk.yellow('\n注意: 有待处理的决策请求'));
+    // 循环保持在任务详情界面，直到用户选择退出
+    while (true) {
+      // 每次循环重新加载任务数据（因为状态可能已改变）
+      const updatedDelegation = collaborationManager.getDelegationManager()
+        .getDelegations(state.currentAgentId, undefined, true)
+        .find((d: any) => d.id === delegation.id);
+      
+      if (!updatedDelegation) {
+        console.log(chalk.red('任务不存在或已被删除'));
+        return true;
+      }
+      
+      // 更新 delegation 引用
+      Object.assign(delegation, updatedDelegation);
+      
+      const result = await showTaskDetailInner(state, delegation, rl, collaborationManager, sessionManager);
+      
+      // 如果返回 true，表示需要退出到任务列表
+      if (result) {
+        return true;
+      }
+      // 如果返回 false，继续循环（保持在任务详情界面）
     }
-    return result;
   } finally {
     sessionManager.cleanup();
   }
@@ -2327,7 +2345,7 @@ async function showTaskDetailInner(
           await collaborationManager.getDelegationManager().deleteDelegation(delegation.id, state.currentAgentId);
           console.log(chalk.green('\n✓ 任务已中止'));
           await new Promise(r => setTimeout(r, 1000));
-          return true;
+          return true;  // 中止后退出到任务列表
         }
         return false;
       }
@@ -2347,7 +2365,7 @@ async function showTaskDetailInner(
             await collaborationManager.getDelegationManager().deleteDelegation(delegation.id, state.currentAgentId);
             console.log(chalk.green('\n✓ 任务已删除'));
             await new Promise(r => setTimeout(r, 1000));
-            return true;
+            return true;  // 删除后退出到任务列表
           } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             console.log(chalk.red(`\n✗ 删除失败: ${msg}`));
@@ -2424,7 +2442,7 @@ async function showTaskDetailInner(
   actions.push({
     key: 'q',
     label: '返回列表',
-    handler: async () => false
+    handler: async () => true  // 返回 true 表示退出到任务列表
   });
   
   // 显示操作菜单
