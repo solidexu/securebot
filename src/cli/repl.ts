@@ -522,13 +522,22 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
       
       monitor.stop();
       
-      // 确保 stdin 恢复正常状态
+      // 确保 stdin 完全恢复正常状态
       try {
-        process.stdin.setRawMode(false);
+        if (process.stdin.isTTY) {
+          process.stdin.setRawMode(false);
+        }
+        process.stdin.resume();
+        process.stdin.setEncoding('utf8');
+        // 清空输入缓冲区
+        process.stdin.pause();
         process.stdin.resume();
       } catch {
         // 忽略错误
       }
+      
+      // 等待一小段时间确保终端状态恢复
+      await new Promise(resolve => setTimeout(resolve, 100));
       
       // 恢复 REPL 的 readline
       console.log(chalk.green('\n✓ 任务执行完成，返回 REPL\n'));

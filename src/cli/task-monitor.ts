@@ -70,6 +70,10 @@ export class TaskMonitor extends EventEmitter {
         process.stdin.setRawMode(false);
       }
       process.stdin.resume();
+      process.stdin.setEncoding('utf8');
+      // 清空输入缓冲区
+      process.stdin.pause();
+      process.stdin.resume();
     } catch (error) {
       // 忽略错误
     }

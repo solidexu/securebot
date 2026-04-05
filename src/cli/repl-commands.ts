@@ -2275,8 +2275,10 @@ async function showTaskDetailInner(
         if (conversationStorage) {
           console.log(chalk.gray(`对话已保存到工作空间`));
         }
-        await new Promise(r => setTimeout(r, 1000));
-        return true;
+        await new Promise(r => setTimeout(r, 800));
+        
+        // 不退出，保持在任务详情界面
+        return false;
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         console.log(chalk.red(`\n✗ 发送失败: ${msg}`));
