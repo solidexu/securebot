@@ -262,11 +262,22 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
       const delegateeAgent = state.agents.get(delegation.delegatee);
       
       if (!delegateeAgent) {
-        console.error(chalk.red(`被委托者 ${delegation.delegatee} 不存在`));
+        collaborationManager.getDelegationManager().sendExecutionMessage(delegation.id, {
+          type: 'system',
+          sender: 'system',
+          content: `❌ 被委托者 ${delegation.delegatee} 不存在`,
+          timestamp: Date.now()
+        });
         return null;
       }
       
-      console.log(chalk.gray(`\n使用 ${delegateeAgent.name} (${delegation.delegatee}) 执行任务...`));
+      // 发送执行开始消息
+      collaborationManager.getDelegationManager().sendExecutionMessage(delegation.id, {
+        type: 'system',
+        sender: 'system',
+        content: `🚀 使用 ${delegateeAgent.name} (${delegation.delegatee}) 执行任务...`,
+        timestamp: Date.now()
+      });
       
       // 构建完整任务提示
       let taskPrompt = delegation.task;
@@ -279,7 +290,13 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
       
       return result;
     } catch (error) {
-      console.error('自动执行任务失败:', error);
+      const msg = error instanceof Error ? error.message : String(error);
+      collaborationManager.getDelegationManager().sendExecutionMessage(delegation.id, {
+        type: 'system',
+        sender: 'system',
+        content: `❌ 自动执行任务失败: ${msg}`,
+        timestamp: Date.now()
+      });
       return null;
     }
   });
@@ -359,9 +376,14 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
       while (iterations < maxIterations) {
         // 检查任务是否还存在或被中止
         const currentDelegation = collaborationManager.getDelegationManager()
-          .findDelegationById(delegation.id);
+          .getDelegation(delegation.id);
         if (!currentDelegation || currentDelegation.status !== 'in_progress') {
-          console.log('任务已被中止或删除，停止执行');
+          collaborationManager.getDelegationManager().sendExecutionMessage(delegation.id, {
+            type: 'system',
+            sender: 'system',
+            content: '⚠️ 任务已被中止或删除，停止执行',
+            timestamp: Date.now()
+          });
           return null;
         }
         

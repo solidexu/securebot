@@ -723,7 +723,6 @@ export class DelegationManager {
     
     // 所有任务都自动加入执行队列
     this.executionQueue.push(delegation.id);
-    console.log(`任务 ${delegation.id.slice(0, 8)} 已加入执行队列，当前位置: ${this.executionQueue.length}`);
     
     // 触发队列处理
     this.processQueue();
@@ -770,7 +769,13 @@ export class DelegationManager {
       let startedAt = Date.now();
       
       try {
-        console.log(`开始执行任务 ${delegation.id.slice(0, 8)}: ${delegation.task.slice(0, 50)}...`);
+        // 发送开始执行消息到 UI
+        this.sendExecutionMessage(delegation.id, {
+          type: 'system',
+          sender: 'system',
+          content: `🔄 开始执行任务（第${delegation.currentRound + 1}轮）`,
+          timestamp: Date.now()
+        });
         
         // 发送开始执行的系统消息到对话
         delegation.conversationHistory = delegation.conversationHistory || [];
@@ -847,6 +852,16 @@ export class DelegationManager {
         delegation.updatedAt = Date.now();
         await this.persistDelegation(delegation);
         
+        // 发送执行完成消息
+        this.sendExecutionMessage(delegation.id, {
+          type: 'system',
+          sender: 'system',
+          content: delegation.status === 'pending_review' 
+            ? `✅ 任务执行完成，等待验收` 
+            : `❌ 任务执行完成，状态: ${delegation.status}`,
+          timestamp: Date.now()
+        });
+        
         // 通知委托者任务已完成，等待验收
         if (delegation.status === 'pending_review') {
           if (this.messageBus) {
@@ -860,9 +875,6 @@ export class DelegationManager {
               read: false,
             });
           }
-          console.log(`任务 ${delegation.id.slice(0, 8)} 执行完成，状态: ${delegation.status}，已通知委托者 ${delegation.delegator}`);
-        } else {
-          console.log(`任务 ${delegation.id.slice(0, 8)} 执行完成，状态: ${delegation.status}`);
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
@@ -894,7 +906,13 @@ export class DelegationManager {
         delegation.executionHistory.push(failedRecord);
         await this.persistDelegation(delegation);
         
-        console.error(`任务 ${delegation.id.slice(0, 8)} 执行失败:`, msg);
+        // 发送执行失败消息
+        this.sendExecutionMessage(delegation.id, {
+          type: 'system',
+          sender: 'system',
+          content: `❌ 任务执行失败: ${msg}`,
+          timestamp: Date.now()
+        });
       }
     }
     
@@ -920,7 +938,14 @@ export class DelegationManager {
     
     // 重新加入执行队列
     this.executionQueue.push(delegation.id);
-    console.log(`任务 ${delegation.id.slice(0, 8)} 已重新加入执行队列`);
+    
+    // 发送消息到 UI
+    this.sendExecutionMessage(delegation.id, {
+      type: 'system',
+      sender: 'system',
+      content: `🔄 任务已重新加入执行队列`,
+      timestamp: Date.now()
+    });
     
     // 触发队列处理
     this.processQueue();
@@ -1103,7 +1128,13 @@ export class DelegationManager {
       });
     }
     
-    console.log(`任务 ${delegation.id.slice(0, 8)} 验收通过`);
+    // 发送验收通过消息
+    this.sendExecutionMessage(delegation.id, {
+      type: 'system',
+      sender: 'system',
+      content: `✅ 任务验收通过`,
+      timestamp: Date.now()
+    });
   }
   
   /**
@@ -1137,8 +1168,14 @@ export class DelegationManager {
     
     // 重新加入执行队列
     this.executionQueue.push(delegation.id);
-    console.log(`任务 ${delegation.id.slice(0, 8)} 验收不通过，已重新加入执行队列`);
-    console.log(`反馈: ${feedback}`);
+    
+    // 发送验收不通过消息
+    this.sendExecutionMessage(delegation.id, {
+      type: 'system',
+      sender: 'system',
+      content: `❌ 验收不通过，任务将重新执行\n反馈: ${feedback.slice(0, 100)}`,
+      timestamp: Date.now()
+    });
     
     // 通知被委托者任务需要重新执行
     if (this.messageBus) {
@@ -1269,9 +1306,8 @@ export class DelegationManager {
       try {
         const { rmSync } = await import('node:fs');
         rmSync(delegation.sharedWorkspace, { recursive: true, force: true });
-        console.log(`共享工作空间已删除: ${delegation.sharedWorkspace}`);
-      } catch (error) {
-        console.error(`删除共享工作空间失败: ${error}`);
+      } catch {
+        // 忽略删除错误
       }
     }
     
@@ -1290,8 +1326,6 @@ export class DelegationManager {
     
     // 触发变更事件
     this.emit('delegationChanged');
-    
-    console.log(`委派 ${delegation.id.slice(0, 8)} 已删除`);
   }
 
   /**
