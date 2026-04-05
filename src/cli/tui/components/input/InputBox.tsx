@@ -74,11 +74,11 @@ export const InputBox: React.FC<Props> = ({
   }, { isActive: !isStreaming });
 
   return (
-    <Box flexDirection="column" paddingY={1}>
+    <Box flexDirection="column">
       {/* 输入行 */}
       <Box>
         <Text bold color="green">
-          {'['}{currentAgent}{']'}&gt;{' '}
+          {'['}{currentAgent}{']'}{'>'}{' '}
         </Text>
         <Text>{input || ''}</Text>
         <Text color="white" backgroundColor="gray">{' '}</Text>
@@ -86,16 +86,12 @@ export const InputBox: React.FC<Props> = ({
 
       {/* 补全提示 */}
       {completions.length > 0 && (
-        <Box marginTop={0} paddingX={2}>
+        <Box paddingLeft={1}>
           <Text color="cyan" dimColor>
-            Suggestions:{' '}
+            {completions.slice(0, 5).map((c, i) => (
+              c + (i < Math.min(completions.length, 5) - 1 ? ' \u2502 ' : '')
+            ))}
           </Text>
-          {completions.slice(0, 5).map((c, i) => (
-            <Text key={i} color="cyan">
-              {c}{' '}
-              {i < Math.min(completions.length, 5) - 1 ? '\u2502' : ''}
-            </Text>
-          ))}
         </Box>
       )}
     </Box>

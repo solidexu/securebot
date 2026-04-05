@@ -17,17 +17,17 @@ export const InputArea: React.FC<Props> = ({ onSubmit, commands, agents }) => {
     <Box
       flexDirection="column"
       width="100%"
-      height={theme.layout.inputHeight}
-      borderStyle={theme.borders.normal}
+      borderStyle="single"
       borderColor="green"
-      paddingX={theme.layout.paddingX}
+      paddingLeft={1}
+      paddingRight={1}
     >
       {/* 提示信息 */}
-      <Box paddingY={0} borderBottom borderColor="green">
+      <Box>
         <Text color="gray" dimColor>
           {isStreaming
-            ? '  \u25b6 Generating... Press Ctrl+C to stop'
-            : '  \u25cb Enter to send | Tab for autocomplete | Up/Down history'
+            ? '\u25b6 Generating... | Ctrl+C stop'
+            : '\u25cb Enter send | Tab auto | \u2191/\u2193 history'
           }
         </Text>
       </Box>

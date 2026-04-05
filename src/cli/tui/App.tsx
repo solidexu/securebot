@@ -57,11 +57,10 @@ const StatusBar: React.FC = () => {
   return (
     <Box
       width="100%"
-      height={theme.layout.footerHeight}
       borderStyle="single"
       borderColor="gray"
-      paddingX={1}
-      justifyContent="space-between"
+      paddingLeft={1}
+      paddingRight={1}
     >
       <Text color="gray">
         [{messages.length} msgs]
@@ -69,10 +68,10 @@ const StatusBar: React.FC = () => {
         <Text color={isStreaming ? 'yellow' : 'green'}>
           {isStreaming ? '\u25b6 Generating...' : '\u25cb Ready'}
         </Text>
-      </Text>
-      <Text color="magenta">
-        {' \u2502 '}
-        <Text color="cyan">[{currentAgent}]</Text>
+        {' '}
+        <Text color="magenta">
+          {'\u2502'} [<Text color="cyan">{currentAgent}</Text>]
+        </Text>
       </Text>
     </Box>
   );
