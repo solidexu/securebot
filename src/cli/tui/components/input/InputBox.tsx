@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { useApp } from '../../context/index.js';
-import { theme } from '../../styles/theme.js';
 
 interface Props {
   onSubmit?: (input: string) => void;
@@ -78,10 +77,10 @@ export const InputBox: React.FC<Props> = ({
       {/* 输入行 */}
       <Box>
         <Text bold color="green">
-          {'['}{currentAgent}{']'}{'>'}{' '}
+          {'>'}{' '}
         </Text>
-        <Text>{input || ''}</Text>
-        <Text color="white" backgroundColor="gray">{' '}</Text>
+        <Text color="white">{input}</Text>
+        <Text color="green" backgroundColor={'white'}>{' '}</Text>
       </Box>
 
       {/* 补全提示 */}
@@ -89,7 +88,7 @@ export const InputBox: React.FC<Props> = ({
         <Box paddingLeft={1}>
           <Text color="cyan" dimColor>
             {completions.slice(0, 5).map((c, i) => (
-              c + (i < Math.min(completions.length, 5) - 1 ? ' \u2502 ' : '')
+              c + (i < Math.min(completions.length, 5) - 1 ? ' | ' : '')
             ))}
           </Text>
         </Box>
