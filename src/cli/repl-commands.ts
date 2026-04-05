@@ -2223,6 +2223,54 @@ async function showTaskDetailInner(
         const otherParty = isDelegator ? delegation.delegatee : delegation.delegator;
         const hasMention = sessionManager.detectMention(content, otherParty);
         
+        // 处理特殊命令
+        if (content.startsWith('/retry') && isDelegator && delegation.status === 'failed') {
+          try {
+            ui.addMessage({
+              id: `sys-${Date.now()}`,
+              sender: 'system',
+              content: '🔄 正在重新执行任务...',
+              timestamp: Date.now(),
+              type: 'system'
+            });
+            
+            await collaborationManager.getDelegationManager().retryDelegation(delegation.id);
+            
+            ui.addMessage({
+              id: `sys-${Date.now()}`,
+              sender: 'system',
+              content: '✓ 任务已重新加入执行队列',
+              timestamp: Date.now(),
+              type: 'system'
+            });
+            
+            // 刷新数据
+            const updated = collaborationManager.getDelegationManager()
+              .getDelegations(state.currentAgentId, undefined, true)
+              .find((d: any) => d.id === delegation.id);
+            if (updated) {
+              Object.assign(delegation, updated);
+              ui.setContext([
+                `状态: ${delegation.status}`,
+                `轮次: ${delegation.currentRound || 0}/${delegation.maxRounds || 5}`,
+                `委托者: ${delegation.delegator}`,
+                `受托者: ${delegation.delegatee}`
+              ]);
+            }
+            return;
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            ui.addMessage({
+              id: `sys-${Date.now()}`,
+              sender: 'system',
+              content: `✗ 重试失败: ${msg}`,
+              timestamp: Date.now(),
+              type: 'system'
+            });
+            return;
+          }
+        }
+        
         // 处理@提及和自动接受
         if (hasMention && delegation.status === 'pending' && isDelegator) {
           try {

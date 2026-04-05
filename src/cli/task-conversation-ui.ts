@@ -224,9 +224,11 @@ export class TaskConversationUI {
     for (const section of sections) {
       // 标题行
       if (row === currentRow) {
-        const title = chalk.bold.white(` ${section.title} `);
-        const padding = width - title.length - 2;
-        return chalk.gray('─') + title + chalk.gray('─'.repeat(Math.max(0, padding)));
+        const titleText = ` ${section.title} `;
+        const title = chalk.bold.white(titleText);
+        // chalk 会添加 ANSI 码（约 10 字符），需要用 titleText 长度计算
+        const paddingWidth = width - titleText.length - 2;
+        return chalk.gray('─') + title + chalk.gray('─'.repeat(Math.max(0, paddingWidth)));
       }
       currentRow++;
       
@@ -234,8 +236,13 @@ export class TaskConversationUI {
       const itemCount = section.items.length;
       for (let i = 0; i < Math.min(itemCount, 5); i++) {
         if (row === currentRow) {
-          const item = `  ${section.items[i]}`;
-          return chalk.gray(item.slice(0, width - 1).padEnd(width));
+          const rawItem = section.items[i] || '';
+          // 截断并添加前缀（不加颜色码，避免截断错误）
+          const displayItem = `  ${rawItem}`;
+          const truncated = displayItem.length > width - 2 
+            ? displayItem.slice(0, width - 5) + '...' 
+            : displayItem;
+          return truncated.padEnd(width);
         }
         currentRow++;
       }
@@ -278,7 +285,16 @@ export class TaskConversationUI {
 
   private renderInputArea(width: number): void {
     console.log(chalk.cyan('─'.repeat(width)));
-    console.log(chalk.yellow('  输入消息（Enter发送，Esc/Ctrl+C退出）:'));
+    
+    // 根据状态显示不同提示
+    let hint = '输入消息（Enter发送，Esc/Ctrl+C退出）';
+    if (this.taskInfo.status === 'failed') {
+      hint = '输入消息 | /retry 重试（Esc/Ctrl+C退出）';
+    } else if (this.taskInfo.status === 'pending') {
+      hint = '输入消息 | @受托者 自动接受（Esc/Ctrl+C退出）';
+    }
+    
+    console.log(chalk.yellow(`  ${hint}:`));
     
     const prompt = chalk.bold.green('> ');
     const inputLine = this.inputBuffer + '█';
