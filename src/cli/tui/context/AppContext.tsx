@@ -14,6 +14,8 @@ interface AppState {
   isStreaming: boolean;
   inputHistory: string[];
   historyIndex: number;
+  chatScrollOffset: number;   // 聊天滚动偏移（0=最新）
+  logScrollOffset: number;    // 日志滚动偏移（0=最新）
 }
 
 interface AppContextValue extends AppState {
@@ -27,6 +29,8 @@ interface AppContextValue extends AppState {
   setIsStreaming: (streaming: boolean) => void;
   addToHistory: (input: string) => void;
   navigateHistory: (direction: 'up' | 'down') => string | null;
+  setChatScroll: (offset: number) => void;
+  setLogScroll: (offset: number) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -39,6 +43,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [inputHistory, setInputHistory] = useState<string[]>([]);
+  const [chatScrollOffset, setChatScrollOffset] = useState(0);
+  const [logScrollOffset, setLogScrollOffset] = useState(0);
   const historyIndexRef = useRef(-1);
   const tempInputRef = useRef('');
 
@@ -112,6 +118,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     isStreaming,
     inputHistory,
     historyIndex: historyIndexRef.current,
+    chatScrollOffset,
+    logScrollOffset,
     addMessage,
     updateMessage,
     setAgents,
@@ -122,6 +130,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsStreaming,
     addToHistory,
     navigateHistory,
+    setChatScroll,
+    setLogScroll,
   };
 
   return (

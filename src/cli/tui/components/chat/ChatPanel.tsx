@@ -6,7 +6,7 @@ import { MessageList } from './MessageList.js';
 import { theme } from '../../styles/theme.js';
 
 export const ChatPanel: React.FC = () => {
-  const { messages, isStreaming } = useApp();
+  const { messages, isStreaming, chatScrollOffset } = useApp();
 
   return (
     <Box
@@ -28,19 +28,22 @@ export const ChatPanel: React.FC = () => {
           {' \u25cf '} Chat
         </Text>
         <Text color="gray">
-          {' | '}{messages.length} messages
+          {' | '}{messages.length} msgs
         </Text>
+        {chatScrollOffset > 0 && (
+          <Text color="yellow"> (scroll:{chatScrollOffset})</Text>
+        )}
         {isStreaming && (
           <Text color="yellow">
             {' '}
-            <Spinner type="dots" /> streaming
+            <Spinner type="dots" /> stream
           </Text>
         )}
       </Box>
 
-      {/* 消息列表 */}
+      {/* 消息列表 - 固定高度, overflow隐藏 */}
       <Box flexGrow={1} flexDirection="column" overflow="hidden">
-        <MessageList messages={messages} />
+        <MessageList messages={messages} scrollOffset={chatScrollOffset} visibleCount={15} />
       </Box>
     </Box>
   );

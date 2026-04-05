@@ -2,12 +2,14 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { useApp } from '../../context/index.js';
 
+const MAX_VISIBLE_LOGS = 6;
+
 export const LogViewer: React.FC = () => {
-  const { logs } = useApp();
+  const { logs, logScrollOffset } = useApp();
 
-  const visibleLogs = logs.slice(-10);
+  const totalLogs = logs.length;
 
-  if (visibleLogs.length === 0) {
+  if (totalLogs === 0) {
     return (
       <Box paddingX={1}>
         <Text color="gray" dimColor>
@@ -16,6 +18,11 @@ export const LogViewer: React.FC = () => {
       </Box>
     );
   }
+
+  // 根据滚动偏移计算可见日志
+  const endIdx = totalLogs - logScrollOffset;
+  const startIdx = Math.max(0, endIdx - MAX_VISIBLE_LOGS);
+  const visibleLogs = logs.slice(startIdx, endIdx);
 
   // 日志级别图标和颜色映射
   const levelConfig: Record<string, { icon: string; color: string }> = {
@@ -36,12 +43,17 @@ export const LogViewer: React.FC = () => {
 
         return (
           <Text key={log.id} color={config.color as any} dimColor={log.level !== 'error'}>
-            [{time}]{' '}
+            [{time}]
+            {' '}
             <Text color={config.color as any}>{config.icon}</Text>{' '}
-            {log.message.length > 45 ? `${log.message.slice(0, 45)}...` : log.message}
+            {log.message.length > 40 ? `${log.message.slice(0, 40)}..` : log.message}
           </Text>
         );
       })}
+      {/* 滚动指示 */}
+      {logScrollOffset > 0 && startIdx > 0 && (
+        <Text color="cyan" dimColor> ... older</Text>
+      )}
     </Box>
   );
 };

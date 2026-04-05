@@ -8,6 +8,8 @@ interface Props {
   agents?: string[];
 }
 
+const SCROLL_STEP = 5;
+
 export const InputBox: React.FC<Props> = ({
   onSubmit,
   commands = [],
@@ -16,7 +18,15 @@ export const InputBox: React.FC<Props> = ({
   const [input, setInput] = useState('');
   const [completions, setCompletions] = useState<string[]>([]);
   const inputRef = useRef(input);
-  const { currentAgent, addToHistory, navigateHistory, isStreaming } = useApp();
+  const {
+    currentAgent,
+    addToHistory,
+    navigateHistory,
+    isStreaming,
+    messages,
+    chatScrollOffset,
+    setChatScroll,
+  } = useApp();
 
   useEffect(() => {
     inputRef.current = input;
@@ -31,6 +41,8 @@ export const InputBox: React.FC<Props> = ({
         addToHistory(input.trim());
         setInput('');
         setCompletions([]);
+        // 发送消息后自动回到最新
+        if (chatScrollOffset > 0) setChatScroll(0);
       }
     } else if (key.backspace || key.delete) {
       setInput(prev => prev.slice(0, -1));
@@ -43,12 +55,23 @@ export const InputBox: React.FC<Props> = ({
       const historyItem = navigateHistory('down');
       if (historyItem) setInput(historyItem);
       setCompletions([]);
+    } else if (key.pageUp) {
+      // 向上滚动聊天记录（查看更早的历史）
+      const maxScroll = Math.max(0, messages.length - 15);
+      if (chatScrollOffset < maxScroll) {
+        setChatScroll(Math.min(chatScrollOffset + SCROLL_STEP, maxScroll));
+      }
+    } else if (key.pageDown) {
+      // 向下滚动 / 回到最新
+      if (chatScrollOffset > 0) {
+        setChatScroll(Math.max(chatScrollOffset - SCROLL_STEP, 0));
+      }
     } else if (key.tab) {
       // @agent 切换: 直接补全并立即切换
       if (input.startsWith('@')) {
         const matches = getAgentMatches(input, agents);
         if (matches.length === 1) {
-          onSubmit?.(matches[0]!);  // 交给 handleSubmit 处理切换
+          onSubmit?.(matches[0]!);
           addToHistory(matches[0]!);
           setInput('');
           setCompletions([]);
@@ -56,7 +79,6 @@ export const InputBox: React.FC<Props> = ({
         }
         if (matches.length > 1) {
           setCompletions(matches);
-          // 循环选择
           const next = matches[(completions.indexOf(input) + 1) % matches.length];
           if (next) setInput(next);
           return;
@@ -76,8 +98,6 @@ export const InputBox: React.FC<Props> = ({
         }
       }
     } else if (char) {
-      // 接受所有非控制字符（包括中文等多字节字符）
-      // 只排除明确的控制键组合
       const isControlKey =
         (key.escape) ||
         (key.ctrl && char === 'c') ||
@@ -85,8 +105,7 @@ export const InputBox: React.FC<Props> = ({
         (key.ctrl && char === 'z');
 
       if (!isControlKey) {
-        const newInput = input + char;
-        setInput(newInput);
+        setInput(input + char);
         setCompletions([]);
       }
     }
