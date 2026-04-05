@@ -46,15 +46,14 @@ export const theme = {
   },
 
   layout: {
-    chatWidth: '70%',
-    statusWidth: '30%',
-    // 输入框现在独立于主内容区，占全宽
+    chatWidth: '78%',
+    statusWidth: '22%',
+    // 输入框独立于主内容区
     inputHeight: '10%',
 
     // 标题栏和状态栏高度
     headerHeight: 3,     // 顶部标题栏（固定行数）
     footerHeight: 3,     // 底部状态栏（固定行数）
-    // mainHeight 不再需要，用 flexGrow 让中间内容自适应
 
     // 右侧面板内部比例（总和 100%）
     taskHeight: '25%',

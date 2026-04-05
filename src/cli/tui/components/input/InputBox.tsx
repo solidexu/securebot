@@ -75,17 +75,17 @@ export const InputBox: React.FC<Props> = ({
   return (
     <Box flexDirection="column">
       {/* 输入行 */}
-      <Box>
+      <Box paddingLeft={1} paddingRight={1}>
         <Text bold color="green">
-          {'>'}{' '}
+          {'['}{currentAgent}{']>'}{' '}
         </Text>
-        <Text color="white">{input}</Text>
-        <Text color="green" backgroundColor={'white'}>{' '}</Text>
+        <Text>{input}</Text>
+        <Text color="white" backgroundColor="green">{' '}</Text>
       </Box>
 
       {/* 补全提示 */}
       {completions.length > 0 && (
-        <Box paddingLeft={1}>
+        <Box paddingLeft={2}>
           <Text color="cyan" dimColor>
             {completions.slice(0, 5).map((c, i) => (
               c + (i < Math.min(completions.length, 5) - 1 ? ' | ' : '')
