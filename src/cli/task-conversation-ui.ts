@@ -1,5 +1,3 @@
-import blessed from 'blessed';
-
 export interface Message {
   id: string;
   sender: string;
@@ -24,14 +22,23 @@ export interface AgentStatus {
   currentTask?: string;
 }
 
+const ANSI = {
+  clear: '\u001b[2J',
+  home: '\u001b[H',
+  hideCursor: '\u001b[?25l',
+  showCursor: '\u001b[?25h',
+  reset: '\u001b[0m',
+  bold: '\u001b[1m',
+  cyan: '\u001b[36m',
+  green: '\u001b[32m',
+  yellow: '\u001b[33m',
+  blue: '\u001b[34m',
+  gray: '\u001b[90m',
+  white: '\u001b[37m',
+  bgCyan: '\u001b[46m',
+};
+
 export class TaskConversationUI {
-  private screen: blessed.Widgets.Screen;
-  private chatBox: blessed.Widgets.BoxElement;
-  private inputBox: blessed.Widgets.BoxElement;
-  private statusBox: blessed.Widgets.BoxElement;
-  private agentBox: blessed.Widgets.BoxElement;
-  private logBox: blessed.Widgets.BoxElement;
-  
   private messages: Message[] = [];
   private taskInfo: TaskInfo;
   private agents: AgentStatus[] = [];
@@ -40,6 +47,7 @@ export class TaskConversationUI {
   private currentUserId: string;
   private inputBuffer: string = '';
   private resolveStart?: () => void;
+  private renderTimer?: ReturnType<typeof setTimeout>;
 
   constructor(taskInfo: TaskInfo, currentUserId?: string) {
     this.taskInfo = taskInfo;
@@ -49,141 +57,71 @@ export class TaskConversationUI {
       { id: taskInfo.delegator, name: taskInfo.delegator, status: 'idle' },
       { id: taskInfo.delegatee, name: taskInfo.delegatee, status: 'idle' }
     ];
-
-    // 创建屏幕
-    this.screen = blessed.screen({
-      smartCSR: true,
-      title: `任务对话 - ${taskInfo.task.slice(0, 30)}`,
-      fullUnicode: true,
-    });
-
-    // 左侧聊天区域 (70% 宽度, 85% 高度)
-    this.chatBox = blessed.box({
-      parent: this.screen,
-      top: 0,
-      left: 0,
-      width: '70%',
-      height: '85%',
-      label: ' 💬 任务对话 ',
-      tags: true,
-      border: { type: 'line' },
-      style: {
-        border: { fg: 'cyan' },
-        label: { fg: 'white', bold: true },
-      },
-      scrollable: true,
-      alwaysScroll: true,
-      scrollbar: { ch: '█', track: { bg: 'gray' }, style: { inverse: true } },
-    });
-
-    // 底部输入框显示区
-    this.inputBox = blessed.box({
-      parent: this.screen,
-      bottom: 0,
-      left: 0,
-      width: '70%',
-      height: 3,
-      label: ' 输入消息 (Enter 发送, Esc 退出) ',
-      tags: true,
-      border: { type: 'line' },
-      style: { border: { fg: 'green' } },
-    });
-
-    // 右侧状态栏
-    this.statusBox = blessed.box({
-      parent: this.screen,
-      top: 0,
-      right: 0,
-      width: '30%',
-      height: '25%',
-      label: ' 📋 任务状态 ',
-      tags: true,
-      border: { type: 'line' },
-      style: { border: { fg: 'cyan' } },
-    });
-
-    // 右侧 Agent 状态
-    this.agentBox = blessed.box({
-      parent: this.screen,
-      top: '25%',
-      right: 0,
-      width: '30%',
-      height: '35%',
-      label: ' 👥 参与者 ',
-      tags: true,
-      border: { type: 'line' },
-      style: { border: { fg: 'cyan' } },
-    });
-
-    // 右侧日志
-    this.logBox = blessed.box({
-      parent: this.screen,
-      top: '60%',
-      right: 0,
-      width: '30%',
-      height: '40%',
-      label: ' 📝 执行日志 ',
-      tags: true,
-      border: { type: 'line' },
-      style: { border: { fg: 'cyan' } },
-      scrollable: true,
-      alwaysScroll: true,
-      scrollbar: { ch: '█', track: { bg: 'gray' }, style: { inverse: true } },
-    });
-
-    // 使用 blessed 的键盘处理
-    this.setupKeys();
-  }
-
-  private setupKeys(): void {
-    // 使用 blessed 的 screen.key 方法处理按键
-    this.screen.key(['escape', 'C-c'], () => {
-      this.stop();
-    });
-
-    // 使用 screen.program 处理原始输入
-    this.screen.program.on('keypress', (ch: string, key: { full: string; name: string }) => {
-      if (!ch && !key) return;
-      
-      // 忽略功能键（已由 screen.key 处理）
-      if (key.full === 'escape' || key.full === 'C-c') return;
-      
-      // Enter 发送
-      if (key.full === 'enter' || key.full === 'return') {
-        if (this.inputBuffer.trim() && this.messageCallback) {
-          this.messageCallback(this.inputBuffer.trim());
-          this.inputBuffer = '';
-          this.updateInputBox();
-        }
-        return;
-      }
-      
-      // Backspace
-      if (key.full === 'backspace' || key.full === 'delete') {
-        this.inputBuffer = this.inputBuffer.slice(0, -1);
-        this.updateInputBox();
-        return;
-      }
-      
-      // 普通字符
-      if (ch && ch.charCodeAt(0) >= 32) {
-        this.inputBuffer += ch;
-        this.updateInputBox();
-      }
-    });
   }
 
   async start(): Promise<void> {
-    this.updateDisplay();
+    this.render();
     
     return new Promise((resolve) => {
       this.resolveStart = resolve;
-      this.screen.render();
+      
+      // 使用 raw mode 处理输入
+      if (process.stdin.isTTY) {
+        process.stdin.setRawMode(true);
+      }
+      process.stdin.resume();
+      process.stdin.setEncoding('utf8');
+      process.stdout.write(ANSI.hideCursor);
+      
+      const onKey = (key: string) => {
+        // Ctrl+C 退出
+        if (key === '\u0003') {
+          cleanup();
+          return;
+        }
+        
+        // Enter 发送
+        if (key === '\r' || key === '\n') {
+          if (this.inputBuffer.trim() && this.messageCallback) {
+            this.messageCallback(this.inputBuffer.trim());
+          }
+          this.inputBuffer = '';
+          this.render();
+          return;
+        }
+        
+        // Backspace
+        if (key === '\u007f' || key === '\b') {
+          this.inputBuffer = this.inputBuffer.slice(0, -1);
+          this.render();
+          return;
+        }
+        
+        // 普通字符
+        if (key.charCodeAt(0) >= 32 || key.length > 1) {
+          this.inputBuffer += key;
+          this.render();
+        }
+      };
+      
+      const cleanup = () => {
+        process.stdin.removeListener('data', onKey);
+        if (process.stdin.isTTY) {
+          process.stdin.setRawMode(false);
+        }
+        process.stdout.write(ANSI.showCursor);
+        resolve();
+      };
+      
+      process.stdin.on('data', onKey);
     });
   }
 
   stop(): void {
-    this.screen.destroy();
+    process.stdout.write(ANSI.showCursor);
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(false);
+    }
     if (this.resolveStart) {
       this.resolveStart();
     }
@@ -195,7 +133,7 @@ export class TaskConversationUI {
 
   addMessage(message: Message): void {
     this.messages.push(message);
-    this.updateChatBox();
+    this.scheduleRender();
   }
 
   setTodos(_todos: string[]): void {}
@@ -205,7 +143,7 @@ export class TaskConversationUI {
     if (statusLine) {
       this.taskInfo.status = statusLine.replace('状态:', '').trim();
     }
-    this.updateStatusBox();
+    this.scheduleRender();
   }
 
   updateWorkspace(): void {}
@@ -219,107 +157,161 @@ export class TaskConversationUI {
         this.addLog(`${agent.name} 开始执行`);
       }
     }
-    this.updateAgentBox();
+    this.scheduleRender();
   }
 
   addLog(log: string): void {
     const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
     this.recentLogs.push(`[${time}] ${log}`);
-    if (this.recentLogs.length > 20) {
-      this.recentLogs = this.recentLogs.slice(-20);
+    if (this.recentLogs.length > 10) {
+      this.recentLogs = this.recentLogs.slice(-10);
     }
-    this.updateLogBox();
+    this.scheduleRender();
   }
 
-  private updateDisplay(): void {
-    this.updateStatusBox();
-    this.updateAgentBox();
-    this.updateLogBox();
-    this.updateChatBox();
-    this.updateInputBox();
+  private scheduleRender(): void {
+    if (this.renderTimer) clearTimeout(this.renderTimer);
+    this.renderTimer = setTimeout(() => this.render(), 100);
   }
 
-  private updateInputBox(): void {
-    const content = `  ${this.inputBuffer}█`;
-    this.inputBox.setContent(content);
-    this.screen.render();
-  }
-
-  private updateChatBox(): void {
+  private render(): void {
+    const width = process.stdout.columns || 100;
+    const height = process.stdout.rows || 30;
+    
+    const leftWidth = Math.floor(width * 0.70);
+    const rightWidth = width - leftWidth - 1;
+    const mainHeight = height - 4;
+    
     const lines: string[] = [];
     
-    for (const msg of this.messages) {
-      const time = new Date(msg.timestamp).toLocaleTimeString('zh-CN', { 
-        hour: '2-digit', 
-        minute: '2-digit' 
-      });
-      
-      let line: string;
-      
-      switch (msg.type) {
-        case 'system':
-          line = `{gray-fg}⚡ ${time} ${msg.content}{/gray-fg}`;
-          break;
-        case 'tool':
-          line = `{blue-fg}🔧 ${time} ${msg.content}{/blue-fg}`;
-          break;
-        case 'review':
-          line = `{yellow-fg}✅ ${time} ${msg.content}{/yellow-fg}`;
-          break;
-        default:
-          const isDelegator = msg.sender === this.taskInfo.delegator;
-          const color = isDelegator ? 'green' : 'cyan';
-          const icon = isDelegator ? '👤' : '🤖';
-          line = `{${color}-fg}${icon} ${msg.sender} ${time}{/${color}-fg} ${msg.content}`;
-      }
-      
-      lines.push(line);
+    // 标题栏
+    lines.push(this.renderTitle(leftWidth));
+    
+    // 主内容区
+    for (let row = 0; row < mainHeight; row++) {
+      const left = this.renderChatLine(row, leftWidth, mainHeight);
+      const right = this.renderSidebarLine(row, rightWidth);
+      lines.push(left + ANSI.gray + '│' + ANSI.reset + right);
     }
     
-    this.chatBox.setContent(lines.join('\n'));
-    this.chatBox.setScrollPerc(100);
-    this.screen.render();
+    // 输入区
+    lines.push(ANSI.cyan + '─'.repeat(width) + ANSI.reset);
+    lines.push(ANSI.yellow + '  输入消息 (Enter 发送, Ctrl+C 退出):' + ANSI.reset);
+    lines.push(ANSI.green + ANSI.bold + '> ' + ANSI.reset + this.inputBuffer + '█');
+    
+    // 输出
+    process.stdout.write(ANSI.clear + ANSI.home + ANSI.hideCursor + lines.join('\n'));
   }
 
-  private updateStatusBox(): void {
-    const statusEmoji = this.getStatusEmoji();
+  private renderTitle(_width: number): string {
+    const task = this.taskInfo.task.length > 50 ? this.taskInfo.task.slice(0, 47) + '...' : this.taskInfo.task;
+    return ANSI.cyan + ANSI.bold + '  💬 ' + task + ANSI.reset;
+  }
+
+  private renderChatLine(row: number, width: number, totalHeight: number): string {
+    if (row === 0) {
+      return ANSI.gray + '─'.repeat(width) + ANSI.reset;
+    }
+    
+    if (row < totalHeight - 1) {
+      const idx = row - 1;
+      const msg = this.messages[idx];
+      if (msg) {
+        return this.formatMessage(msg, width);
+      }
+      return ' '.repeat(width);
+    }
+    
+    return ANSI.gray + '─'.repeat(width) + ANSI.reset;
+  }
+
+  private formatMessage(msg: Message, width: number): string {
+    const time = new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    
+    let prefix: string;
+    let contentColor: string;
+    
+    switch (msg.type) {
+      case 'system':
+        prefix = `  ⚡ ${time}`;
+        contentColor = ANSI.gray;
+        break;
+      case 'tool':
+        prefix = `  🔧 ${time}`;
+        contentColor = ANSI.blue;
+        break;
+      case 'review':
+        prefix = `  ✅ ${time}`;
+        contentColor = ANSI.yellow;
+        break;
+      default:
+        const isDelegator = msg.sender === this.taskInfo.delegator;
+        const icon = isDelegator ? '👤' : '🤖';
+        prefix = `  ${icon} ${msg.sender} ${time}`;
+        contentColor = isDelegator ? ANSI.green : ANSI.cyan;
+    }
+    
+    const maxLen = width - prefix.length - 2;
+    const content = msg.content.length > maxLen ? msg.content.slice(0, maxLen - 2) + '…' : msg.content;
+    
+    return prefix + ' ' + contentColor + content + ANSI.reset;
+  }
+
+  private renderSidebarLine(row: number, width: number): string {
+    const modules = [
+      { title: '📋 任务状态', lines: this.renderStatus() },
+      { title: '👥 参与者', lines: this.renderAgents() },
+      { title: '📝 执行日志', lines: this.renderLogs() },
+    ];
+    
+    let currentRow = 0;
+    
+    for (const mod of modules) {
+      if (row === currentRow) {
+        return ANSI.white + ANSI.bold + ` ${mod.title} ` + ANSI.reset;
+      }
+      currentRow++;
+      
+      for (const line of mod.lines) {
+        if (row === currentRow) {
+          return line.padEnd(width).slice(0, width);
+        }
+        currentRow++;
+      }
+      
+      if (row === currentRow) {
+        return ' '.repeat(width);
+      }
+      currentRow++;
+    }
+    
+    return ' '.repeat(width);
+  }
+
+  private renderStatus(): string[] {
+    const emoji = this.getStatusEmoji();
     const round = this.messages.filter(m => m.type === 'system' && m.content.includes('开始执行')).length;
-    
-    const content = [
-      `  状态: ${statusEmoji} ${this.taskInfo.status}`,
+    return [
+      `  状态: ${emoji} ${this.taskInfo.status}`,
       `  轮次: ${round}/5`,
-      `  任务: ${this.taskInfo.task.slice(0, 25)}...`,
-    ].join('\n');
-    
-    this.statusBox.setContent(content);
-    this.screen.render();
+      `  任务: ${this.taskInfo.task.slice(0, 20)}...`,
+    ];
   }
 
-  private updateAgentBox(): void {
-    const lines: string[] = [];
-    
-    for (const agent of this.agents) {
+  private renderAgents(): string[] {
+    return this.agents.map(agent => {
       const isMe = agent.id === this.currentUserId;
-      const statusIcon = agent.status === 'working' ? '🔄' :
-                        agent.status === 'completed' ? '✅' : '💤';
-      const name = isMe ? `{bold}${agent.id} (我){/bold}` : agent.id;
-      
-      lines.push(`  ${statusIcon} ${name}`);
-      
-      if (agent.status === 'working' && agent.currentTask) {
-        lines.push(`    ${agent.currentTask.slice(0, 20)}...`);
-      }
-    }
-    
-    this.agentBox.setContent(lines.join('\n'));
-    this.screen.render();
+      const icon = agent.status === 'working' ? '🔄' : agent.status === 'completed' ? '✅' : '💤';
+      const name = isMe ? agent.id + ' (我)' : agent.id;
+      return `  ${icon} ${name}`;
+    });
   }
 
-  private updateLogBox(): void {
-    const content = this.recentLogs.map(log => `  ${log}`).join('\n');
-    this.logBox.setContent(content);
-    this.logBox.setScrollPerc(100);
-    this.screen.render();
+  private renderLogs(): string[] {
+    if (this.recentLogs.length === 0) {
+      return [ANSI.gray + '  (暂无日志)' + ANSI.reset];
+    }
+    return this.recentLogs.slice(-5).map(log => ANSI.gray + '  ' + log + ANSI.reset);
   }
 
   private getStatusEmoji(): string {
