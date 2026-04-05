@@ -10,13 +10,21 @@ export const MainLayout: React.FC = () => {
       {/* 左侧聊天区 */}
       <ChatPanel />
 
-      {/* 垂直分隔符 - 提供视觉隔离，辅助精确复制 */}
+      {/* 宽间距分隔区 - 3列空白+边框，改善复制隔离 */}
       <Box
-        width={1}
+        width={3}
         height="100%"
-        borderStyle="single"
-        borderColor="gray"
-      />
+        flexDirection="column"
+        alignItems="center"
+      >
+        {/* 视觉分隔线 */}
+        <Box
+          width={1}
+          height="100%"
+          borderStyle="single"
+          borderColor="gray"
+        />
+      </Box>
 
       {/* 右侧状态栏 */}
       <StatusPanel />
