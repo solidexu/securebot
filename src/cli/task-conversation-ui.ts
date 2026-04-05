@@ -1,13 +1,11 @@
 import chalk from 'chalk';
-import { existsSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
 
 export interface Message {
   id: string;
   sender: string;
   content: string;
   timestamp: number;
-  type: 'user' | 'system' | 'tool';
+  type: 'user' | 'agent' | 'system' | 'tool' | 'review';
 }
 
 export interface TaskInfo {
@@ -19,59 +17,57 @@ export interface TaskInfo {
   workspace?: string;
 }
 
+export interface AgentStatus {
+  id: string;
+  name: string;
+  status: 'idle' | 'working' | 'completed';
+  currentTask?: string;
+}
+
 const MAX_MESSAGES = 500;
-const MIN_RENDER_INTERVAL = 300;  // 最小渲染间隔（毫秒）
+const RENDER_INTERVAL = 300;
 
 export class TaskConversationUI {
   private messages: Message[] = [];
   private taskInfo: TaskInfo;
-  private context: string[] = [];
-  private workspaceFiles: string[] = [];
+  private agents: AgentStatus[] = [];
   private isRunning: boolean = false;
   private inputBuffer: string = '';
   private messageCallback?: (message: string) => void;
   private scrollOffset: number = 0;
   private stdinHandler?: (key: string) => void;
   private renderTimer?: ReturnType<typeof setTimeout>;
-  private selectedParticipant: 'delegator' | 'delegatee' | null = null;
   private currentUserId: string;
-  private messageAreaHeight: number = 0;
-  private lastRenderTime: number = 0;  // 上次渲染时间
-  private pendingMessages: Message[] = [];  // 待渲染消息队列
+  private lastRenderTime: number = 0;
+  private recentLogs: string[] = [];
+  
+  private terminalWidth: number = 120;
+  private terminalHeight: number = 40;
+  private mainContentWidth: number = 0;
+  private sidebarWidth: number = 0;
+  private mainContentHeight: number = 0;
+  private inputHeight: number = 0;
 
   constructor(taskInfo: TaskInfo, currentUserId?: string) {
     this.taskInfo = taskInfo;
     this.currentUserId = currentUserId || taskInfo.delegator;
+    
+    // 初始化 Agent 列表
+    this.agents = [
+      { id: taskInfo.delegator, name: taskInfo.delegator, status: 'idle' },
+      { id: taskInfo.delegatee, name: taskInfo.delegatee, status: 'idle' }
+    ];
   }
 
   async start(): Promise<void> {
     this.isRunning = true;
-    
-    if (this.taskInfo.workspace && existsSync(this.taskInfo.workspace)) {
-      try {
-        const items = readdirSync(this.taskInfo.workspace);
-        this.workspaceFiles = items.filter(item => {
-          return !item.startsWith('.') && !item.startsWith('__pycache__');
-        }).map(item => {
-          const itemPath = join(this.taskInfo.workspace!, item);
-          const stat = statSync(itemPath);
-          const icon = stat.isDirectory() ? '📁' : '📄';
-          return `${icon} ${item}`;
-        });
-      } catch {
-        this.workspaceFiles = [];
-      }
-    }
-    
-    // 滚动到最新消息
-    this.scrollToBottom();
+    this.initLayout();
     
     if (process.stdin.isTTY) {
       process.stdin.setRawMode(true);
     }
     process.stdin.resume();
     process.stdin.setEncoding('utf8');
-    
     process.stdout.write('\u001b[?25l');
 
     this.render();
@@ -80,7 +76,6 @@ export class TaskConversationUI {
 
   stop(): void {
     this.isRunning = false;
-    
     process.stdout.write('\u001b[?25h');
     
     if (this.stdinHandler) {
@@ -91,7 +86,6 @@ export class TaskConversationUI {
     if (process.stdin.isTTY) {
       process.stdin.setRawMode(false);
     }
-    
     process.stdin.resume();
   }
 
@@ -101,391 +95,289 @@ export class TaskConversationUI {
 
   addMessage(message: Message): void {
     this.messages.push(message);
-    this.pendingMessages.push(message);
-    
     if (this.messages.length > MAX_MESSAGES) {
       this.messages = this.messages.slice(-MAX_MESSAGES);
     }
-    
-    this.scrollToBottom();
     this.scheduleRender();
   }
 
-  setTodos(_todos: string[]): void {
-    // 保留接口兼容性
-  }
+  setTodos(_todos: string[]): void {}
 
   setContext(context: string[]): void {
-    this.context = context;
     const statusLine = context.find(c => c.startsWith('状态:'));
     if (statusLine) {
       this.taskInfo.status = statusLine.replace('状态:', '').trim();
     }
-    // context 变化不立即渲染，等待下次消息更新
   }
 
   updateWorkspace(): void {
-    if (!this.taskInfo.workspace || !existsSync(this.taskInfo.workspace)) {
-      this.workspaceFiles = [];
-      return;
-    }
+    // 保留接口兼容性
+  }
 
-    try {
-      const items = readdirSync(this.taskInfo.workspace);
-      this.workspaceFiles = items.filter(item => {
-        return !item.startsWith('.') && !item.startsWith('__pycache__');
-      }).map(item => {
-        const itemPath = join(this.taskInfo.workspace!, item);
-        const stat = statSync(itemPath);
-        const icon = stat.isDirectory() ? '📁' : '📄';
-        return `${icon} ${item}`;
-      });
-    } catch {
-      this.workspaceFiles = [];
+  // 更新 Agent 状态
+  updateAgentStatus(agentId: string, status: AgentStatus['status'], task?: string): void {
+    const agent = this.agents.find(a => a.id === agentId);
+    if (agent) {
+      agent.status = status;
+      agent.currentTask = task;
+      if (status === 'working') {
+        this.addLog(`${agent.name} 开始工作`);
+      }
     }
   }
 
-  private scrollToBottom(): void {
-    this.scrollOffset = Math.max(0, this.messages.length - this.messageAreaHeight);
+  // 添加执行日志
+  addLog(log: string): void {
+    this.recentLogs.push(log);
+    if (this.recentLogs.length > 5) {
+      this.recentLogs = this.recentLogs.slice(-5);
+    }
   }
 
-  private scrollUp(lines: number = 3): void {
-    this.scrollOffset = Math.max(0, this.scrollOffset - lines);
-  }
-
-  private scrollDown(lines: number = 3): void {
-    const maxOffset = Math.max(0, this.messages.length - this.messageAreaHeight);
-    this.scrollOffset = Math.min(maxOffset, this.scrollOffset + lines);
+  private initLayout(): void {
+    this.terminalWidth = process.stdout.columns || 120;
+    this.terminalHeight = process.stdout.rows || 40;
+    
+    // 固定比例布局
+    this.mainContentWidth = Math.floor(this.terminalWidth * 0.70);
+    this.sidebarWidth = this.terminalWidth - this.mainContentWidth - 1;
+    this.mainContentHeight = Math.floor(this.terminalHeight * 0.85);
+    this.inputHeight = this.terminalHeight - this.mainContentHeight;
   }
 
   private scheduleRender(): void {
     if (!this.isRunning) return;
     
     const now = Date.now();
-    const timeSinceLastRender = now - this.lastRenderTime;
-    
-    // 如果距离上次渲染时间太短，延迟渲染
-    if (timeSinceLastRender < MIN_RENDER_INTERVAL) {
-      if (this.renderTimer) {
-        clearTimeout(this.renderTimer);
-      }
-      
-      this.renderTimer = setTimeout(() => {
-        if (this.isRunning) {
-          this.render();
-          this.pendingMessages = [];
-        }
-      }, MIN_RENDER_INTERVAL - timeSinceLastRender);
+    if (now - this.lastRenderTime < RENDER_INTERVAL) {
+      if (this.renderTimer) clearTimeout(this.renderTimer);
+      this.renderTimer = setTimeout(() => this.render(), RENDER_INTERVAL);
     } else {
-      // 立即渲染
-      if (this.renderTimer) {
-        clearTimeout(this.renderTimer);
-      }
       this.render();
-      this.pendingMessages = [];
     }
   }
 
   private render(): void {
     this.lastRenderTime = Date.now();
+    this.initLayout();
     
-    const output: string[] = [];
-    const width = process.stdout.columns || 120;
-    const height = process.stdout.rows || 40;
+    // 构建整个屏幕
+    const screen: string[] = [];
     
-    const leftWidth = Math.floor(width * 0.70);
-    const rightWidth = width - leftWidth - 1;
-    
-    output.push(this.renderHeader(leftWidth));
-    
-    const contentHeight = height - 5;
-    this.messageAreaHeight = contentHeight - 2;
-    
-    for (let row = 0; row < contentHeight; row++) {
-      const leftLine = this.renderConversationLine(row, leftWidth, contentHeight);
-      const rightLine = this.renderSidebarLine(row, rightWidth);
-      output.push(leftLine + chalk.gray('│') + rightLine);
+    // 主内容区 + 侧边栏（85%高度）
+    for (let row = 0; row < this.mainContentHeight; row++) {
+      const mainLine = this.renderMainLine(row);
+      const sidebarLine = this.renderSidebarLine(row);
+      screen.push(mainLine + chalk.gray('│') + sidebarLine);
     }
     
-    output.push(this.renderInputSection(leftWidth));
+    // 底部输入区（15%高度）
+    screen.push(this.renderInputSection());
     
-    process.stdout.write('\u001b[2J\u001b[H');
-    process.stdout.write(output.join('\n'));
+    // 一次性输出
+    process.stdout.write('\u001b[2J\u001b[H' + screen.join('\n'));
   }
 
-  private renderHeader(_width: number): string {
-    const taskText = this.taskInfo.task.length > 50 
-      ? this.taskInfo.task.slice(0, 47) + '...' 
-      : this.taskInfo.task;
-    
-    const line1 = chalk.bold.cyan(`  💬 ${taskText}`);
-    const line2 = chalk.gray('─').repeat(_width);
-    
-    return line1 + '\n' + line2;
-  }
-
-  private getStatusEmoji(): string {
-    switch (this.taskInfo.status) {
-      case 'pending': return '⏳';
-      case 'accepted': return '✅';
-      case 'in_progress': return '🔄';
-      case 'pending_review': return '🔍';
-      case 'completed': return '✅';
-      case 'failed': return '❌';
-      default: return '📋';
-    }
-  }
-
-  private renderConversationLine(row: number, width: number, totalHeight: number): string {
-    const headerHeight = 1;
-    const footerHeight = 1;
-    const messageHeight = totalHeight - headerHeight - footerHeight;
-    
+  // ===== 主内容区渲染 =====
+  private renderMainLine(row: number): string {
+    // 标题行
     if (row === 0) {
-      return chalk.gray('─').repeat(width);
+      const title = ' 💬 任务对话 ';
+      return chalk.bold.cyan(title) + chalk.gray('─').repeat(this.mainContentWidth - title.length);
     }
     
-    if (row < headerHeight + messageHeight) {
-      const messageIndex = row - headerHeight + this.scrollOffset;
+    // 消息区域
+    const messageAreaStart = 1;
+    const messageAreaEnd = this.mainContentHeight - 1;
+    
+    if (row >= messageAreaStart && row < messageAreaEnd) {
+      const messageIndex = row - messageAreaStart + this.scrollOffset;
       if (messageIndex >= 0 && messageIndex < this.messages.length) {
         const msg = this.messages[messageIndex];
         if (msg) {
-          return this.formatMessageLine(msg, width);
+          return this.formatMessageLine(msg);
         }
       }
-      return ' '.repeat(width);
+      return ' '.repeat(this.mainContentWidth);
     }
     
-    return chalk.gray('─').repeat(width);
+    // 底部分隔
+    return chalk.gray('─').repeat(this.mainContentWidth);
   }
 
-  private formatMessageLine(msg: Message, width: number): string {
+  private formatMessageLine(msg: Message): string {
     const time = new Date(msg.timestamp).toLocaleTimeString('zh-CN', { 
       hour: '2-digit', 
       minute: '2-digit' 
     });
     
-    const isDelegator = msg.sender === this.taskInfo.delegator;
-    const isSpeaking = msg.type === 'user' && (
-      (this.selectedParticipant === 'delegator' && isDelegator) ||
-      (this.selectedParticipant === 'delegatee' && !isDelegator)
-    );
+    let prefix: string;
+    let contentColor: (s: string) => string;
     
-    let line: string;
-    
-    if (msg.type === 'system') {
-      const prefix = `  ⚡ ${chalk.gray(time)}`;
-      const maxLen = width - prefix.length - 2;
-      const content = msg.content.length > maxLen 
-        ? msg.content.slice(0, maxLen - 2) + '…' 
-        : msg.content;
-      line = `${prefix} ${chalk.gray(content)}`;
-    } else if (msg.type === 'tool') {
-      const prefix = `  🔧 ${chalk.gray(time)}`;
-      const maxLen = width - prefix.length - 2;
-      const content = msg.content.length > maxLen 
-        ? msg.content.slice(0, maxLen - 2) + '…' 
-        : msg.content;
-      line = `${prefix} ${chalk.blue(content)}`;
-    } else {
-      const roleIcon = isDelegator ? '👤' : '🤖';
-      const senderName = msg.sender === this.taskInfo.delegator 
-        ? this.taskInfo.delegator 
-        : this.taskInfo.delegatee;
-      const roleColor = isDelegator ? chalk.green : chalk.cyan;
-      
-      const prefix = `  ${roleIcon} ${roleColor(senderName)} ${chalk.gray(time)}`;
-      const maxLen = width - prefix.length - 2;
-      const content = msg.content.length > maxLen 
-        ? msg.content.slice(0, maxLen - 2) + '…' 
-        : msg.content;
-      
-      const contentColored = (isDelegator ? chalk.green : chalk.cyan)(content);
-      
-      if (isSpeaking) {
-        line = chalk.bgRgb(40, 44, 52)(`  ${prefix} ${contentColored}`);
-      } else {
-        line = `${prefix} ${contentColored}`;
-      }
+    switch (msg.type) {
+      case 'system':
+        prefix = ` ⚡ ${chalk.gray(time)}`;
+        contentColor = chalk.gray;
+        break;
+      case 'tool':
+        prefix = ` 🔧 ${chalk.gray(time)}`;
+        contentColor = chalk.blue;
+        break;
+      case 'review':
+        prefix = ` ✅ ${chalk.gray(time)}`;
+        contentColor = chalk.yellow;
+        break;
+      case 'user':
+        const isDelegator = msg.sender === this.taskInfo.delegator;
+        prefix = ` ${isDelegator ? '👤' : '🤖'} ${chalk[isDelegator ? 'green' : 'cyan'](msg.sender)} ${chalk.gray(time)}`;
+        contentColor = isDelegator ? chalk.green : chalk.cyan;
+        break;
+      default:
+        prefix = ` 🤖 ${chalk.cyan(msg.sender)} ${chalk.gray(time)}`;
+        contentColor = chalk.cyan;
     }
     
-    const displayLen = line.replace(/\x1b\[[0-9;]*m/g, '').length;
-    const padding = ' '.repeat(Math.max(0, width - displayLen));
+    const maxLen = this.mainContentWidth - prefix.length - 2;
+    const content = msg.content.length > maxLen 
+      ? msg.content.slice(0, maxLen - 2) + '…' 
+      : msg.content;
     
-    return line + padding;
+    const line = `${prefix} ${contentColor(content)}`;
+    const displayLen = line.replace(/\x1b\[[0-9;]*m/g, '').length;
+    
+    return line + ' '.repeat(Math.max(0, this.mainContentWidth - displayLen));
   }
 
-  private renderSidebarLine(row: number, width: number): string {
-    const sections = [
-      { title: '👥 参与者', render: () => this.renderParticipants() },
-      { title: '📋 状态', render: () => this.renderStatus() },
-      { title: '📜 消息', render: () => this.renderMessageScrollbar() },
-      { title: '📁 工作目录', render: () => this.renderWorkspace() },
+  // ===== 侧边栏渲染 =====
+  private renderSidebarLine(row: number): string {
+    const modules = [
+      { title: '📋 任务状态', lines: this.renderTaskStatus() },
+      { title: '🔄 当前工作', lines: this.renderCurrentWork() },
+      { title: '👥 Agent 状态', lines: this.renderAgentList() },
+      { title: '📝 执行日志', lines: this.renderRecentLogs() },
     ];
     
     let currentRow = 0;
     
-    for (const section of sections) {
-      const lines = section.render();
-      
+    for (const module of modules) {
+      // 模块标题
       if (row === currentRow) {
-        return chalk.bold.white(` ${section.title} `).padEnd(width);
+        return chalk.bold.white(` ${module.title} `).padEnd(this.sidebarWidth);
       }
       currentRow++;
       
-      for (const line of lines) {
+      // 模块内容
+      for (const line of module.lines) {
         if (row === currentRow) {
-          return line.padEnd(width).slice(0, width);
+          return line.padEnd(this.sidebarWidth).slice(0, this.sidebarWidth);
         }
         currentRow++;
       }
       
+      // 模块间隔
       if (row === currentRow) {
-        return ' '.repeat(width);
+        return ' '.repeat(this.sidebarWidth);
       }
       currentRow++;
     }
     
-    return ' '.repeat(width);
+    return ' '.repeat(this.sidebarWidth);
   }
 
-  private renderParticipants(): string[] {
-    const lines: string[] = [];
-    const isDelegatorCurrent = this.currentUserId === this.taskInfo.delegator;
+  private renderTaskStatus(): string[] {
+    const statusMap: Record<string, { emoji: string; text: string }> = {
+      'pending': { emoji: '⏳', text: '等待任务' },
+      'accepted': { emoji: '✅', text: '已接受' },
+      'in_progress': { emoji: '🔄', text: '执行中' },
+      'pending_review': { emoji: '🔍', text: '评审中' },
+      'completed': { emoji: '✅', text: '已完成' },
+      'failed': { emoji: '❌', text: '已失败' },
+    };
     
-    // 委托者
-    const delegatorSelected = this.selectedParticipant === 'delegator';
-    const delegatorIcon = delegatorSelected ? chalk.bgGreen('▶') : ' ';
-    const delegatorLabel = isDelegatorCurrent 
-      ? chalk.green.bold(`👤 ${this.taskInfo.delegator} (委托者·我)`)
-      : chalk.green(`👤 ${this.taskInfo.delegator} (委托者)`);
-    lines.push(delegatorIcon + ' ' + delegatorLabel);
+    const status = statusMap[this.taskInfo.status] || { emoji: '📋', text: this.taskInfo.status };
     
-    // 受托者
-    const delegateeSelected = this.selectedParticipant === 'delegatee';
-    const delegateeIcon = delegateeSelected ? chalk.bgCyan('▶') : ' ';
-    const delegateeLabel = !isDelegatorCurrent 
-      ? chalk.cyan.bold(`🤖 ${this.taskInfo.delegatee} (受托者·我)`)
-      : chalk.cyan(`🤖 ${this.taskInfo.delegatee} (受托者)`);
-    lines.push(delegateeIcon + ' ' + delegateeLabel);
-    
-    lines.push(chalk.gray(' Tab 切换 | Enter 发送'));
-    
-    return lines;
+    return [
+      `  ${status.emoji} ${status.text}`,
+      `  任务: ${this.taskInfo.task.slice(0, 20)}...`
+    ];
   }
 
-  private renderStatus(): string[] {
-    const lines: string[] = [];
+  private renderCurrentWork(): string[] {
+    const workingAgent = this.agents.find(a => a.status === 'working');
     
-    const statusEmoji = this.getStatusEmoji();
-    lines.push(`  状态: ${statusEmoji} ${this.taskInfo.status}`);
-    
-    const roundInfo = this.context.find(c => c.includes('轮次')) || '轮次: 0/5';
-    lines.push(`  ${roundInfo}`);
-    
-    return lines;
-  }
-
-  private renderMessageScrollbar(): string[] {
-    const lines: string[] = [];
-    const total = this.messages.length;
-    const visible = this.messageAreaHeight;
-    
-    if (total === 0) {
-      lines.push(chalk.gray('  (无消息)'));
-      return lines;
+    if (!workingAgent) {
+      return [chalk.gray('  (无活动任务)')];
     }
     
-    // 显示消息统计
-    const start = this.scrollOffset + 1;
-    const end = Math.min(this.scrollOffset + visible, total);
-    
-    lines.push(`  ${start}-${end} / ${total} 条`);
-    
-    // 渲染滚动条
-    if (total > visible) {
-      const scrollbarHeight = Math.max(1, Math.floor(visible * visible / total));
-      const maxScrollPos = total - visible;
-      const scrollPos = maxScrollPos > 0 ? Math.floor(this.scrollOffset * (visible - scrollbarHeight) / maxScrollPos) : 0;
+    return [
+      `  🤖 ${chalk.cyan(workingAgent.id)}`,
+      `  ${workingAgent.currentTask || '执行中...'}`
+    ];
+  }
+
+  private renderAgentList(): string[] {
+    return this.agents.map(agent => {
+      const statusIcon = agent.status === 'working' ? '🔄' :
+                        agent.status === 'completed' ? '✅' : '💤';
+      const isMe = agent.id === this.currentUserId;
+      const name = isMe ? chalk.bold(`${agent.id} (我)`) : agent.id;
       
-      let scrollbar = '';
-      for (let i = 0; i < visible; i++) {
-        if (i >= scrollPos && i < scrollPos + scrollbarHeight) {
-          scrollbar += chalk.bgWhite(' ');
-        } else {
-          scrollbar += chalk.gray('│');
-        }
-      }
-      lines.push('  ' + scrollbar);
-    }
-    
-    // 提示
-    lines.push(chalk.gray('  ↑↓ 滚动消息'));
-    
-    return lines;
+      return `  ${statusIcon} ${name}`;
+    });
   }
 
-  private renderWorkspace(): string[] {
-    const lines: string[] = [];
-    const maxFiles = 3;
-    
-    for (let i = 0; i < Math.min(this.workspaceFiles.length, maxFiles); i++) {
-      const file = this.workspaceFiles[i];
-      if (file) {
-        const display = file.length > 22 ? file.slice(0, 19) + '…' : file;
-        lines.push(`  ${display}`);
-      }
+  private renderRecentLogs(): string[] {
+    if (this.recentLogs.length === 0) {
+      return [chalk.gray('  (暂无日志)')];
     }
     
-    if (this.workspaceFiles.length === 0) {
-      lines.push(chalk.gray('  (空)'));
-    } else if (this.workspaceFiles.length > maxFiles) {
-      lines.push(chalk.gray(`  +${this.workspaceFiles.length - maxFiles} 文件`));
-    }
-    
-    return lines;
+    return this.recentLogs.map(log => {
+      const display = log.length > 25 ? log.slice(0, 22) + '…' : log;
+      return `  ${chalk.gray(display)}`;
+    });
   }
 
-  private renderInputSection(width: number): string {
+  // ===== 输入区渲染 =====
+  private renderInputSection(): string {
     const lines: string[] = [];
     
-    lines.push(chalk.gray('─').repeat(width));
+    // 分隔线
+    lines.push(chalk.gray('─').repeat(this.terminalWidth));
     
-    let hint = '输入消息';
-    if (this.selectedParticipant) {
-      const target = this.selectedParticipant === 'delegator' ? '委托者' : '受托者';
-      hint = `发给 ${target}`;
-    }
+    // 输入提示
+    const hints = this.getHints();
+    lines.push(chalk.yellow(`  ${hints}`));
     
-    const statusHints = this.getStatusHints();
-    if (statusHints) {
-      hint += ` | ${statusHints}`;
-    }
-    
-    lines.push(chalk.yellow(`  ${hint} (Esc退出):`));
-    
-    const prompt = this.selectedParticipant 
-      ? chalk.bold.cyan('> ')
-      : chalk.bold.green('> ');
+    // 输入框
+    const prompt = chalk.bold.green('> ');
     const inputLine = this.inputBuffer + '█';
     lines.push(prompt + inputLine);
+    
+    // 快捷键提示
+    lines.push(chalk.gray('  Enter 发送 | Esc 退出 | ↑↓ 滚动'));
+    
+    // 填充剩余行
+    while (lines.length < this.inputHeight) {
+      lines.push('');
+    }
     
     return lines.join('\n');
   }
 
-  private getStatusHints(): string {
+  private getHints(): string {
     switch (this.taskInfo.status) {
-      case 'failed':
-        return '/retry 重试';
       case 'pending':
-        return '@受托者 自动接受';
+        return '输入消息，或 @受托者 自动接受任务';
       case 'pending_review':
-        return '/accept 通过 | /reject <反馈>';
+        return '/accept 通过 | /reject <反馈> 不通过';
+      case 'failed':
+        return '/retry 重试任务';
       default:
-        return '';
+        return '输入消息或指令';
     }
   }
 
+  // ===== 输入处理 =====
   private async inputLoop(): Promise<void> {
     return new Promise((resolve) => {
       if (!process.stdin.isTTY) {
@@ -515,37 +407,17 @@ export class TaskConversationUI {
           return;
         }
 
-        // Tab 切换参与者
-        if (key === '\t') {
-          this.cycleParticipant();
-          this.render();
-          return;
-        }
-
-        // 上箭头 - 向上滚动
+        // 上箭头
         if (key === '\u001b[A') {
-          this.scrollUp(1);
+          this.scrollOffset = Math.max(0, this.scrollOffset - 1);
           this.render();
           return;
         }
 
-        // 下箭头 - 向下滚动
+        // 下箭头
         if (key === '\u001b[B') {
-          this.scrollDown(1);
-          this.render();
-          return;
-        }
-
-        // Page Up - 向上翻页
-        if (key === '\u001b[5~') {
-          this.scrollUp(this.messageAreaHeight);
-          this.render();
-          return;
-        }
-
-        // Page Down - 向下翻页
-        if (key === '\u001b[6~') {
-          this.scrollDown(this.messageAreaHeight);
+          const maxOffset = Math.max(0, this.messages.length - (this.mainContentHeight - 3));
+          this.scrollOffset = Math.min(maxOffset, this.scrollOffset + 1);
           this.render();
           return;
         }
@@ -553,18 +425,9 @@ export class TaskConversationUI {
         // Enter 发送
         if (key === '\r' || key === '\n') {
           if (this.inputBuffer.trim() && this.messageCallback) {
-            let message = this.inputBuffer.trim();
-            
-            if (this.selectedParticipant && !message.includes('@')) {
-              const target = this.selectedParticipant === 'delegator' 
-                ? this.taskInfo.delegator 
-                : this.taskInfo.delegatee;
-              message = `@${target} ${message}`;
-            }
-            
-            this.messageCallback(message);
+            this.messageCallback(this.inputBuffer.trim());
             this.inputBuffer = '';
-            this.scrollToBottom();
+            this.scrollOffset = Math.max(0, this.messages.length - (this.mainContentHeight - 3));
             this.render();
           }
           return;
@@ -586,17 +449,5 @@ export class TaskConversationUI {
 
       process.stdin.on('data', this.stdinHandler);
     });
-  }
-
-  private cycleParticipant(): void {
-    const isDelegatorCurrent = this.currentUserId === this.taskInfo.delegator;
-    
-    if (this.selectedParticipant === null) {
-      this.selectedParticipant = isDelegatorCurrent ? 'delegatee' : 'delegator';
-    } else if (this.selectedParticipant === 'delegator') {
-      this.selectedParticipant = 'delegatee';
-    } else {
-      this.selectedParticipant = 'delegator';
-    }
   }
 }
