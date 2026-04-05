@@ -119,6 +119,49 @@ const AppContent: React.FC<AppProps> = ({
   });
 
   const handleSubmit = useCallback(async (input: string) => {
+    // @agent 切换命令
+    if (input.startsWith('@')) {
+      const targetAgent = input.slice(1).trim();
+      if (agents.includes(targetAgent)) {
+        setCurrentAgent(targetAgent);
+        addMessage({
+          sender: 'System',
+          content: `Switched to agent: ${targetAgent}`,
+          type: 'system',
+        });
+        addLog(`Switched to agent: ${targetAgent}`, 'info');
+      } else {
+        addMessage({
+          sender: 'System',
+          content: `Unknown agent: ${targetAgent} (available: ${agents.join(', ')})`,
+          type: 'error',
+        });
+      }
+      return;
+    }
+
+    // /command 命令
+    if (input.startsWith('/')) {
+      if (input === '/clear') {
+        // 清屏由外部处理，这里只记录日志
+        addLog('Clear command received', 'info');
+      } else if (input === '/agents') {
+        addMessage({
+          sender: 'System',
+          content: `Available agents: ${agents.join(', ')}`,
+          type: 'system',
+        });
+      } else if (input === '/help') {
+        addMessage({
+          sender: 'System',
+          content: 'Commands: @<agent> | /clear | /agents | /help | /exit',
+          type: 'system',
+        });
+      }
+      addToHistory(input);
+      return;
+    }
+
     addMessage({
       sender: 'You',
       content: input,

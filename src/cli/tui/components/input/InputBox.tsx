@@ -44,6 +44,26 @@ export const InputBox: React.FC<Props> = ({
       if (historyItem) setInput(historyItem);
       setCompletions([]);
     } else if (key.tab) {
+      // @agent 切换: 直接补全并立即切换
+      if (input.startsWith('@')) {
+        const matches = getAgentMatches(input, agents);
+        if (matches.length === 1) {
+          onSubmit?.(matches[0]!);  // 交给 handleSubmit 处理切换
+          addToHistory(matches[0]!);
+          setInput('');
+          setCompletions([]);
+          return;
+        }
+        if (matches.length > 1) {
+          setCompletions(matches);
+          // 循环选择
+          const next = matches[(completions.indexOf(input) + 1) % matches.length];
+          if (next) setInput(next);
+          return;
+        }
+      }
+
+      // 命令补全
       if (completions.length > 0) {
         setInput(completions[0]!);
         setCompletions([]);
@@ -105,4 +125,8 @@ function getCompletions(input: string, commands: string[], agents: string[]): st
     return agents.map(a => `@${a}`).filter(a => a.startsWith(input));
   }
   return [];
+}
+
+function getAgentMatches(input: string, agents: string[]): string[] {
+  return agents.map(a => `@${a}`).filter(a => a.startsWith(input));
 }
