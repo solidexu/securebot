@@ -31,13 +31,10 @@ export const ChatPanel: React.FC = () => {
           {' | '}{messages.length} messages
         </Text>
         {isStreaming && (
-          <>
+          <Text color="yellow">
             {' '}
-            <Text color="yellow">
-              <Spinner type="dots" />
-            </Text>
-            <Text color="yellow"> streaming</Text>
-          </>
+            <Spinner type="dots" /> streaming
+          </Text>
         )}
       </Box>
 
