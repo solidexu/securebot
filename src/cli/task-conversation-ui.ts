@@ -172,32 +172,32 @@ export class TaskConversationUI {
 
   private renderMainContent(leftWidth: number, rightWidth: number, height: number): void {
     const lines: string[] = [];
+    const separator = '│';
     
-    // 渲染每一行
     for (let row = 0; row < height; row++) {
       const leftContent = this.renderLeftContent(row, leftWidth, height);
       const rightContent = this.renderRightContent(row, rightWidth, height);
-      const separator = chalk.gray('│');
       
-      lines.push(`${leftContent}${separator}${rightContent}`);
+      // 确保左列和右列都是精确的宽度（不含 ANSI 码）
+      const leftLine = leftContent.padEnd(leftWidth).slice(0, leftWidth);
+      const rightLine = rightContent.padEnd(rightWidth).slice(0, rightWidth);
+      
+      lines.push(`${leftLine}${chalk.gray(separator)}${rightLine}`);
     }
     
     console.log(lines.join('\n'));
   }
 
   private renderLeftContent(row: number, width: number, totalHeight: number): string {
-    // 计算消息显示区域
     const messageAreaHeight = totalHeight - 2;
     
     if (row === 0) {
-      // 对话标题
-      const title = chalk.bold.white(' 💬 对话 ');
-      const padding = width - title.length - 2;
-      return chalk.gray('─') + title + chalk.gray('─'.repeat(Math.max(0, padding)));
+      const title = ' 💬 对话 ';
+      const dashes = '─'.repeat(Math.max(0, width - title.length - 2));
+      return chalk.gray('─') + chalk.bold.white(title) + chalk.gray(dashes);
     }
     
     if (row < messageAreaHeight + 1) {
-      // 消息内容
       const messageIndex = row - 1 + this.scrollOffset;
       if (messageIndex >= 0 && messageIndex < this.messages.length) {
         const msg = this.messages[messageIndex];
@@ -208,7 +208,6 @@ export class TaskConversationUI {
       return ' '.repeat(width);
     }
     
-    // 底部分隔线
     return chalk.gray('─'.repeat(width));
   }
 
@@ -222,32 +221,27 @@ export class TaskConversationUI {
     let currentRow = 0;
     
     for (const section of sections) {
-      // 标题行
       if (row === currentRow) {
-        const titleText = ` ${section.title} `;
-        const title = chalk.bold.white(titleText);
-        // chalk 会添加 ANSI 码（约 10 字符），需要用 titleText 长度计算
-        const paddingWidth = width - titleText.length - 2;
-        return chalk.gray('─') + title + chalk.gray('─'.repeat(Math.max(0, paddingWidth)));
+        const title = ` ${section.title} `;
+        const dashes = '─'.repeat(Math.max(0, width - title.length - 2));
+        return chalk.gray('─') + chalk.bold.white(title) + chalk.gray(dashes);
       }
       currentRow++;
       
-      // 内容行
       const itemCount = section.items.length;
       for (let i = 0; i < Math.min(itemCount, 5); i++) {
         if (row === currentRow) {
           const rawItem = section.items[i] || '';
-          // 截断并添加前缀（不加颜色码，避免截断错误）
-          const displayItem = `  ${rawItem}`;
-          const truncated = displayItem.length > width - 2 
-            ? displayItem.slice(0, width - 5) + '...' 
-            : displayItem;
-          return truncated.padEnd(width);
+          // 截断到合适长度
+          const maxLen = width - 4;
+          const displayItem = rawItem.length > maxLen 
+            ? rawItem.slice(0, maxLen - 3) + '...' 
+            : rawItem;
+          return `  ${displayItem}`;
         }
         currentRow++;
       }
       
-      // 空行间隔
       if (row === currentRow) {
         return ' '.repeat(width);
       }
@@ -263,24 +257,33 @@ export class TaskConversationUI {
       minute: '2-digit' 
     });
     
-    let prefix: string;
+    let prefixText: string;
+    let prefixColored: string;
     let contentColor: (text: string) => string;
     
     if (msg.type === 'system') {
-      prefix = chalk.gray(`[系统] ${time}`);
+      prefixText = `[系统] ${time}`;
+      prefixColored = chalk.gray(prefixText);
       contentColor = chalk.gray;
     } else if (msg.type === 'tool') {
-      prefix = chalk.blue(`[工具] ${time}`);
+      prefixText = `[工具] ${time}`;
+      prefixColored = chalk.blue(prefixText);
       contentColor = chalk.blue;
     } else {
-      prefix = msg.sender === this.taskInfo.delegator ? 
-               chalk.green(`[委托者] ${time}`) :
-               chalk.cyan(`[受托者] ${time}`);
+      prefixText = msg.sender === this.taskInfo.delegator ? 
+               `[委托者] ${time}` : `[受托者] ${time}`;
+      prefixColored = msg.sender === this.taskInfo.delegator ? 
+               chalk.green(prefixText) : chalk.cyan(prefixText);
       contentColor = chalk.white;
     }
     
-    const content = msg.content.slice(0, width - prefix.length - 3);
-    return `${prefix} ${contentColor(content)}`;
+    // 使用纯文本长度计算剩余空间
+    const maxContentLen = width - prefixText.length - 2;
+    const content = msg.content.length > maxContentLen 
+      ? msg.content.slice(0, maxContentLen - 3) + '...' 
+      : msg.content;
+    
+    return `${prefixColored} ${contentColor(content)}`;
   }
 
   private renderInputArea(width: number): void {

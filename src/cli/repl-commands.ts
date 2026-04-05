@@ -2325,19 +2325,15 @@ async function showTaskDetailInner(
               type: 'system'
             });
             
-            // 刷新数据
-            const updated = collaborationManager.getDelegationManager()
-              .getDelegations(state.currentAgentId, undefined, true)
-              .find((d: any) => d.id === delegation.id);
-            if (updated) {
-              Object.assign(delegation, updated);
-              ui.setContext([
-                `状态: ${delegation.status}`,
-                `轮次: ${delegation.currentRound || 0}/${delegation.maxRounds || 5}`,
-                `委托者: ${delegation.delegator}`,
-                `受托者: ${delegation.delegatee}`
-              ]);
-            }
+            // 注意：不要使用 reload=true，因为 persistDelegation 是异步的
+            // 文件可能还没写入完成，会导致读到旧数据覆盖内存中的新状态
+            // 直接更新 UI context 即可
+            ui.setContext([
+              `状态: in_progress`,
+              `轮次: ${delegation.currentRound || 0}/${delegation.maxRounds || 5}`,
+              `委托者: ${delegation.delegator}`,
+              `受托者: ${delegation.delegatee}`
+            ]);
           } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             ui.addMessage({
