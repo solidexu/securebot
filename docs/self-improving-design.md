@@ -1,10 +1,4 @@
-# Agent Self-Improving 功能设计文档
-
-**版本**: 1.0.0  
-**日期**: 2026-03-18  
-**作者**: SecureBot Team  
-
----
+# Agent Self-Improving 功能设计
 
 ## 1. 概述
 
