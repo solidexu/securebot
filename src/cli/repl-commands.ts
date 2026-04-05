@@ -25,6 +25,7 @@ import { clearPlanFromSession, popSubPlan, renderHierarchicalPlan } from './repl
 import { eventBus } from '../core/event-bus.js';
 import { EventTypes } from '../core/events.js';
 import { CollaborationSessionManager } from './collaboration-session-manager.js';
+import { ConversationStorage } from './conversation-storage.js';
 import { homedir } from 'node:os';
 
 // ============ 命令处理入口 ============
@@ -1907,6 +1908,22 @@ async function showTaskDetailInner(
 ): Promise<boolean> {
   const isDelegator = delegation.delegator === state.currentAgentId;
   const roleText = isDelegator ? chalk.magenta('委派者') : chalk.cyan('受托者');
+  
+  // 初始化对话存储（如果有工作空间）
+  let conversationStorage: ConversationStorage | null = null;
+  if (delegation.sharedWorkspace) {
+    conversationStorage = new ConversationStorage(delegation.sharedWorkspace, delegation.id);
+    // 从工作空间加载对话历史并合并
+    const storedMessages = conversationStorage.loadConversation();
+    if (storedMessages.length > 0) {
+      // 合并存储的对话和内存中的对话（避免重复）
+      const existingIds = new Set(delegation.conversationHistory?.map((m: any) => m.id) || []);
+      const newMessages = storedMessages.filter(m => !existingIds.has(m.id));
+      if (newMessages.length > 0) {
+        delegation.conversationHistory = [...(delegation.conversationHistory || []), ...newMessages];
+      }
+    }
+  }
   const otherParty = isDelegator ? delegation.delegatee : delegation.delegator;
   
   console.log(chalk.white(`\n  任务: ${delegation.task}`));
@@ -2142,13 +2159,34 @@ async function showTaskDetailInner(
     });
   }
   
-  // 发送消息功能（所有状态）
+  // 任务对话功能（所有状态）
   actions.push({
     key: 'm',
-    label: '发送消息',
+    label: '任务对话',
     handler: async () => {
-      console.log(chalk.cyan('\n💬 发送消息给对方'));
+      console.log(chalk.cyan('\n💬 任务对话'));
       console.log(chalk.gray('─'.repeat(50)));
+      
+      // 显示对话历史
+      const history = delegation.conversationHistory || [];
+      if (history.length > 0) {
+        console.log(chalk.gray('\n历史对话记录:'));
+        const recentMessages = history.slice(-20);
+        for (const msg of recentMessages) {
+          const time = new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+          const senderName = msg.sender === delegation.delegator ? '委派者' :
+                            msg.sender === delegation.delegatee ? '受托者' :
+                            '系统';
+          
+          const prefix = msg.type === 'system' ? '[系统]' : `[${senderName}]`;
+          const color = msg.sender === state.currentAgentId ? chalk.green : chalk.white;
+          
+          console.log(color(`${prefix} ${time}`));
+          console.log(chalk.gray(`  ${msg.content}`));
+        }
+        console.log(chalk.gray('─'.repeat(50)));
+      }
+      
       console.log(chalk.gray('提示: 输入 @<agentId> 可触发自动接受任务'));
       
       const content = await rl.question(chalk.yellow('请输入消息内容: '));
@@ -2168,26 +2206,39 @@ async function showTaskDetailInner(
         if (choice === 'auto') {
           try {
             // 先发送消息
-            await collaborationManager.getDelegationManager().sendMessage(
+            const userMessage = await collaborationManager.getDelegationManager().sendMessage(
               delegation.id,
               state.currentAgentId,
               content.trim(),
               'text'
             );
             
+            // 保存用户消息到工作空间
+            if (conversationStorage) {
+              conversationStorage.appendMessage(userMessage);
+            }
+            
             // 发送系统消息
-            await collaborationManager.getDelegationManager().sendMessage(
+            const systemMessage = await collaborationManager.getDelegationManager().sendMessage(
               delegation.id,
               'system',
               `${delegation.delegatee} 已自动接受任务`,
               'system'
             );
             
+            // 保存系统消息到工作空间
+            if (conversationStorage) {
+              conversationStorage.appendMessage(systemMessage);
+            }
+            
             // 自动接受任务
             await collaborationManager.getDelegationManager().acceptDelegation(delegation.id);
             
             console.log(chalk.green('\n✓ 任务已被自动接受'));
             console.log(chalk.gray('任务将开始执行...'));
+            if (conversationStorage) {
+              console.log(chalk.gray(`对话已保存到: ${conversationStorage.getConversationFilePath()}`));
+            }
             await new Promise(r => setTimeout(r, 1500));
             return true;
           } catch (error) {
@@ -2211,8 +2262,16 @@ async function showTaskDetailInner(
           'text'
         );
         
+        // 保存消息到工作空间
+        if (conversationStorage) {
+          conversationStorage.appendMessage(message);
+        }
+        
         console.log(chalk.green('\n✓ 消息已发送'));
         console.log(chalk.gray(`时间: ${new Date(message.timestamp).toLocaleTimeString('zh-CN')}`));
+        if (conversationStorage) {
+          console.log(chalk.gray(`对话已保存到工作空间`));
+        }
         await new Promise(r => setTimeout(r, 1000));
         return true;
       } catch (error) {
