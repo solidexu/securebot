@@ -13,6 +13,30 @@ export const MessageItem: React.FC<Props> = ({ message }) => {
     minute: '2-digit',
   });
 
+  // 工具调用消息特殊展示
+  if (message.type === 'tool') {
+    const meta = message.meta as { name?: string; arguments?: Record<string, unknown> } | undefined;
+    return (
+      <Box flexDirection="column" marginBottom={1}>
+        <Box>
+          <Text color="blue" bold>
+            {'#'} {meta?.name || 'Tool'}
+          </Text>
+          <Text color="gray" dimColor>
+            {' | '}{time}
+          </Text>
+        </Box>
+        <Box paddingLeft={2} flexDirection="column">
+          {message.content.split('\n').map((line, i) => (
+            <Text key={i} color="cyan">
+              {line || ' '}
+            </Text>
+          ))}
+        </Box>
+      </Box>
+    );
+  }
+
   const config = theme.message[message.type];
   const lines = message.content.split('\n');
 
@@ -20,17 +44,12 @@ export const MessageItem: React.FC<Props> = ({ message }) => {
     <Box flexDirection="column" marginBottom={1}>
       {/* 消息头部 */}
       <Box>
-        {/* 发送者 */}
         <Text color={config.color as any} bold>
           {config.icon} {message.sender}
         </Text>
-
-        {/* 时间戳 */}
         <Text color="gray" dimColor>
           {' | '}{time}
         </Text>
-
-        {/* 类型标签 */}
         {message.type !== 'user' && (
           <Text color="gray" dimColor>
             {' ['}{message.type}{']'}
