@@ -30,6 +30,7 @@ export class TaskConversationUI {
   private messageCallback?: (message: string) => void;
   private scrollOffset: number = 0;
   private stdinHandler?: (key: string) => void;
+  private renderTimer?: ReturnType<typeof setTimeout>;
 
   constructor(taskInfo: TaskInfo) {
     this.taskInfo = taskInfo;
@@ -329,9 +330,19 @@ export class TaskConversationUI {
           return;
         }
 
-        if (key.length === 1 && key.charCodeAt(0) >= 32) {
+        // 处理普通字符（包括中文多字节）
+        if (key.charCodeAt(0) >= 32 || key.length > 1) {
           this.inputBuffer += key;
-          this.render();
+          
+          if (this.renderTimer) {
+            clearTimeout(this.renderTimer);
+          }
+          
+          this.renderTimer = setTimeout(() => {
+            if (this.isRunning) {
+              this.render();
+            }
+          }, 30);
         }
       };
 
