@@ -1,6 +1,4 @@
 import chalk from 'chalk';
-import * as readline from 'node:readline/promises';
-import { stdin as input, stdout as output } from 'node:process';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -27,12 +25,11 @@ export class TaskConversationUI {
   private todos: string[] = [];
   private context: string[] = [];
   private workspaceFiles: string[] = [];
-  private rl?: readline.Interface;
   private isRunning: boolean = false;
   private inputBuffer: string = '';
-  private cursorPos: number = 0;
   private messageCallback?: (message: string) => void;
   private scrollOffset: number = 0;
+  private stdinHandler?: (key: string) => void;
 
   constructor(taskInfo: TaskInfo) {
     this.taskInfo = taskInfo;
@@ -40,9 +37,8 @@ export class TaskConversationUI {
 
   async start(): Promise<void> {
     this.isRunning = true;
-    this.rl = readline.createInterface({ input, output });
     
-    // 设置原始模式以捕获按键
+    // 只使用 raw mode，不创建 readline（避免重复监听）
     if (process.stdin.isTTY) {
       process.stdin.setRawMode(true);
     }
@@ -55,12 +51,17 @@ export class TaskConversationUI {
 
   stop(): void {
     this.isRunning = false;
-    if (this.rl) {
-      this.rl.close();
+    
+    // 移除 stdin handler
+    if (this.stdinHandler) {
+      process.stdin.removeListener('data', this.stdinHandler);
+      this.stdinHandler = undefined;
     }
+    
     if (process.stdin.isTTY) {
       process.stdin.setRawMode(false);
     }
+    process.stdin.pause();
   }
 
   onMessage(callback: (message: string) => void): void {
@@ -261,9 +262,9 @@ export class TaskConversationUI {
         return;
       }
 
-      const handler = (key: string) => {
+      this.stdinHandler = (key: string) => {
         if (!this.isRunning) {
-          process.stdin.removeListener('data', handler);
+          process.stdin.removeListener('data', this.stdinHandler!);
           resolve();
           return;
         }
@@ -299,7 +300,7 @@ export class TaskConversationUI {
         }
       };
 
-      process.stdin.on('data', handler);
+      process.stdin.on('data', this.stdinHandler);
     });
   }
 }

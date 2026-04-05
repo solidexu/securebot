@@ -482,6 +482,7 @@ export class DelegationManager {
   private executor?: (delegation: DelegationRequest) => Promise<string | null>;
   private messageBus?: any;
   private eventListeners: Map<string, Set<() => void>> = new Map();
+  private conversationUICallbacks: Map<string, (message: any) => void> = new Map();
 
   constructor(config: Partial<CollaborationConfig> = {}, rootDir?: string) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -1397,6 +1398,48 @@ private async persistDelegation(delegation: DelegationRequest): Promise<void> {
     return Array.from(this.delegations.values())
       .filter(d => d.status === 'in_progress' || d.status === 'accepted')
       .length;
+  }
+
+  /**
+   * 设置对话 UI 回调（用于实时显示执行消息）
+   */
+  setConversationUICallback(delegationId: string, callback: (message: any) => void): void {
+    this.conversationUICallbacks.set(delegationId, callback);
+  }
+
+  /**
+   * 移除对话 UI 回调
+   */
+  removeConversationUICallback(delegationId: string): void {
+    this.conversationUICallbacks.delete(delegationId);
+  }
+
+  /**
+   * 发送执行消息到对话 UI
+   */
+  sendExecutionMessage(delegationId: string, message: { type: string; sender: string; content: string; timestamp: number }): void {
+    // 先添加到对话历史
+    const delegation = this.findDelegationById(delegationId);
+    if (delegation) {
+      const fullMessage: ConversationMessage = {
+        id: uuidv4(),
+        delegationId,
+        sender: message.sender,
+        content: message.content,
+        timestamp: message.timestamp,
+        type: message.type as ConversationMessage['type'],
+        read: false,
+      };
+      delegation.conversationHistory = delegation.conversationHistory || [];
+      delegation.conversationHistory.push(fullMessage);
+      this.persistDelegation(delegation).catch(() => {});
+    }
+
+    // 通知 UI 回调
+    const callback = this.conversationUICallbacks.get(delegationId);
+    if (callback) {
+      callback(message);
+    }
   }
 }
 

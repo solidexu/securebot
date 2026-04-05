@@ -2202,7 +2202,8 @@ async function showTaskDetailInner(
           sender: msg.sender,
           content: msg.content,
           timestamp: msg.timestamp,
-          type: msg.type === 'system' || msg.type === 'tool_call' || msg.type === 'tool_result' ? 'system' : 'user'
+          type: msg.type === 'tool_call' || msg.type === 'tool_result' ? 'tool' : 
+                 msg.type === 'system' ? 'system' : 'user'
         });
       }
       
@@ -2355,6 +2356,9 @@ async function showTaskDetailInner(
       
       // 启动UI
       await ui.start();
+      
+      // UI 退出后移除回调
+      collaborationManager.getDelegationManager().removeConversationUICallback(delegation.id);
       
       return false;  // 返回任务详情菜单
     }
