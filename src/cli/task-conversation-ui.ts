@@ -82,7 +82,10 @@ export class TaskConversationUI {
     if (process.stdin.isTTY) {
       process.stdin.setRawMode(false);
     }
-    process.stdin.pause();
+    
+    // 重要：不要 pause，让 readline 可以继续工作
+    // 只需要移除监听器和恢复 raw mode
+    process.stdin.resume();
   }
 
   onMessage(callback: (message: string) => void): void {
