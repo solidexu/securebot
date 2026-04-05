@@ -194,13 +194,23 @@ export class TaskConversationUI {
   }
 
   stop(): void {
+    // 先销毁 blessed screen（它会处理终端状态）
+    this.screen.destroy();
+    
+    // 然后清理我们自己的 stdin 处理
     if (this.stdinHandler) {
       process.stdin.removeListener('data', this.stdinHandler);
+      this.stdinHandler = undefined;
     }
-    if (process.stdin.isTTY) {
+    
+    // 确保 rawMode 已关闭
+    if (process.stdin.isTTY && process.stdin.isRaw) {
       process.stdin.setRawMode(false);
     }
-    this.screen.destroy();
+    
+    // 恢复 stdin 到正常状态
+    process.stdin.pause();
+    
     if ((this as any)._resolveStart) {
       (this as any)._resolveStart();
     }
