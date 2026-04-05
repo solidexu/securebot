@@ -55,12 +55,14 @@ export class TaskConversationUI {
       }
     }
     
-    // 只使用 raw mode，不创建 readline（避免重复监听）
     if (process.stdin.isTTY) {
       process.stdin.setRawMode(true);
     }
     process.stdin.resume();
     process.stdin.setEncoding('utf8');
+    
+    // 隐藏终端光标
+    process.stdout.write('\u001b[?25l');
 
     this.render();
     await this.inputLoop();
@@ -69,7 +71,9 @@ export class TaskConversationUI {
   stop(): void {
     this.isRunning = false;
     
-    // 移除 stdin handler
+    // 显示终端光标
+    process.stdout.write('\u001b[?25h');
+    
     if (this.stdinHandler) {
       process.stdin.removeListener('data', this.stdinHandler);
       this.stdinHandler = undefined;
