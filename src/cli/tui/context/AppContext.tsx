@@ -109,6 +109,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return null;
   }, [inputHistory]);
 
+  const setChatScroll = useCallback((offset: number) => {
+    setChatScrollOffset(offset);
+  }, []);
+
+  const setLogScroll = useCallback((offset: number) => {
+    setLogScrollOffset(offset);
+  }, []);
+
   const value: AppContextValue = {
     messages,
     agents,
