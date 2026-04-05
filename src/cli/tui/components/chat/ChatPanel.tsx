@@ -9,33 +9,42 @@ export const ChatPanel: React.FC = () => {
   const { messages, isStreaming } = useApp();
 
   return (
-    <Box 
-      flexDirection="column" 
+    <Box
+      flexDirection="column"
       width={theme.layout.chatWidth}
-      height={theme.layout.contentHeight}
-      borderStyle="single"
-      borderColor="cyan"
-      paddingX={1}
+      height="100%"
+      borderStyle={theme.borders.normal}
+      borderColor="blue"
+      paddingX={theme.layout.paddingX}
     >
-      <Box marginBottom={1}>
-        <Text bold color="cyan">
-          💬 聊天
+      {/* 标题栏 */}
+      <Box
+        borderBottom
+        borderColor="blue"
+        marginBottom={1}
+        paddingY={0}
+      >
+        <Text bold color="white">
+          {' \u25cf '} Chat
         </Text>
-        <Text color="gray"> ({messages.length} 条消息)</Text>
+        <Text color="gray">
+          {' | '}{messages.length} messages
+        </Text>
+        {isStreaming && (
+          <>
+            {' '}
+            <Text color="yellow">
+              <Spinner type="dots" />
+            </Text>
+            <Text color="yellow"> streaming</Text>
+          </>
+        )}
       </Box>
 
+      {/* 消息列表 */}
       <Box flexGrow={1} flexDirection="column" overflow="hidden">
         <MessageList messages={messages} />
       </Box>
-
-      {isStreaming && (
-        <Box marginTop={1}>
-          <Text color="yellow">
-            <Spinner type="dots" />
-          </Text>
-          <Text color="gray"> 正在生成...</Text>
-        </Box>
-      )}
     </Box>
   );
 };

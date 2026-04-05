@@ -9,7 +9,7 @@ interface Props {
   agents?: string[];
 }
 
-export const InputBox: React.FC<Props> = ({ 
+export const InputBox: React.FC<Props> = ({
   onSubmit,
   commands = [],
   agents = [],
@@ -56,32 +56,45 @@ export const InputBox: React.FC<Props> = ({
           setCompletions(matches);
         }
       }
-    } else if (!key.ctrl && !key.meta) {
-      const newInput = input + char;
-      setInput(newInput);
-      setCompletions([]);
+    } else if (char) {
+      // 接受所有非控制字符（包括中文等多字节字符）
+      // 只排除明确的控制键组合
+      const isControlKey =
+        (key.escape) ||
+        (key.ctrl && char === 'c') ||
+        (key.ctrl && char === 'd') ||
+        (key.ctrl && char === 'z');
+
+      if (!isControlKey) {
+        const newInput = input + char;
+        setInput(newInput);
+        setCompletions([]);
+      }
     }
   }, { isActive: !isStreaming });
 
   return (
-    <Box flexDirection="column">
-      <Box 
-        borderStyle="single" 
-        borderColor="green"
-        paddingX={1}
-      >
-        <Text bold color="cyan">
-          [{currentAgent}] &gt;
+    <Box flexDirection="column" paddingY={1}>
+      {/* 输入行 */}
+      <Box>
+        <Text bold color="green">
+          {'['}{currentAgent}{']'}&gt;{' '}
         </Text>
-        <Text> {input}</Text>
-        <Text backgroundColor="white" color="black">▌</Text>
+        <Text>{input || ''}</Text>
+        <Text color="white" backgroundColor="gray">{' '}</Text>
       </Box>
-      
+
+      {/* 补全提示 */}
       {completions.length > 0 && (
-        <Box paddingX={1}>
-          <Text color="gray">提示: </Text>
+        <Box marginTop={0} paddingX={2}>
+          <Text color="cyan" dimColor>
+            Suggestions:{' '}
+          </Text>
           {completions.slice(0, 5).map((c, i) => (
-            <Text key={i} color="cyan">{c} </Text>
+            <Text key={i} color="cyan">
+              {c}{' '}
+              {i < Math.min(completions.length, 5) - 1 ? '\u2502' : ''}
+            </Text>
           ))}
         </Box>
       )}

@@ -14,17 +14,25 @@ export const InputArea: React.FC<Props> = ({ onSubmit, commands, agents }) => {
   const { isStreaming } = useApp();
 
   return (
-    <Box 
-      flexDirection="column" 
-      width={theme.layout.chatWidth}
+    <Box
+      flexDirection="column"
+      width="100%"
       height={theme.layout.inputHeight}
+      borderStyle={theme.borders.normal}
+      borderColor="green"
+      paddingX={theme.layout.paddingX}
     >
-      <Box marginBottom={0}>
-        <Text color="gray">
-          {isStreaming ? '⏳ 生成中... 按 Ctrl+C 中断' : 'Enter 发送 | Tab 补全 | ↑↓ 历史'}
+      {/* 提示信息 */}
+      <Box paddingY={0} borderBottom borderColor="green">
+        <Text color="gray" dimColor>
+          {isStreaming
+            ? '  \u25b6 Generating... Press Ctrl+C to stop'
+            : '  \u25cb Enter to send | Tab for autocomplete | Up/Down history'
+          }
         </Text>
       </Box>
-      
+
+      {/* 输入框 */}
       <InputBox onSubmit={onSubmit} commands={commands} agents={agents} />
     </Box>
   );

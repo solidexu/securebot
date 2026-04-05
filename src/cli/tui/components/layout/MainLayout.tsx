@@ -6,7 +6,7 @@ import { theme } from '../../styles/theme.js';
 
 export const MainLayout: React.FC = () => {
   return (
-    <Box width="100%" height={theme.layout.contentHeight}>
+    <Box width="100%" height="100%" flexDirection="row">
       <ChatPanel />
       <StatusPanel />
     </Box>

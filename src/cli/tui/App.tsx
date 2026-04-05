@@ -4,26 +4,94 @@ import { AppProvider, useApp } from './context/index.js';
 import { MainLayout, InputArea } from './components/index.js';
 import { theme } from './styles/theme.js';
 
+/** onMessage 回调的上下文参数 */
+export interface MessageContext {
+  setCurrentAgent?: (id: string) => void;
+  setIsStreaming?: (v: boolean) => void;
+  updateMessage?: (id: string, content: string) => void;
+  addMessage?: (msg: any) => string;
+  setTaskStatus?: (status: any) => void;
+  addLog?: (msg: string, level?: string) => void;
+  currentAgent?: string;
+}
+
 interface AppProps {
   defaultAgent?: string;
-  onMessage?: (message: string) => Promise<void> | void;
+  /** 消息处理回调（传入消息内容和 UI 操作上下文） */
+  onMessage?: (message: string, context: MessageContext) => Promise<void> | void;
   commands?: string[];
   agents?: string[];
 }
 
-const AppContent: React.FC<AppProps> = ({ 
+/**
+ * 顶部标题栏组件
+ */
+const HeaderBar: React.FC<{ agent: string }> = ({ agent }) => (
+  <Box
+    width="100%"
+    height={theme.layout.headerHeight}
+    borderStyle={theme.borders.titleBar}
+    borderColor="cyan"
+    justifyContent="space-between"
+    paddingX={1}
+  >
+    <Text bold color="white">
+      {' '}SecureBot{' '}
+      <Text color="cyan">v1.0</Text>
+    </Text>
+    <Text color="yellow">
+      Agent: <Text bold>{agent}</Text>
+    </Text>
+    <Text color="gray">
+      Ctrl+C 退出 | Enter 发送
+    </Text>
+  </Box>
+);
+
+/**
+ * 底部状态栏组件
+ */
+const StatusBar: React.FC = () => {
+  const { isStreaming, currentAgent, messages } = useApp();
+
+  return (
+    <Box
+      width="100%"
+      height={theme.layout.footerHeight}
+      borderStyle="single"
+      borderColor="gray"
+      paddingX={1}
+      justifyContent="space-between"
+    >
+      <Text color="gray">
+        [{messages.length} msgs]
+        {' | '}
+        <Text color={isStreaming ? 'yellow' : 'green'}>
+          {isStreaming ? '\u25b6 Generating...' : '\u25cb Ready'}
+        </Text>
+      </Text>
+      <Text color="magenta">
+        {' \u2502 '}
+        <Text color="cyan">[{currentAgent}]</Text>
+      </Text>
+    </Box>
+  );
+};
+
+const AppContent: React.FC<AppProps> = ({
   defaultAgent = 'dev',
   onMessage,
   commands = ['/help', '/exit', '/clear', '/agents', '/skills'],
   agents = ['dev', 'support', 'analyst'],
 }) => {
   const { exit } = useInkApp();
-  const { 
-    addMessage, 
-    setCurrentAgent, 
-    setAgents, 
-    addLog, 
+  const {
+    addMessage,
+    setCurrentAgent,
+    setAgents,
+    addLog,
     setIsStreaming,
+    currentAgent,
   } = useApp();
 
   useEffect(() => {
@@ -32,15 +100,15 @@ const AppContent: React.FC<AppProps> = ({
       name: id,
       status: 'idle' as const,
     })));
-    
+
     setCurrentAgent(defaultAgent);
-    
+
     addMessage({
       sender: 'System',
       content: `Welcome to SecureBot! Current agent: ${defaultAgent}`,
       type: 'system',
     });
-    
+
     addLog('TUI initialized', 'info');
   }, []);
 
@@ -65,32 +133,53 @@ const AppContent: React.FC<AppProps> = ({
     addLog(`User input: ${input.slice(0, 30)}...`, 'info');
 
     if (onMessage) {
-      setIsStreaming(true);
+      // 构建上下文对象，让 onMessage 回调可以操作 UI 状态
+      const messageContext: MessageContext = {
+        setCurrentAgent,
+        setIsStreaming,
+        updateMessage,
+        addMessage,
+        setTaskStatus,
+        addLog,
+        currentAgent,
+      };
+
       try {
-        await onMessage(input);
-      } finally {
+        await onMessage(input, messageContext);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        addMessage({
+          sender: 'System',
+          content: `Error: ${msg}`,
+          type: 'error',
+        });
+        addLog(`处理消息失败: ${msg}`, 'error');
         setIsStreaming(false);
       }
     }
-  }, [addMessage, addLog, setIsStreaming, onMessage]);
+  }, [addMessage, addLog, onMessage, setCurrentAgent, setIsStreaming, updateMessage, setTaskStatus, currentAgent]);
 
   return (
     <Box flexDirection="column" height="100%" width="100%">
-      <MainLayout />
-      
-      <Box width={theme.layout.chatWidth}>
-        <InputArea 
+      {/* 顶部标题栏 */}
+      <HeaderBar agent={currentAgent || defaultAgent} />
+
+      {/* 主内容区域（Chat + Status） */}
+      <Box flexGrow={1}>
+        <MainLayout />
+      </Box>
+
+      {/* 输入区域 - 全宽，位于底部状态栏上方 */}
+      <Box width="100%">
+        <InputArea
           onSubmit={handleSubmit}
           commands={commands}
           agents={agents}
         />
       </Box>
-      
-      <Box width={theme.layout.statusWidth} justifyContent="flex-end">
-        <Box borderStyle="single" borderColor="green" paddingX={1}>
-          <Text color="gray">Ctrl+C 退出</Text>
-        </Box>
-      </Box>
+
+      {/* 底部状态栏 */}
+      <StatusBar />
     </Box>
   );
 };
