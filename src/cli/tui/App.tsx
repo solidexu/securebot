@@ -87,8 +87,10 @@ const AppContent: React.FC<AppProps> = ({
   const { exit } = useInkApp();
   const {
     addMessage,
+    updateMessage,
     setCurrentAgent,
     setAgents,
+    setTaskStatus,
     addLog,
     setIsStreaming,
     currentAgent,
