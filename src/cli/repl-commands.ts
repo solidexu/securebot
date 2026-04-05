@@ -24,6 +24,8 @@ import { saveAllSessions } from './repl-session.js';
 import { clearPlanFromSession, popSubPlan, renderHierarchicalPlan } from './repl-plan.js';
 import { eventBus } from '../core/event-bus.js';
 import { EventTypes } from '../core/events.js';
+import { CollaborationSessionManager } from './collaboration-session-manager.js';
+import { homedir } from 'node:os';
 
 // ============ 命令处理入口 ============
 
@@ -1880,10 +1882,29 @@ async function showTaskDetail(
   rl: readlinePromises.Interface,
   collaborationManager: any
 ): Promise<boolean> {
-  console.clear();
-  console.log(chalk.cyan.bold('\n📋 任务详情'));
-  console.log(chalk.cyan.bold('═'.repeat(60)));
-  
+  const sessionManager = new CollaborationSessionManager();
+
+  const dataDir = homedir() + '/.securebot/collaboration';
+  sessionManager.startWatching(delegation.id, dataDir);
+
+  try {
+    const result = await showTaskDetailInner(state, delegation, rl, collaborationManager, sessionManager);
+    if (sessionManager.getPendingDecisionCount() > 0) {
+      console.log(chalk.yellow('\n注意: 有待处理的决策请求'));
+    }
+    return result;
+  } finally {
+    sessionManager.cleanup();
+  }
+}
+
+async function showTaskDetailInner(
+  state: ReplState,
+  delegation: any,
+  rl: readlinePromises.Interface,
+  collaborationManager: any,
+  sessionManager: CollaborationSessionManager
+): Promise<boolean> {
   const isDelegator = delegation.delegator === state.currentAgentId;
   const roleText = isDelegator ? chalk.magenta('委派者') : chalk.cyan('受托者');
   const otherParty = isDelegator ? delegation.delegatee : delegation.delegator;
@@ -1892,6 +1913,11 @@ async function showTaskDetail(
   console.log(chalk.gray(`  ID: ${delegation.id.slice(0, 8)}`));
   console.log(chalk.white(`  角色: ${roleText} | ${isDelegator ? '委派给' : '来自'}: ${otherParty}`));
   console.log(chalk.white(`  状态: ${delegation.status} | 轮次: ${delegation.currentRound || 0}/${delegation.maxRounds || 5}`));
+  
+  if (sessionManager.hasUrgentDecisions()) {
+    sessionManager.showUrgentHighlight('有待处理的紧急决策！');
+    sessionManager.playNotificationSound();
+  }
   
   // 显示共享工作空间
   if (delegation.sharedWorkspace) {
@@ -2123,6 +2149,7 @@ async function showTaskDetail(
     handler: async () => {
       console.log(chalk.cyan('\n💬 发送消息给对方'));
       console.log(chalk.gray('─'.repeat(50)));
+      console.log(chalk.gray('提示: 输入 @<agentId> 可触发自动接受任务'));
       
       const content = await rl.question(chalk.yellow('请输入消息内容: '));
       
@@ -2130,6 +2157,21 @@ async function showTaskDetail(
         console.log(chalk.gray('\n消息不能为空'));
         await new Promise(r => setTimeout(r, 1000));
         return false;
+      }
+      
+      const otherParty = isDelegator ? delegation.delegatee : delegation.delegator;
+      const hasMention = sessionManager.detectMention(content, otherParty);
+      
+      if (hasMention && delegation.status === 'pending' && isDelegator) {
+        const choice = await sessionManager.showAutoAcceptDialog(rl, delegation.delegator, delegation.delegatee);
+        
+        if (choice === 'auto') {
+          console.log(chalk.green('\n✓ 已设置自动接受'));
+        } else if (choice === 'cancel') {
+          console.log(chalk.gray('\n已取消发送'));
+          await new Promise(r => setTimeout(r, 1000));
+          return false;
+        }
       }
       
       try {

@@ -82,7 +82,7 @@ export class CollaborationSessionManager extends EventEmitter {
     options: DecisionOption[],
     urgent: boolean = false
   ): DecisionRequest {
-    const id = `decision-${Date.now()}`;
+    const id = `decision-${Date.now()}-${Math.random().toString(36).substring(7)}`;
     const request: DecisionRequest = {
       id,
       title,
