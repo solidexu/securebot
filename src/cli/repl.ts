@@ -300,13 +300,12 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
     const sharedWorkspace = delegation.sharedWorkspace;
     const originalWorkspace = agent.workspace;
     
-    // 临时切换到共享工作空间
+    // 临时切换到共享工作空间（静默执行，不输出）
     if (sharedWorkspace) {
       agent.workspace = sharedWorkspace;
-      console.log(chalk.gray(`工作空间已切换到: ${sharedWorkspace}`));
     }
     
-    // 创建任务监控器
+    // 创建任务监控器（不启动独立面板）
     const monitor = new TaskMonitor({
       taskId: delegation.id,
       delegator: delegation.delegator,
@@ -314,7 +313,8 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
       task: task
     });
     
-    monitor.start();
+    // 不调用 monitor.start()，避免独立面板占据界面
+    // 执行进展通过系统消息发送到任务对话
     
     // 收集执行过程中的关键信息
     const executionLog = {
@@ -535,15 +535,15 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
       // 等待一小段时间确保终端状态恢复
       await new Promise(resolve => setTimeout(resolve, 100));
       
-      // 恢复 REPL 的 readline
-      console.log(chalk.green('\n✓ 任务执行完成，返回 REPL\n'));
+// 恢复 REPL 的 readline
+    // 所有输出通过系统消息发送到任务对话
       
       // 生成详细的执行摘要
       const executionSummary = generateExecutionSummary(executionLog, finalResponse);
       return executionSummary;
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      console.log(chalk.red(`\n✗ 任务执行失败: ${msg}\n`));
+      // 错误信息通过系统消息发送到任务对话
       return null;
     } finally {
       // 恢复原来的工作空间
