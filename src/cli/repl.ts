@@ -359,11 +359,7 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
       while (iterations < maxIterations) {
         // 检查是否被取消
         if (monitor.isCancelled()) {
-          monitor.addEvent('status_change', {
-            from: 'in_progress',
-            to: 'cancelled'
-          });
-          monitor.stop();
+          // 不需要调用 monitor.stop()
           return null;
         }
         
