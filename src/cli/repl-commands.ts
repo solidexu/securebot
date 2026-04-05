@@ -2223,7 +2223,102 @@ async function showTaskDetailInner(
         const otherParty = isDelegator ? delegation.delegatee : delegation.delegator;
         const hasMention = sessionManager.detectMention(content, otherParty);
         
-        // 处理特殊命令
+        // 处理验收命令（委托者在 pending_review 状态下）
+        if (delegation.status === 'pending_review' && isDelegator) {
+          if (content.trim() === '/accept') {
+            try {
+              ui.addMessage({
+                id: `sys-${Date.now()}`,
+                sender: 'system',
+                content: '✅ 正在验收通过...',
+                timestamp: Date.now(),
+                type: 'system'
+              });
+              
+              await collaborationManager.getDelegationManager().approveReview(delegation.id);
+              
+              ui.addMessage({
+                id: `sys-${Date.now()}`,
+                sender: 'system',
+                content: '✅ 任务验收通过！任务已完成。',
+                timestamp: Date.now(),
+                type: 'system'
+              });
+              
+              ui.setContext([
+                `状态: completed`,
+                `轮次: ${delegation.currentRound || 0}/${delegation.maxRounds || 5}`,
+                `委托者: ${delegation.delegator}`,
+                `受托者: ${delegation.delegatee}`
+              ]);
+              return;
+            } catch (error) {
+              const msg = error instanceof Error ? error.message : String(error);
+              ui.addMessage({
+                id: `sys-${Date.now()}`,
+                sender: 'system',
+                content: `✗ 验收失败: ${msg}`,
+                timestamp: Date.now(),
+                type: 'system'
+              });
+              return;
+            }
+          }
+          
+          if (content.startsWith('/reject ')) {
+            try {
+              const feedback = content.slice(8).trim();
+              if (!feedback) {
+                ui.addMessage({
+                  id: `sys-${Date.now()}`,
+                  sender: 'system',
+                  content: '✗ 请提供反馈内容，例如: /reject 代码需要优化',
+                  timestamp: Date.now(),
+                  type: 'system'
+                });
+                return;
+              }
+              
+              ui.addMessage({
+                id: `sys-${Date.now()}`,
+                sender: 'system',
+                content: '🔄 正在提交反馈，任务将重新执行...',
+                timestamp: Date.now(),
+                type: 'system'
+              });
+              
+              await collaborationManager.getDelegationManager().rejectReview(delegation.id, feedback);
+              
+              ui.addMessage({
+                id: `sys-${Date.now()}`,
+                sender: 'system',
+                content: `✓ 反馈已提交，任务将重新执行`,
+                timestamp: Date.now(),
+                type: 'system'
+              });
+              
+              ui.setContext([
+                `状态: accepted`,
+                `轮次: ${delegation.currentRound || 0}/${delegation.maxRounds || 5}`,
+                `委托者: ${delegation.delegator}`,
+                `受托者: ${delegation.delegatee}`
+              ]);
+              return;
+            } catch (error) {
+              const msg = error instanceof Error ? error.message : String(error);
+              ui.addMessage({
+                id: `sys-${Date.now()}`,
+                sender: 'system',
+                content: `✗ 提交反馈失败: ${msg}`,
+                timestamp: Date.now(),
+                type: 'system'
+              });
+              return;
+            }
+          }
+        }
+        
+        // 处理 /retry 命令
         if (content.startsWith('/retry') && isDelegator && delegation.status === 'failed') {
           try {
             ui.addMessage({

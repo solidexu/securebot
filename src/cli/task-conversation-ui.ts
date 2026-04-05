@@ -104,6 +104,11 @@ export class TaskConversationUI {
 
   setContext(context: string[]): void {
     this.context = context;
+    // 从 context 中解析状态更新 taskInfo
+    const statusLine = context.find(c => c.startsWith('状态:'));
+    if (statusLine) {
+      this.taskInfo.status = statusLine.replace('状态:', '').trim();
+    }
     this.scheduleRender();
   }
 
@@ -296,11 +301,13 @@ export class TaskConversationUI {
     console.log(chalk.cyan('─'.repeat(width)));
     
     // 根据状态显示不同提示
-    let hint = '输入消息（Enter发送，Esc/Ctrl+C退出）';
+    let hint = '输入消息（Esc/Ctrl+C退出）';
     if (this.taskInfo.status === 'failed') {
-      hint = '输入消息 | /retry 重试（Esc/Ctrl+C退出）';
+      hint = '输入消息 | /retry 重试';
     } else if (this.taskInfo.status === 'pending') {
-      hint = '输入消息 | @受托者 自动接受（Esc/Ctrl+C退出）';
+      hint = '输入消息 | @受托者 自动接受';
+    } else if (this.taskInfo.status === 'pending_review') {
+      hint = '/accept 验收通过 | /reject <反馈> 不通过';
     }
     
     console.log(chalk.yellow(`  ${hint}:`));
