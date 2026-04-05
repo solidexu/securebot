@@ -435,7 +435,7 @@ export async function startRepl(options: ReplOptions = {}): Promise<void> {
               const toolResult = await executeTool(toolCall.name, toolCall.arguments, {
                 agent,
                 session: {} as any,
-                workspace: process.cwd(),
+                workspace: agent.workspace || process.cwd(),  // 使用 agent.workspace
                 logger: console,
               });
               
