@@ -10,12 +10,9 @@ interface Props {
 
 export const InputArea: React.FC<Props> = ({ onSubmit, commands, agents }) => {
   return (
-    <Box flexDirection="column" width="100%">
-      {/* 上分隔线 */}
-      <Text color="green">{'\u2500'.repeat(60)}</Text>
-
+    <Box flexDirection="column" width="100%" minHeight={2}>
       {/* 输入行 */}
-      <Box>
+      <Box paddingLeft={1} paddingRight={1}>
         <InputBox onSubmit={onSubmit} commands={commands} agents={agents} />
       </Box>
     </Box>
