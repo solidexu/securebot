@@ -289,10 +289,12 @@ export class TaskConversationUI {
       line = `${prefix} ${chalk.blue(content)}`;
     } else {
       const roleIcon = isDelegator ? '👤' : '🤖';
-      const roleName = isDelegator ? '委托者' : '受托者';
+      const senderName = msg.sender === this.taskInfo.delegator 
+        ? this.taskInfo.delegator 
+        : this.taskInfo.delegatee;
       const roleColor = isDelegator ? chalk.green : chalk.cyan;
       
-      const prefix = `  ${roleIcon} ${roleColor(roleName)} ${chalk.gray(time)}`;
+      const prefix = `  ${roleIcon} ${roleColor(senderName)} ${chalk.gray(time)}`;
       const maxLen = width - prefix.length - 2;
       const content = msg.content.length > maxLen 
         ? msg.content.slice(0, maxLen - 2) + '…' 
@@ -351,21 +353,23 @@ export class TaskConversationUI {
     const lines: string[] = [];
     const isDelegatorCurrent = this.currentUserId === this.taskInfo.delegator;
     
+    // 委托者
     const delegatorSelected = this.selectedParticipant === 'delegator';
     const delegatorIcon = delegatorSelected ? chalk.bgGreen('▶') : ' ';
-    const delegatorName = isDelegatorCurrent 
-      ? chalk.green.bold(`👤 委托者 (我)`)
-      : chalk.green(`👤 委托者`);
-    lines.push(delegatorIcon + ' ' + delegatorName);
+    const delegatorLabel = isDelegatorCurrent 
+      ? chalk.green.bold(`👤 ${this.taskInfo.delegator} (委托者·我)`)
+      : chalk.green(`👤 ${this.taskInfo.delegator} (委托者)`);
+    lines.push(delegatorIcon + ' ' + delegatorLabel);
     
+    // 受托者
     const delegateeSelected = this.selectedParticipant === 'delegatee';
     const delegateeIcon = delegateeSelected ? chalk.bgCyan('▶') : ' ';
-    const delegateeName = !isDelegatorCurrent 
-      ? chalk.cyan.bold(`🤖 受托者 (我)`)
-      : chalk.cyan(`🤖 受托者`);
-    lines.push(delegateeIcon + ' ' + delegateeName);
+    const delegateeLabel = !isDelegatorCurrent 
+      ? chalk.cyan.bold(`🤖 ${this.taskInfo.delegatee} (受托者·我)`)
+      : chalk.cyan(`🤖 ${this.taskInfo.delegatee} (受托者)`);
+    lines.push(delegateeIcon + ' ' + delegateeLabel);
     
-    lines.push(chalk.gray(' Tab 切换对话对象'));
+    lines.push(chalk.gray(' Tab 切换 | Enter 发送'));
     
     return lines;
   }

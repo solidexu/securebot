@@ -2184,7 +2184,7 @@ async function showTaskDetailInner(
     handler: async () => {
       const { TaskConversationUI } = await import('./task-conversation-ui.js');
       
-      // 创建UI实例
+      // 创建UI实例，传入当前用户的 agent id
       const ui = new TaskConversationUI({
         id: delegation.id,
         task: delegation.task,
@@ -2192,7 +2192,7 @@ async function showTaskDetailInner(
         delegator: delegation.delegator,
         delegatee: delegation.delegatee,
         workspace: delegation.sharedWorkspace
-      });
+      }, state.currentAgentId);
       
       // 加载历史消息
       const history = delegation.conversationHistory || [];
