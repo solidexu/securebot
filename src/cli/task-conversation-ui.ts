@@ -27,7 +27,7 @@ export interface AgentStatus {
 export class TaskConversationUI {
   private screen: blessed.Widgets.Screen;
   private chatBox: blessed.Widgets.BoxElement;
-  private inputBox: blessed.Widgets.TextareaElement;
+  private inputBox: blessed.Widgets.TextboxElement;
   private statusBox: blessed.Widgets.BoxElement;
   private agentBox: blessed.Widgets.BoxElement;
   private logBox: blessed.Widgets.BoxElement;
@@ -81,7 +81,7 @@ export class TaskConversationUI {
     });
 
     // 底部输入框 (70% 宽度, 15% 高度)
-    this.inputBox = blessed.textarea({
+    this.inputBox = blessed.textbox({
       parent: this.screen,
       bottom: 0,
       left: 0,
