@@ -2177,131 +2177,144 @@ async function showTaskDetailInner(
     });
   }
   
-  // 任务对话功能（所有状态）
+  // 任务对话功能（所有状态）- 像微信群聊一样持续显示
   actions.push({
     key: 'm',
     label: '任务对话',
     handler: async () => {
-      console.log(chalk.cyan('\n💬 任务对话'));
-      console.log(chalk.gray('─'.repeat(50)));
-      
-      // 显示对话历史
-      const history = delegation.conversationHistory || [];
-      if (history.length > 0) {
-        console.log(chalk.gray('\n历史对话记录:'));
-        const recentMessages = history.slice(-20);
-        for (const msg of recentMessages) {
-          const time = new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-          const senderName = msg.sender === delegation.delegator ? '委派者' :
-                            msg.sender === delegation.delegatee ? '受托者' :
-                            '系统';
-          
-          const prefix = msg.type === 'system' ? '[系统]' : `[${senderName}]`;
-          const color = msg.sender === state.currentAgentId ? chalk.green : chalk.white;
-          
-          console.log(color(`${prefix} ${time}`));
-          console.log(chalk.gray(`  ${msg.content}`));
-        }
+      // 进入对话循环，像微信群聊
+      while (true) {
+        console.log(chalk.cyan('\n💬 任务对话'));
         console.log(chalk.gray('─'.repeat(50)));
-      }
-      
-      console.log(chalk.gray('提示: 输入 @<agentId> 可触发自动接受任务'));
-      
-      const content = await rl.question(chalk.yellow('请输入消息内容: '));
-      
-      if (!content.trim()) {
-        console.log(chalk.gray('\n消息不能为空'));
-        await new Promise(r => setTimeout(r, 1000));
-        return false;
-      }
-      
-      const otherParty = isDelegator ? delegation.delegatee : delegation.delegator;
-      const hasMention = sessionManager.detectMention(content, otherParty);
-      
-      if (hasMention && delegation.status === 'pending' && isDelegator) {
-        const choice = await sessionManager.showAutoAcceptDialog(rl, delegation.delegator, delegation.delegatee);
         
-        if (choice === 'auto') {
-          try {
-            // 先发送消息
-            const userMessage = await collaborationManager.getDelegationManager().sendMessage(
-              delegation.id,
-              delegation.delegator,  // 使用委托者ID而不是currentAgentId
-              content.trim(),
-              'text'
-            );
+        // 显示对话历史
+        const history = delegation.conversationHistory || [];
+        if (history.length > 0) {
+          const recentMessages = history.slice(-20);
+          for (const msg of recentMessages) {
+            const time = new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+            const senderName = msg.sender === delegation.delegator ? '委派者' :
+                              msg.sender === delegation.delegatee ? '受托者' :
+                              '系统';
             
-            // 保存用户消息到工作空间
-            if (conversationStorage) {
-              conversationStorage.appendMessage(userMessage);
-            }
+            const prefix = msg.type === 'system' ? '[系统]' : `[${senderName}]`;
+            const color = msg.sender === state.currentAgentId ? chalk.green : chalk.white;
             
-            // 发送系统消息
-            const systemMessage = await collaborationManager.getDelegationManager().sendMessage(
-              delegation.id,
-              'system',
-              `${delegation.delegatee} 已自动接受任务`,
-              'system'
-            );
-            
-            // 保存系统消息到工作空间
-            if (conversationStorage) {
-              conversationStorage.appendMessage(systemMessage);
-            }
-            
-            // 自动接受任务
-            await collaborationManager.getDelegationManager().acceptDelegation(delegation.id);
-            
-            console.log(chalk.green('\n✓ 任务已被自动接受'));
-            console.log(chalk.gray('任务将开始执行，保持在对话界面查看进度...'));
-            if (conversationStorage) {
-              console.log(chalk.gray(`对话已保存到: ${conversationStorage.getConversationFilePath()}`));
-            }
-            await new Promise(r => setTimeout(r, 1000));
-            
-            // 不退出，保持在任务详情界面
-            return false;
-          } catch (error) {
-            const msg = error instanceof Error ? error.message : String(error);
-            console.log(chalk.red(`\n✗ 自动接受失败: ${msg}`));
-            await rl.question(chalk.gray('按回车继续...'));
-            return false;
+            console.log(color(`${prefix} ${time}`));
+            console.log(chalk.gray(`  ${msg.content}`));
           }
-        } else if (choice === 'cancel') {
-          console.log(chalk.gray('\n已取消发送'));
-          await new Promise(r => setTimeout(r, 1000));
-          return false;
-        }
-      }
-      
-      try {
-        const senderId = isDelegator ? delegation.delegator : delegation.delegatee;
-        const message = await collaborationManager.getDelegationManager().sendMessage(
-          delegation.id,
-          senderId,  // 使用正确的发送者ID
-          content.trim(),
-          'text'
-        );
-        
-        // 保存消息到工作空间
-        if (conversationStorage) {
-          conversationStorage.appendMessage(message);
+          console.log(chalk.gray('─'.repeat(50)));
+        } else {
+          console.log(chalk.gray('  (暂无对话记录)'));
+          console.log(chalk.gray('─'.repeat(50)));
         }
         
-        console.log(chalk.green('\n✓ 消息已发送'));
-        console.log(chalk.gray(`时间: ${new Date(message.timestamp).toLocaleTimeString('zh-CN')}`));
-        if (conversationStorage) {
-          console.log(chalk.gray(`对话已保存到工作空间`));
-        }
-        await new Promise(r => setTimeout(r, 800));
+        console.log(chalk.gray('提示: 输入消息继续对话，直接回车返回菜单'));
         
-        // 不退出，保持在任务详情界面
-        return false;
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        console.log(chalk.red(`\n✗ 发送失败: ${msg}`));
-        await rl.question(chalk.gray('按回车继续...'));
-        return false;
+        const content = await rl.question(chalk.yellow('消息: '));
+        
+        // 如果用户直接回车，退出对话
+        if (!content.trim()) {
+          console.log(chalk.gray('\n退出任务对话'));
+          await new Promise(r => setTimeout(r, 500));
+          return false;  // 返回任务详情菜单
+        }
+        
+        // 发送消息逻辑...
+        const otherParty = isDelegator ? delegation.delegatee : delegation.delegator;
+        const hasMention = sessionManager.detectMention(content, otherParty);
+        
+        if (hasMention && delegation.status === 'pending' && isDelegator) {
+          const choice = await sessionManager.showAutoAcceptDialog(rl, delegation.delegator, delegation.delegatee);
+          
+          if (choice === 'auto') {
+            try {
+              // 先发送消息
+              const userMessage = await collaborationManager.getDelegationManager().sendMessage(
+                delegation.id,
+                delegation.delegator,
+                content.trim(),
+                'text'
+              );
+              
+              if (conversationStorage) {
+                conversationStorage.appendMessage(userMessage);
+              }
+              
+              // 发送系统消息
+              const systemMessage = await collaborationManager.getDelegationManager().sendMessage(
+                delegation.id,
+                'system',
+                `${delegation.delegatee} 已自动接受任务`,
+                'system'
+              );
+              
+              if (conversationStorage) {
+                conversationStorage.appendMessage(systemMessage);
+              }
+              
+              // 自动接受任务
+              await collaborationManager.getDelegationManager().acceptDelegation(delegation.id);
+              
+              console.log(chalk.green('\n✓ 任务已被自动接受，任务将开始执行...'));
+              await new Promise(r => setTimeout(r, 800));
+              
+              // 刷新对话数据，继续显示
+              const updatedDelegation = collaborationManager.getDelegationManager()
+                .getDelegations(state.currentAgentId, undefined, true)
+                .find((d: any) => d.id === delegation.id);
+              if (updatedDelegation) {
+                Object.assign(delegation, updatedDelegation);
+              }
+              
+              // 继续对话循环，不退出
+              continue;
+            } catch (error) {
+              const msg = error instanceof Error ? error.message : String(error);
+              console.log(chalk.red(`\n✗ 自动接受失败: ${msg}`));
+              await rl.question(chalk.gray('按回车继续...'));
+              continue;  // 继续对话循环
+            }
+          } else if (choice === 'cancel') {
+            console.log(chalk.gray('\n已取消发送'));
+            await new Promise(r => setTimeout(r, 500));
+            continue;  // 继续对话循环
+          }
+        }
+        
+        // 普通消息发送
+        try {
+          const senderId = isDelegator ? delegation.delegator : delegation.delegatee;
+          const message = await collaborationManager.getDelegationManager().sendMessage(
+            delegation.id,
+            senderId,
+            content.trim(),
+            'text'
+          );
+          
+          if (conversationStorage) {
+            conversationStorage.appendMessage(message);
+          }
+          
+          console.log(chalk.green('\n✓ 已发送'));
+          await new Promise(r => setTimeout(r, 500));
+          
+          // 刷新对话数据，继续显示
+          const updatedDelegation = collaborationManager.getDelegationManager()
+            .getDelegations(state.currentAgentId, undefined, true)
+            .find((d: any) => d.id === delegation.id);
+          if (updatedDelegation) {
+            Object.assign(delegation, updatedDelegation);
+          }
+          
+          // 继续对话循环，显示最新消息
+          continue;
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          console.log(chalk.red(`\n✗ 发送失败: ${msg}`));
+          await rl.question(chalk.gray('按回车继续...'));
+          continue;  // 继续对话循环
+        }
       }
     }
   });
