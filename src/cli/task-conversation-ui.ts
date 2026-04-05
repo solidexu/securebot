@@ -39,7 +39,7 @@ export class TaskConversationUI {
   private messageCallback?: (message: string) => void;
   private currentUserId: string;
   private inputBuffer: string = '';
-  private stdinHandler?: (key: string) => void;
+  private resolveStart?: () => void;
 
   constructor(taskInfo: TaskInfo, currentUserId?: string) {
     this.taskInfo = taskInfo;
@@ -73,16 +73,10 @@ export class TaskConversationUI {
       },
       scrollable: true,
       alwaysScroll: true,
-      scrollbar: {
-        ch: '█',
-        track: { bg: 'gray' },
-        style: { inverse: true },
-      },
-      keys: true,
-      vi: true,
+      scrollbar: { ch: '█', track: { bg: 'gray' }, style: { inverse: true } },
     });
 
-    // 底部输入框显示区 (用 box 而不是 textbox)
+    // 底部输入框显示区
     this.inputBox = blessed.box({
       parent: this.screen,
       bottom: 0,
@@ -92,12 +86,10 @@ export class TaskConversationUI {
       label: ' 输入消息 (Enter 发送, Esc 退出) ',
       tags: true,
       border: { type: 'line' },
-      style: {
-        border: { fg: 'green' },
-      },
+      style: { border: { fg: 'green' } },
     });
 
-    // 右侧状态栏 (30% 宽度)
+    // 右侧状态栏
     this.statusBox = blessed.box({
       parent: this.screen,
       top: 0,
@@ -110,7 +102,7 @@ export class TaskConversationUI {
       style: { border: { fg: 'cyan' } },
     });
 
-    // 右侧 Agent 状态 (30% 宽度)
+    // 右侧 Agent 状态
     this.agentBox = blessed.box({
       parent: this.screen,
       top: '25%',
@@ -123,7 +115,7 @@ export class TaskConversationUI {
       style: { border: { fg: 'cyan' } },
     });
 
-    // 右侧日志 (30% 宽度)
+    // 右侧日志
     this.logBox = blessed.box({
       parent: this.screen,
       top: '60%',
@@ -136,83 +128,64 @@ export class TaskConversationUI {
       style: { border: { fg: 'cyan' } },
       scrollable: true,
       alwaysScroll: true,
-      scrollbar: {
-        ch: '█',
-        track: { bg: 'gray' },
-        style: { inverse: true },
-      },
+      scrollbar: { ch: '█', track: { bg: 'gray' }, style: { inverse: true } },
+    });
+
+    // 使用 blessed 的键盘处理
+    this.setupKeys();
+  }
+
+  private setupKeys(): void {
+    // 使用 blessed 的 screen.key 方法处理按键
+    this.screen.key(['escape', 'C-c'], () => {
+      this.stop();
+    });
+
+    // 使用 screen.program 处理原始输入
+    this.screen.program.on('keypress', (ch: string, key: { full: string; name: string }) => {
+      if (!ch && !key) return;
+      
+      // 忽略功能键（已由 screen.key 处理）
+      if (key.full === 'escape' || key.full === 'C-c') return;
+      
+      // Enter 发送
+      if (key.full === 'enter' || key.full === 'return') {
+        if (this.inputBuffer.trim() && this.messageCallback) {
+          this.messageCallback(this.inputBuffer.trim());
+          this.inputBuffer = '';
+          this.updateInputBox();
+        }
+        return;
+      }
+      
+      // Backspace
+      if (key.full === 'backspace' || key.full === 'delete') {
+        this.inputBuffer = this.inputBuffer.slice(0, -1);
+        this.updateInputBox();
+        return;
+      }
+      
+      // 普通字符
+      if (ch && ch.charCodeAt(0) >= 32) {
+        this.inputBuffer += ch;
+        this.updateInputBox();
+      }
     });
   }
 
   async start(): Promise<void> {
     this.updateDisplay();
     
-    // 设置原始模式输入
-    if (process.stdin.isTTY) {
-      process.stdin.setRawMode(true);
-    }
-    process.stdin.resume();
-    process.stdin.setEncoding('utf8');
-    
     return new Promise((resolve) => {
-      (this as any)._resolveStart = resolve;
-      
-      this.stdinHandler = (key: string) => {
-        // Esc 或 Ctrl+C 退出
-        if (key === '\u001b' || key === '\u0003') {
-          this.stop();
-          return;
-        }
-        
-        // Enter 发送
-        if (key === '\r' || key === '\n') {
-          if (this.inputBuffer.trim() && this.messageCallback) {
-            this.messageCallback(this.inputBuffer.trim());
-            this.inputBuffer = '';
-            this.updateInputBox();
-          }
-          return;
-        }
-        
-        // Backspace
-        if (key === '\u007f' || key === '\b') {
-          this.inputBuffer = this.inputBuffer.slice(0, -1);
-          this.updateInputBox();
-          return;
-        }
-        
-        // 普通字符（包括中文）
-        if (key.charCodeAt(0) >= 32 || key.length > 1) {
-          this.inputBuffer += key;
-          this.updateInputBox();
-        }
-      };
-      
-      process.stdin.on('data', this.stdinHandler);
+      this.resolveStart = resolve;
       this.screen.render();
     });
   }
 
   stop(): void {
-    // 先销毁 blessed screen（它会处理终端状态）
     this.screen.destroy();
-    
-    // 然后清理我们自己的 stdin 处理
-    if (this.stdinHandler) {
-      process.stdin.removeListener('data', this.stdinHandler);
-      this.stdinHandler = undefined;
-    }
-    
-    // 确保 rawMode 已关闭
-    if (process.stdin.isTTY && process.stdin.isRaw) {
-      process.stdin.setRawMode(false);
-    }
-    
-    // 恢复 stdin 到正常状态
-    process.stdin.pause();
-    
-    if ((this as any)._resolveStart) {
-      (this as any)._resolveStart();
+    if (this.resolveStart) {
+      this.resolveStart();
     }
   }
 
