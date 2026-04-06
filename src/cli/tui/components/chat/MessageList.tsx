@@ -13,11 +13,21 @@ interface Props {
 const WINDOW_HEIGHT = 30;
 
 /**
- * 将所有消息完整展开为扁平化行列表（不截断）
+ * 扁平化行（带对齐信息）
  */
-function flattenAllMessages(messages: Message[]): string[] {
-  const lines: string[] = [];
+interface FlatLine {
+  text: string;
+  align: 'left' | 'right'; // 用户消息右对齐，其他左对齐
+}
+
+/**
+ * 将所有消息完整展开为扁平化行列表（不截断）
+ * 用户消息（type=user）右对齐，其他消息左对齐
+ */
+function flattenAllMessages(messages: Message[]): FlatLine[] {
+  const lines: FlatLine[] = [];
   messages.forEach((msg) => {
+    const isUser = msg.type === 'user';
     // 头部行
     const time = new Date(msg.timestamp).toLocaleTimeString('zh-CN', {
       hour: '2-digit',
@@ -25,17 +35,17 @@ function flattenAllMessages(messages: Message[]): string[] {
     });
     if (msg.type === 'tool') {
       const meta = msg.meta as { name?: string } | undefined;
-      lines.push(`# ${meta?.name || 'Tool'} | ${time}`);
+      lines.push({ text: `# ${meta?.name || 'Tool'} | ${time}`, align: 'left' });
     } else {
       const iconMap: Record<string, string> = {
         user: '>', agent: '*', system: '-', error: '!', skill: '\u{1f527}', warn: '~',
       };
       const icon = iconMap[msg.type] || '?';
-      lines.push(`${icon} ${msg.sender} | ${time}`);
+      lines.push({ text: `${icon} ${msg.sender} | ${time}`, align: isUser ? 'right' : 'left' });
     }
     // 内容行 - 全部保留，不截断
     for (const line of msg.content.split('\n')) {
-      lines.push(line);
+      lines.push({ text: line, align: isUser ? 'right' : 'left' });
     }
   });
   return lines;
@@ -95,7 +105,13 @@ export const MessageList: React.FC<Props> = ({
       <Box flexDirection="row">
         <Box flexDirection="column" flexGrow={1} width="100%">
           {visibleLines.map((line, i) => (
-            <Text key={i}>{line}</Text>
+            line.align === 'right' ? (
+              <Box key={i} width="100%" justifyContent="flex-end">
+                <Text>{line.text}</Text>
+              </Box>
+            ) : (
+              <Text key={i}>{line.text}</Text>
+            )
           ))}
           {/* 底部信息栏 */}
           {totalLines > WINDOW_HEIGHT && (
