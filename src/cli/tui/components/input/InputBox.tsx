@@ -10,6 +10,7 @@ interface Props {
 
 const SCROLL_STEP = 5;
 const SCROLL_FINE_STEP = 1;  // 上下箭头微调
+const CHAT_VISIBLE_COUNT = 20;  // 与 MessageList.VISIBLE_COUNT 保持一致
 
 export const InputBox: React.FC<Props> = ({
   onSubmit,
@@ -67,7 +68,7 @@ export const InputBox: React.FC<Props> = ({
       // 输入为空时，上箭头用于向上微调滚动（向新消息方向）
       if (input.length === 0) {
         if (focusPanel === 'chat') {
-          const maxScroll = Math.max(0, messages.length - 12);
+          const maxScroll = Math.max(0, messages.length - CHAT_VISIBLE_COUNT);
           if (chatScrollOffset > 0) {
             setChatScroll(Math.max(chatScrollOffset - SCROLL_FINE_STEP, 0));
           }
@@ -92,7 +93,7 @@ export const InputBox: React.FC<Props> = ({
       // 输入为空时，下箭头用于向下微调滚动（向旧消息方向）
       if (input.length === 0) {
         if (focusPanel === 'chat') {
-          const maxScroll = Math.max(0, messages.length - 12);
+          const maxScroll = Math.max(0, messages.length - CHAT_VISIBLE_COUNT);
           if (chatScrollOffset < maxScroll) {
             setChatScroll(Math.min(chatScrollOffset + SCROLL_FINE_STEP, maxScroll));
           }
@@ -131,7 +132,7 @@ export const InputBox: React.FC<Props> = ({
     } else if (key.pageDown) {
       // 根据当前焦点面板向下翻页（向旧消息方向）
       if (focusPanel === 'chat') {
-        const maxScroll = Math.max(0, messages.length - 12);
+        const maxScroll = Math.max(0, messages.length - CHAT_VISIBLE_COUNT);
         if (chatScrollOffset < maxScroll) {
           setChatScroll(Math.min(chatScrollOffset + SCROLL_STEP, maxScroll));
         }

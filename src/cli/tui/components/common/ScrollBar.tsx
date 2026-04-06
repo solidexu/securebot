@@ -28,13 +28,15 @@ export const ScrollBar: React.FC<ScrollBarProps> = ({
   if (total <= visible) return null;
 
   const maxOffset = Math.max(0, total - visible);
+  // 确保 offset 不超出范围，防止计算出错误的滑块位置
+  const clampedOffset = Math.min(offset, maxOffset);
 
   // 滑块大小比例，至少占15%
   const thumbRatio = Math.max(visible / total, 0.15);
   const thumbSize = Math.max(Math.round(thumbRatio * 6), 1); // 固定6行高度
 
-  // 滑块位置：offset=0 在底部
-  const positionRatio = maxOffset > 0 ? offset / maxOffset : 0;
+  // 滑块位置：offset=0 在底部（最新），offset=maxOffset 在顶部（最旧）
+  const positionRatio = maxOffset > 0 ? clampedOffset / maxOffset : 0;
   const thumbPosition = Math.round(positionRatio * (6 - thumbSize));
 
   // 构建6行固定滚动条
