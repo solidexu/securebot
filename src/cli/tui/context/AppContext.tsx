@@ -58,9 +58,9 @@ interface AppContextValue extends AppState {
   selectMessage: (id: string | null) => void;        // 选择消息查看完整内容
   setMessageViewerOpen: (open: boolean) => void;     // 打开/关闭消息查看器
   setMessageScrollOffset: (offset: number) => void;  // 消息查看器内部滚动
-  startCodeWriter: (filePath: string, content: string) => void;  // 启动代码写入动画（write 模式）
+  startCodeWriter: (filePath: string, content: string) => Promise<void>;  // 启动代码写入动画（write 模式）
   /** 启动代码编辑动画（edit 模式，显示 diff 风格） */
-  startCodeEditor: (filePath: string, oldContent?: string, newContent?: string) => void;
+  startCodeEditor: (filePath: string, oldContent?: string, newContent?: string) => Promise<void>;
   closeCodeWriter: () => void;                       // 关闭编辑窗口
 }
 
@@ -126,77 +126,81 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setEditorVersion(v => v + 1);
   }, []);
 
-  /** write 模式：逐行写入动画 */
-  const startCodeWriter = useCallback((filePath: string, content: string) => {
-    if (codeEditorTimerRef.current) clearInterval(codeEditorTimerRef.current);
-    const rawLines = content.split('\\\n');
-    const displayLines = rawLines.map(text => ({ text, state: 'pending' as const }));
-    codeEditorDataRef.current = {
-      mode: 'write', filePath, displayLines,
-      currentLine: 0, totalLines: rawLines.length,
-      additions: rawLines.length, deletions: 0,
-    };
-    syncToState();  // 初始渲染
-    let lineIdx = 0;
-    codeEditorTimerRef.current = setInterval(() => {
-      lineIdx++;
-      const d = codeEditorDataRef.current;
-      if (!d) return;
-      if (lineIdx >= d.totalLines) {
-        clearInterval(codeEditorTimerRef.current!);
-        d.currentLine = lineIdx;
-        syncToState();
-        // 不自动关闭 — 保持显示供用户查看
-      } else {
-        // 标记已写入的行
-        for (let i = d.currentLine; i < lineIdx && i < d.displayLines.length; i++) {
-          d.displayLines[i] = { ...d.displayLines[i], state: 'written' };
+  /** write 模式：逐行写入动画（返回 Promise，await 可暂停推理） */
+  const startCodeWriter = useCallback((filePath: string, content: string): Promise<void> => {
+    return new Promise<void>((resolve) => {
+      if (codeEditorTimerRef.current) clearInterval(codeEditorTimerRef.current);
+      const rawLines = content.split('\\\n');
+      const displayLines = rawLines.map(text => ({ text, state: 'pending' as const }));
+      codeEditorDataRef.current = {
+        mode: 'write', filePath, displayLines,
+        currentLine: 0, totalLines: rawLines.length,
+        additions: rawLines.length, deletions: 0,
+      };
+      syncToState();  // 初始渲染
+      let lineIdx = 0;
+      // 每帧写1行，120ms/行（足够慢，用户可清晰看到逐行写入）
+      codeEditorTimerRef.current = setInterval(() => {
+        lineIdx++;
+        const d = codeEditorDataRef.current;
+        if (!d) { resolve(); return; }
+        if (lineIdx >= d.totalLines) {
+          clearInterval(codeEditorTimerRef.current!);
+          d.currentLine = lineIdx;
+          syncToState();
+          resolve();  // 写入完成，resolve Promise
+          return;
         }
+        // 标记当前行为已写入
+        d.displayLines[lineIdx] = { ...d.displayLines[lineIdx], state: 'written' };
         d.currentLine = lineIdx;
         syncToState();
-      }
-    }, 50); // 50ms/行，可见流畅动画效果
+      }, 120); // 120ms/行 — 清晰可见的逐行写入效果
+    });
   }, [syncToState]);
 
-  /** edit 模式：diff 风格动画 */
-  const startCodeEditor = useCallback((filePath: string, oldContent?: string, newContent?: string) => {
-    if (codeEditorTimerRef.current) clearInterval(codeEditorTimerRef.current);
-    const oldLines = (oldContent || '').split('\\\n');
-    const newLines = (newContent || '').split('\\\n');
-    const additions = Math.max(0, newLines.length - oldLines.length);
-    const deletions = Math.max(0, oldLines.length - newLines.length);
-    const maxLen = Math.max(oldLines.length, newLines.length);
-    const displayLines: { text: string; state: 'written' | 'added' | 'deleted' | 'changed' | 'pending' }[] = [];
-    for (let i = 0; i < maxLen; i++) {
-      const oLine = oldLines[i];
-      const nLine = newLines[i];
-      if (i >= oldLines.length) {
-        displayLines.push({ text: nLine, state: 'added' });
-      } else if (i >= newLines.length) {
-        displayLines.push({ text: oLine, state: 'deleted' });
-      } else if (oLine !== nLine) {
-        displayLines.push({ text: oLine, state: 'deleted' });
-        displayLines.push({ text: nLine, state: 'added' });
-      } else {
-        displayLines.push({ text: oLine, state: 'written' });
+  /** edit 模式：diff 风格动画（返回 Promise） */
+  const startCodeEditor = useCallback((filePath: string, oldContent?: string, newContent?: string): Promise<void> => {
+    return new Promise<void>((resolve) => {
+      if (codeEditorTimerRef.current) clearInterval(codeEditorTimerRef.current);
+      const oldLines = (oldContent || '').split('\\\n');
+      const newLines = (newContent || '').split('\\\n');
+      const additions = Math.max(0, newLines.length - oldLines.length);
+      const deletions = Math.max(0, oldLines.length - newLines.length);
+      const maxLen = Math.max(oldLines.length, newLines.length);
+      const displayLines: { text: string; state: 'written' | 'added' | 'deleted' | 'changed' | 'pending' }[] = [];
+      for (let i = 0; i < maxLen; i++) {
+        const oLine = oldLines[i];
+        const nLine = newLines[i];
+        if (i >= oldLines.length) {
+          displayLines.push({ text: nLine, state: 'added' });
+        } else if (i >= newLines.length) {
+          displayLines.push({ text: oLine, state: 'deleted' });
+        } else if (oLine !== nLine) {
+          displayLines.push({ text: oLine, state: 'deleted' });
+          displayLines.push({ text: nLine, state: 'added' });
+        } else {
+          displayLines.push({ text: oLine, state: 'written' });
+        }
       }
-    }
-    codeEditorDataRef.current = {
-      mode: 'edit', filePath, displayLines,
-      currentLine: 0, totalLines: displayLines.length,
-      additions, deletions,
-    };
-    syncToState();
-    let lineIdx = 0;
-    codeEditorTimerRef.current = setInterval(() => {
-      lineIdx++;
-      const d = codeEditorDataRef.current;
-      if (!d) return;
-      if (lineIdx >= d.totalLines) {
-        clearInterval(codeEditorTimerRef.current!);
-        d.currentLine = lineIdx;
-        syncToState();
-      } else {
+      codeEditorDataRef.current = {
+        mode: 'edit', filePath, displayLines,
+        currentLine: 0, totalLines: displayLines.length,
+        additions, deletions,
+      };
+      syncToState();
+      let lineIdx = 0;
+      codeEditorTimerRef.current = setInterval(() => {
+        lineIdx++;
+        const d = codeEditorDataRef.current;
+        if (!d) { resolve(); return; }
+        if (lineIdx >= d.totalLines) {
+          clearInterval(codeEditorTimerRef.current!);
+          d.currentLine = lineIdx;
+          syncToState();
+          resolve();
+          return;
+        }
         // 高亮当前行
         if (lineIdx < d.displayLines.length) {
           const line = d.displayLines[lineIdx];
@@ -206,8 +210,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         d.currentLine = lineIdx;
         syncToState();
-      }
-    }, 60);
+      }, 140); // edit 稍慢一点
+    });
   }, [syncToState]);
 
   const closeCodeWriter = useCallback(() => {

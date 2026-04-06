@@ -13,8 +13,8 @@ export interface MessageContext {
   setTaskStatus?: (status: any) => void;
   addLog?: (msg: string, level?: string) => void;
   setSkills?: (skills: { id: string; name: string; active?: boolean }[]) => void;
-  startCodeWriter?: (filePath: string, content: string) => void;
-  startCodeEditor?: (filePath: string, oldContent?: string, newContent?: string) => void;
+  startCodeWriter?: (filePath: string, content: string) => Promise<void>;
+  startCodeEditor?: (filePath: string, oldContent?: string, newContent?: string) => Promise<void>;
   currentAgent?: string;
 }
 

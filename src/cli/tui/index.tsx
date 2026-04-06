@@ -48,8 +48,8 @@ function createMessageHandler(options: TuiOptions) {
       setTaskStatus?: (status: any) => void;
       addLog?: (msg: string, level?: string) => void;
       setSkills?: (skills: { id: string; name: string; active?: boolean }[]) => void;
-      startCodeWriter?: (filePath: string, content: string) => void;
-      startCodeEditor?: (filePath: string, oldContent?: string, newContent?: string) => void;
+      startCodeWriter?: (filePath: string, content: string) => Promise<void>;
+      startCodeEditor?: (filePath: string, oldContent?: string, newContent?: string) => Promise<void>;
       currentAgent?: string;
     }
   ): Promise<void> {
@@ -312,23 +312,23 @@ function createMessageHandler(options: TuiOptions) {
             if ((tc.name === 'write' || tc.name === 'edit') && typeof tc.arguments?.content === 'string') {
               const codeLines = tc.arguments.content.split('\\\n').length;
               if (tc.name === 'write') {
-                startCodeWriter?.(filePath, tc.arguments.content);
+                // 先发消息，再启动动画（await 暂停推理直到写入完成）
                 toolMsgId = addMessage?.({
                   sender: 'Tool',
                   content: `[write] \u270F ${filePath} (${codeLines} lines)`,
                   type: 'tool',
                   meta: { name: tc.name, path: filePath, lineCount: codeLines },
                 }) || '';
+                await startCodeWriter?.(filePath, tc.arguments.content);
               } else {
-                // edit 模式：需要老内容做 diff，目前只显示新内容（后续可扩展 old_content 参数）
                 const oldContent = tc.arguments.old_content;
-                startCodeEditor?.(filePath, oldContent, tc.arguments.content);
                 toolMsgId = addMessage?.({
                   sender: 'Tool',
                   content: `[edit] \u270E ${filePath}`,
                   type: 'tool',
                   meta: { name: tc.name, path: filePath },
                 }) || '';
+                await startCodeEditor?.(filePath, oldContent, tc.arguments.content);
               }
             } else {
               // 其他工具：正常显示参数
