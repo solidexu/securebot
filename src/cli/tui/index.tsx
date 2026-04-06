@@ -16,6 +16,7 @@ import { getAvailableTools, getAvailableToolNames, executeTool } from '../../too
 import { getSessionStorage } from '../../core/session-storage.js';
 import { getMemoryManager } from '../../core/memory.js';
 import { getSkillManager } from '../../core/skills.js';
+import { ragManager } from '../../rag/tools.js';
 import { getSkillDetector, type SkillMatchResult } from '../../core/skills.js';
 import type { StreamCallback, ChatResult } from '../../model/ollama.js';
 import { executeQuickCommand } from './utils/shell-commands.js';
@@ -96,6 +97,27 @@ function createMessageHandler(options: TuiOptions) {
       // 初始化技能系统（加载元数据，供 SkillDetector 匹配使用）
       const initSkillManager = getSkillManager();
       await initSkillManager.initialize();
+
+      // 初始化 RAG 系统（为每个启用了 RAG 的 agent 配置知识库）
+      for (const [agentId, agent] of agents) {
+        if (agent.rag?.enabled) {
+          const ragConfig = agent.rag;
+          ragManager.setAgentConfig(agentId, {
+            enabled: true,
+            knowledgeDirs: ragConfig.knowledgeDirs || [],
+            embeddingModel: ragConfig.embeddingModel || 'all-minilm',
+            chunkSize: ragConfig.chunkSize,
+            chunkOverlap: ragConfig.chunkOverlap,
+            topK: ragConfig.topK,
+            minScore: ragConfig.minScore,
+            enableRerank: ragConfig.enableRerank,
+            rerankModel: ragConfig.rerankModel,
+            enableQueryExpansion: ragConfig.enableQueryExpansion,
+            queryExpansionModel: ragConfig.queryExpansionModel,
+          });
+          addLog?.(`RAG 已为 Agent ${agentId} 启用`, 'info');
+        }
+      }
 
       initialized = true;
     }
