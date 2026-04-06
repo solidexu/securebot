@@ -87,11 +87,11 @@ export const CodeEditorPanel: React.FC = () => {
             ) : isChanged ? (
               <Text color="#ffcc00">~ {line.text}</Text>
             ) : isWritten ? (
-              <Text color="#a8d1ff">{line.text}</Text>
+              <Text color="#7ecfff" bold>{line.text}</Text>
             ) : isCurrentLine ? (
-              <Text color={borderColor} bold>▸ </Text>
+              <Text color={borderColor} bold>▸ {line.text}</Text>
             ) : isPending ? (
-              <Text color="#2a2a3a">{'~'}</Text>
+              <Text color="#333">{line.text || ' '}</Text>
             ) : (
               <Text color="#a8d1ff">{line.text}</Text>
             )}
