@@ -16,10 +16,10 @@ interface Props {
  * - 每条消息内容截断
  * - 总渲染行数有硬上限
  *
- * 每条消息最多约 13 行 (1 header + 12 content)，6 条消息 ≈ 78 行。
+ * 每条消息最多约 13 行 (1 header + 12 content)，3 条消息 ≈ 39 行。
  * 配合 ChatPanel 的 flexGrow={1} + overflow="hidden"，不会撑大 TUI。
  */
-const MAX_VISIBLE_MSGS = 6;
+const MAX_VISIBLE_MSGS = 3;
 
 export const MessageList: React.FC<Props> = ({
   messages,
