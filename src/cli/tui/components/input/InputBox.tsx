@@ -82,17 +82,17 @@ export const InputBox: React.FC<Props> = ({
         return;
       }
 
-      // 消息查看器关闭时：在消息列表中滚动（按消息条数）
+      // 消息查看器关闭时：在消息列表中滚动（底部锚定模式）
       if (focusPanel === 'chat') {
-        // maxScroll = 跳过多少条消息后开始显示
+        // 底部锚定：offset=0 显示最新内容，offset 增大往旧内容滚动
         const totalLines = calcTotalLines(messages);
         const maxScroll = Math.max(0, totalLines - CHAT_WINDOW_HEIGHT);
         if (deltaY < 0) {
-          // 向上滚动 = 向新内容 = 减少行偏移
-          setChatScroll(Math.max(chatScrollOffset - SCROLL_FINE_STEP, 0));
-        } else {
-          // 向下滚动 = 向旧内容 = 增加行偏移
+          // 向上滚动（鼠标前滚）→ 看旧内容 → 增加 offset
           setChatScroll(Math.min(chatScrollOffset + SCROLL_FINE_STEP, maxScroll));
+        } else {
+          // 向下滚动（鼠标后滚）→ 看新内容 → 减少 offset
+          setChatScroll(Math.max(chatScrollOffset - SCROLL_FINE_STEP, 0));
         }
       } else if (focusPanel === 'skill') {
         if (deltaY < 0) {
@@ -127,10 +127,13 @@ export const InputBox: React.FC<Props> = ({
   // 获取当前可见行范围内第一条消息（用于空Enter选择）
   const getFirstVisibleMsgId = () => {
     if (messages.length === 0) return null;
+    const totalLines = calcTotalLines(messages);
+    // 底部锚定模式：计算实际起始行索引
+    const startIdx = Math.max(0, totalLines - CHAT_WINDOW_HEIGHT - chatScrollOffset);
     let lineIdx = 0;
     for (let i = 0; i < messages.length; i++) {
       const msgLines = 1 + messages[i]!.content.split('\n').length;
-      if (lineIdx + msgLines > chatScrollOffset && lineIdx < chatScrollOffset + CHAT_WINDOW_HEIGHT) {
+      if (lineIdx + msgLines > startIdx && lineIdx < startIdx + CHAT_WINDOW_HEIGHT) {
         return messages[i]!.id;
       }
       lineIdx += msgLines;
@@ -232,13 +235,14 @@ export const InputBox: React.FC<Props> = ({
       // Esc: 关闭查看器（如果打开的话）
       closeMessageViewer();
     } else if (key.upArrow) {
-      // 输入为空时，上箭头用于向上微调滚动（向新消息方向）
+      // 输入为空时，上箭头用于向上微调滚动（底部锚定：↑=看旧内容）
       if (input.length === 0) {
         if (focusPanel === 'chat') {
           const totalLines = calcTotalLines(messages);
           const maxScroll = Math.max(0, totalLines - CHAT_WINDOW_HEIGHT);
-          if (chatScrollOffset > 0) {
-            setChatScroll(Math.max(chatScrollOffset - SCROLL_FINE_STEP, 0));
+          // ↑ 向上滚动 = 看旧内容 = 增加 offset
+          if (chatScrollOffset < maxScroll) {
+            setChatScroll(Math.min(chatScrollOffset + SCROLL_FINE_STEP, maxScroll));
           }
         } else if (focusPanel === 'skill') {
           const maxScroll = Math.max(0, skills.length - 6);
@@ -258,13 +262,14 @@ export const InputBox: React.FC<Props> = ({
         setCompletions([]);
       }
     } else if (key.downArrow) {
-      // 输入为空时，下箭头用于向下微调滚动（向旧消息方向）
+      // 输入为空时，下箭头用于向下微调滚动（底部锚定：↓=看新内容）
       if (input.length === 0) {
         if (focusPanel === 'chat') {
           const totalLines = calcTotalLines(messages);
           const maxScroll = Math.max(0, totalLines - CHAT_WINDOW_HEIGHT);
-          if (chatScrollOffset < maxScroll) {
-            setChatScroll(Math.min(chatScrollOffset + SCROLL_FINE_STEP, maxScroll));
+          // ↓ 向下滚动 = 看新内容 = 减少 offset
+          if (chatScrollOffset > 0) {
+            setChatScroll(Math.max(chatScrollOffset - SCROLL_FINE_STEP, 0));
           }
         } else if (focusPanel === 'skill') {
           const maxScroll = Math.max(0, skills.length - 6);
@@ -284,10 +289,12 @@ export const InputBox: React.FC<Props> = ({
         setCompletions([]);
       }
     } else if (key.pageUp) {
-      // 根据当前焦点面板向上翻页（向新消息方向）
+      // 根据当前焦点面板向上翻页（底部锚定：PgUp=看旧内容）
       if (focusPanel === 'chat') {
-        if (chatScrollOffset > 0) {
-          setChatScroll(Math.max(chatScrollOffset - SCROLL_STEP, 0));
+        const totalLines = calcTotalLines(messages);
+        const maxScroll = Math.max(0, totalLines - CHAT_WINDOW_HEIGHT);
+        if (chatScrollOffset < maxScroll) {
+          setChatScroll(Math.min(chatScrollOffset + SCROLL_STEP, maxScroll));
         }
       } else if (focusPanel === 'skill') {
         if (skillScrollOffset > 0) {
@@ -299,12 +306,12 @@ export const InputBox: React.FC<Props> = ({
         }
       }
     } else if (key.pageDown) {
-      // 根据当前焦点面板向下翻页（向旧消息方向）
+      // 根据当前焦点面板向下翻页（底部锚定：PgDn=看新内容）
       if (focusPanel === 'chat') {
         const totalLines = calcTotalLines(messages);
         const maxScroll = Math.max(0, totalLines - CHAT_WINDOW_HEIGHT);
-        if (chatScrollOffset < maxScroll) {
-          setChatScroll(Math.min(chatScrollOffset + SCROLL_STEP, maxScroll));
+        if (chatScrollOffset > 0) {
+          setChatScroll(Math.max(chatScrollOffset - SCROLL_STEP, 0));
         }
       } else if (focusPanel === 'skill') {
         const maxScroll = Math.max(0, skills.length - 6);

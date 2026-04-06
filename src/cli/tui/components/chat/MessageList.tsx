@@ -77,10 +77,12 @@ export const MessageList: React.FC<Props> = ({
   const allLines = flattenAllMessages(messages);
   const totalLines = allLines.length;
 
-  // 计算可见窗口范围
+  // 计算可见窗口范围（底部锚定模式）
   const maxOffset = Math.max(0, totalLines - WINDOW_HEIGHT);
-  const offset = Math.min(scrollOffset, maxOffset);
-  const visibleLines = allLines.slice(offset, offset + WINDOW_HEIGHT);
+  const clampedOffset = Math.min(scrollOffset, maxOffset);
+  // offset=0 显示最新内容（尾部），offset 增大往旧内容方向滚动
+  const startIdx = Math.max(0, totalLines - WINDOW_HEIGHT - clampedOffset);
+  const visibleLines = allLines.slice(startIdx, startIdx + WINDOW_HEIGHT);
 
   // 当前选中的消息
   const selectedMessage = selectedMessageId
@@ -98,7 +100,7 @@ export const MessageList: React.FC<Props> = ({
           {/* 底部信息栏 */}
           {totalLines > WINDOW_HEIGHT && (
             <Text color="gray" dimColor>
-              {' '}lines {offset + 1}-{Math.min(offset + WINDOW_HEIGHT, totalLines)}/{totalLines}
+              {' '}lines {startIdx + 1}-{Math.min(startIdx + WINDOW_HEIGHT, totalLines)}/{totalLines}
             </Text>
           )}
         </Box>
@@ -108,7 +110,7 @@ export const MessageList: React.FC<Props> = ({
           <ScrollBar
             total={totalLines}
             visible={WINDOW_HEIGHT}
-            offset={offset}
+            offset={clampedOffset}
             color={isFocused ? 'green' : 'blue'}
           />
         )}
