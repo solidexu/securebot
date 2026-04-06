@@ -62,9 +62,9 @@ export const ChatPanel: React.FC = () => {
         )}
       </Box>
 
-      {/* 消息列表 - 填充剩余空间 */}
+      {/* 消息列表 - 填充剩余空间，动态限制行数防止 TUI 被撑大 */}
       <Box flexGrow={1} flexShrink={1}>
-        <MessageList messages={messages} scrollOffset={chatScrollOffset} visibleCount={12} />
+        <MessageList messages={messages} scrollOffset={chatScrollOffset} />
       </Box>
     </Box>
   );
