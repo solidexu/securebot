@@ -10,55 +10,57 @@ interface Props {
   scrollOffset?: number;
 }
 
-/**
- * 消息滚动模式（与 AgentList/SkillViewer 完全一致）：
- * - scrollOffset = 从最新消息往回数了多少条（0=显示最新消息）
- * - 固定显示 MAX_VISIBLE_MSGS 条消息
- * - 内容按行截断
- */
-const MAX_VISIBLE_MSGS = 2;  // 固定显示 2 条消息
+/** 可见行数 - 固定窗口大小 */
+const VISIBLE_LINES = 25;
+
+/** 单条消息最大渲染行数 */
+const MSG_MAX_LINES = 8;
 
 /**
- * 消息查看器 - 显示选中消息的完整内容（固定12行，覆盖在消息列表上方）
+ * 将消息数组展开为扁平化行列表
  */
-const MessageViewer: React.FC<{ message: Message; scrollOffset: number; onScroll: (offset: number) => void }> = ({
-  message,
-  scrollOffset,
-  onScroll,
-}) => {
-  const lines = message.content.split('\n');
-  const totalLines = lines.length;
-  const VIEWER_LINES = 12;
-
-  const maxScroll = Math.max(0, totalLines - VIEWER_LINES);
-  const clampedScroll = Math.min(scrollOffset, maxScroll);
-  const visibleLines = lines.slice(clampedScroll, clampedScroll + VIEWER_LINES);
-
-  return (
-    <Box
-      flexDirection="column"
-      borderTop="single"
-      borderColor="yellow"
-      // 固定高度覆盖在消息区上方
-      height={VIEWER_LINES + 2}
-      backgroundColor="#1a1b26"
-    >
-      <Box paddingY={0} flexShrink={0}>
-        <Text bold color="yellow">
-          {'\u25b6 '} Full Content [{clampedScroll + 1}-{Math.min(clampedScroll + VIEWER_LINES, totalLines)}/{totalLines}]
-        </Text>
-        <Text color="gray" dimColor> (Wheel/PgUp/PgDn | Enter next | Esc)</Text>
-      </Box>
-      <Box flexDirection="column" flexShrink={0}>
-        {visibleLines.map((line, i) => (
-          <Text key={i} color="white">
-            {line || ' '}
-          </Text>
-        ))}
-      </Box>
-    </Box>
-  );
-};
+function flattenMessages(messages: Message[]): Array<{ line: string; msgIndex: number; isHeader: boolean }> {
+  const lines: Array<{ line: string; msgIndex: number; isHeader: boolean }> = [];
+  messages.forEach((msg, idx) => {
+    // 消息头部
+    const time = new Date(msg.timestamp).toLocaleTimeString('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    if (msg.type === 'tool') {
+      const meta = msg.meta as { name?: string } | undefined;
+      lines.push({
+        line: `# ${meta?.name || 'Tool'} | ${time}`,
+        msgIndex: idx,
+        isHeader: true,
+      });
+    } else {
+      const iconMap: Record<string, string> = {
+        user: '>', agent: '*', system: '-', error: '!', skill: '\u{1f527}', warn: '~',
+      };
+      const icon = iconMap[msg.type] || '?';
+      lines.push({
+        line: `${icon} ${msg.sender} | ${time}`,
+        msgIndex: idx,
+        isHeader: true,
+      });
+    }
+    // 消息内容行
+    const contentLines = msg.content.split('\n');
+    for (let i = 0; i < Math.min(contentLines.length, MSG_MAX_LINES); i++) {
+      lines.push({ line: contentLines[i]!, msgIndex: idx, isHeader: false });
+    }
+    if (contentLines.length > MSG_MAX_LINES) {
+      // 截断标记也算一行
+      lines.push({
+        line: `   [... ${contentLines.length - MSG_MAX_LINES} more lines]`,
+        msgIndex: idx,
+        isHeader: false,
+      });
+    }
+  });
+  return lines;
+}
 
 export const MessageList: React.FC<Props> = ({
   messages,
@@ -83,67 +85,103 @@ export const MessageList: React.FC<Props> = ({
     );
   }
 
-  // 计算最大滚动偏移（按消息条数，而非行数）
-  const maxScroll = Math.max(0, totalMessages - MAX_VISIBLE_MSGS);
-  const clampedScroll = Math.min(scrollOffset, maxScroll);
+  // 展开所有消息为行
+  const allLines = flattenMessages(messages);
+  const totalLines = allLines.length;
 
-  // endIdx = 下一条要显示的最新消息的索引
-  // 例如: total=5, scroll=0 → endIdx=5(显示消息4,3)
-  //       total=5, scroll=1 → endIdx=4(显示消息3,2)
-  const endIdx = totalMessages - clampedScroll;
-  const startIdx = Math.max(0, endIdx - MAX_VISIBLE_MSGS);
-  const visibleMessages = messages.slice(startIdx, endIdx);
+  // 基于行偏移计算可见范围
+  const maxOffset = Math.max(0, totalLines - VISIBLE_LINES);
+  const clampedOffset = Math.min(scrollOffset, maxOffset);
 
-  // 获取当前选中的消息
+  // 可见的行范围
+  const visibleLines = allLines.slice(clampedOffset, clampedOffset + VISIBLE_LINES);
+
+  // 当前选中的消息
   const selectedMessage = selectedMessageId
     ? messages.find(m => m.id === selectedMessageId) ?? null
     : null;
 
   return (
-    <Box flexDirection="column" height="100%">
-      {/* 消息列表主体 - 固定高度，最多显示 MAX_VISIBLE_MSGS 条 */}
-      <Box flexDirection="row" flexGrow={0} flexShrink={0}>
-        <Box flexDirection="column" flexGrow={1} flexShrink={0} width="100%">
-          {visibleMessages.map((msg) => (
-            <MessageItem
-              key={msg.id}
-              message={msg}
-              isSelected={msg.id === selectedMessageId}
-              onSelect={() => selectMessage(msg.id)}
-            />
-          ))}
+    <Box flexDirection="column">
+      {/* 按行显示内容 */}
+      <Box flexDirection="row" flexGrow={0}>
+        <Box flexDirection="column" flexGrow={1} width="100%">
+          {visibleLines.map((item, displayIdx) => {
+            const msg = messages[item.msgIndex];
+            const isSelected = msg?.id === selectedMessageId;
+
+            if (item.isHeader) {
+              // 头部行特殊样式
+              let headerColor: string = 'white';
+              let bold = false;
+              if (msg?.type === 'tool') {
+                headerColor = 'blue';
+                bold = true;
+              }
+
+              return (
+                <Text key={displayIdx} color={headerColor} bold={bold}>
+                  {isSelected ? '\u25b6 ' : ''}{item.line}
+                </Text>
+              );
+            }
+
+            // 内容行
+            if (msg?.type === 'tool') {
+              return (
+                <Text key={displayIdx} color="cyan">{isSelected && item.msgIndex === visibleLines[0]?.msgIndex ? '\u25b6' : '  '}{item.line}</Text>
+              );
+            }
+
+            return <Text key={displayIdx}>{item.line}</Text>;
+          })}
           {/* 滚动指示器 */}
-          {clampedScroll > 0 && (
+          {clampedOffset > 0 && clampedOffset + VISIBLE_LINES < totalLines && (
             <Text color="yellow" dimColor>
-              {' '}({clampedScroll} older){' '}
-              <Text color="cyan">(Wheel/PgUp/PgDn)</Text>
+              {' '}lines {clampedOffset + 1}-{Math.min(clampedOffset + VISIBLE_LINES, totalLines)}/{totalLines}
             </Text>
           )}
-          {clampedScroll === 0 && totalMessages > 1 && (
+          {clampedOffset === 0 && totalLines > VISIBLE_LINES && (
             <Text color="gray" dimColor>
-              {' '}{totalMessages} msgs
+              {' '}{totalLines} lines | {totalMessages} msgs
             </Text>
           )}
         </Box>
 
-        {/* 右侧滚动条 */}
-        {totalMessages > MAX_VISIBLE_MSGS && (
+        {/* 右侧滚动条 - 基于总行数 */}
+        {totalLines > VISIBLE_LINES && (
           <ScrollBar
-            total={totalMessages}
-            visible={MAX_VISIBLE_MSGS}
-            offset={clampedScroll}
+            total={totalLines}
+            visible={VISIBLE_LINES}
+            offset={clampedOffset}
             color={isFocused ? 'green' : 'blue'}
           />
         )}
       </Box>
 
-      {/* 消息查看器 - 固定高度，单独占用空间 */}
+      {/* 消息查看器 - 固定14行高度 */}
       {messageViewerOpen && selectedMessage && (
-        <MessageViewer
-          message={selectedMessage}
-          scrollOffset={messageScrollOffset}
-          onScroll={setMessageScrollOffset}
-        />
+        <Box
+          flexDirection="column"
+          borderTop="single"
+          borderColor="yellow"
+          height={14}
+          backgroundColor="#1a1b26"
+        >
+          <Box flexShrink={0}>
+            <Text bold color="yellow">
+              {'\u25b6 '} Full Content [{messageScrollOffset + 1}-{Math.min(messageScrollOffset + 12, selectedMessage.content.split('\n').length)}/{selectedMessage.content.split('\n').length}]
+            </Text>
+            <Text color="gray" dimColor> (Wheel/PgUp/PgDn | Enter next | Esc)</Text>
+          </Box>
+          <Box flexDirection="column" flexShrink={0}>
+            {selectedMessage.content.split('\n')
+              .slice(messageScrollOffset, messageScrollOffset + 12)
+              .map((line, i) => (
+                <Text key={i} color="white">{line || ' '}</Text>
+              ))}
+          </Box>
+        </Box>
       )}
     </Box>
   );
