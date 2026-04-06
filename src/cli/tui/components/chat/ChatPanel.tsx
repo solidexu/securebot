@@ -37,12 +37,13 @@ export const ChatPanel: React.FC = () => {
       borderColor={borderColor}
       paddingX={theme.layout.paddingX}
     >
-      {/* 标题栏 - 固定高度，不伸缩 */}
+      {/* 标题栏 - 固定1行高度，不伸缩 */}
       <Box
+        height={1}
         borderBottom
         borderColor={borderColor}
-        paddingY={0}
         flexShrink={0}
+        flexGrow={0}
       >
         <Text bold color={isFocused ? 'green' : 'white'}>
           {titleIndicator} Chat
