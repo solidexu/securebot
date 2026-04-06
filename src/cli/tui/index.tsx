@@ -27,7 +27,19 @@ export interface TuiOptions {
 }
 
 /** 最大工具调用轮次 */
-const MAX_TOOL_ROUNDS = 10;
+const MAX_TOOL_ROUNDS = 100;
+
+/** 当前执行的中断控制器（Ctrl+C 可触发） */
+let currentAbortController: AbortController | null = null;
+
+/** 外部可调用的中断函数（供 App.tsx 的 Ctrl+C 使用） */
+export function abortCurrentExecution(): boolean {
+  if (currentAbortController && !currentAbortController.signal.aborted) {
+    currentAbortController.abort();
+    return true;  // 已中断正在执行的任务
+  }
+  return false;  // 没有正在执行的任务
+}
 
 /**
  * 创建 TUI 消息处理器（连接真实模型 + 工具调用循环）
@@ -240,6 +252,10 @@ function createMessageHandler(options: TuiOptions) {
       maxRounds: MAX_TOOL_ROUNDS,
     });
 
+    // 创建中断控制器（Ctrl+C 可触发中止）
+    currentAbortController = new AbortController();
+    const abortSignal = currentAbortController.signal;
+
     try {
       // === 工具调用循环 ===
       let messages: import('../../core/types.js').Message[] = [
@@ -253,6 +269,16 @@ function createMessageHandler(options: TuiOptions) {
       let assistantMsgId = '';
 
       while (hasToolCalls && round < MAX_TOOL_ROUNDS) {
+        // 检查是否被 Ctrl+C 中断
+        if (abortSignal.aborted) {
+          addMessage?.({
+            sender: 'System',
+            content: '\n[用户中断] 执行已被 Ctrl+C 停止',
+            type: 'warn',
+          });
+          addLog?.('执行被用户中断', 'warn');
+          break;
+        }
         round++;
         addLog?.(`[Round ${round}] 调用模型...`, 'info');
 
@@ -460,6 +486,7 @@ function createMessageHandler(options: TuiOptions) {
       });
     } finally {
       setIsStreaming?.(false);
+      currentAbortController = null;  // 清理中断控制器
     }
   };
 }

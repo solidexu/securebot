@@ -3,6 +3,7 @@ import { Box, Text, useApp as useInkApp, useInput } from 'ink';
 import { AppProvider, useApp } from './context/index.js';
 import { MainLayout, InputArea } from './components/index.js';
 import { theme } from './styles/theme.js';
+import { abortCurrentExecution } from './index.js';
 
 /** onMessage 回调的上下文参数 */
 export interface MessageContext {
@@ -122,12 +123,23 @@ const AppContent: React.FC<AppProps> = ({
 
   useInput((char, key) => {
     if (key.ctrl && char === 'c') {
+      // 先尝试中断正在执行的任务
+      const wasRunning = abortCurrentExecution();
+      if (wasRunning) {
+        addMessage({
+          sender: 'System',
+          content: '\n[CtrC] 正在停止执行...',
+          type: 'warn',
+        });
+        addLog('用户按下 Ctrl+C，正在中断执行', 'warn');
+        return;  // 中断成功，不退出
+      }
+      // 没有运行中的任务，直接退出
       addMessage({
         sender: 'System',
         content: 'Goodbye!',
         type: 'system',
       });
-      // 延迟退出，让用户看到 Goodbye 消息
       setTimeout(() => {
         process.stdout.write('\x1b[?1049l');  // 恢复主屏幕
         exit();
