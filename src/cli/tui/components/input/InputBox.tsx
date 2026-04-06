@@ -241,6 +241,7 @@ export const InputBox: React.FC<Props> = ({
           const maxScroll = Math.max(0, totalLines - CHAT_VISIBLE_LINES);
           if (chatScrollOffset > 0) {
             setChatScroll(Math.max(chatScrollOffset - SCROLL_FINE_STEP, 0));
+          }
         } else if (focusPanel === 'skill') {
           const maxScroll = Math.max(0, skills.length - 6);
           if (skillScrollOffset > 0) {
