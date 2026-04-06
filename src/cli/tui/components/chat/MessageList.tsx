@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import type { Message } from '../../types/index.js';
 import { ScrollBar } from '../common/ScrollBar.js';
 import { useApp } from '../../context/index.js';
 import { CodeEditorPanel } from './CodeEditor.js';
+import { ShellOutputPanel } from './ShellOutputPanel.js';
 
 interface Props {
   messages: Message[];
@@ -89,6 +90,7 @@ export const MessageList: React.FC<Props> = ({
     selectMessage,
     setChatScroll,
     isStreaming,
+    shellOutput,
   } = useApp();
   const isFocused = focusPanel === 'chat';
 
@@ -100,36 +102,33 @@ export const MessageList: React.FC<Props> = ({
     }
   }, [isStreaming, scrollOffset, messages.length]);
 
-  if (messages.length === 0) {
-    return (
-      <Box paddingX={2}>
-        <Text color="gray">No messages yet</Text>
-      </Box>
-    );
-  }
-
-  // 完整展开所有消息
-  const allLines = flattenAllMessages(messages);
+  // 使用 useMemo 优化：完整展开所有消息（缓存结果）
+  const allLines = useMemo(() => flattenAllMessages(messages), [messages]);
   const totalLines = allLines.length;
 
-  // 计算可见窗口范围（底部锚定模式）
-  const maxOffset = Math.max(0, totalLines - WINDOW_HEIGHT);
-  const clampedOffset = Math.min(scrollOffset, maxOffset);
-  // offset=0 显示最新内容（尾部），offset 增大往旧内容方向滚动
-  const startIdx = Math.max(0, totalLines - WINDOW_HEIGHT - clampedOffset);
-  const visibleLines = allLines.slice(startIdx, startIdx + WINDOW_HEIGHT);
+  // 使用 useMemo 优化：计算可见窗口范围（缓存计算结果）
+  const viewport = useMemo(() => {
+    const maxOffset = Math.max(0, totalLines - WINDOW_HEIGHT);
+    const clampedOffset = Math.min(scrollOffset, maxOffset);
+    // offset=0 显示最新内容（尾部），offset 增大往旧内容方向滚动
+    const startIdx = Math.max(0, totalLines - WINDOW_HEIGHT - clampedOffset);
+    const visibleLines = allLines.slice(startIdx, startIdx + WINDOW_HEIGHT);
+    return { startIdx, clampedOffset, visibleLines };
+  }, [allLines, totalLines, scrollOffset]);
 
   // 当前选中的消息
-  const selectedMessage = selectedMessageId
-    ? messages.find(m => m.id === selectedMessageId) ?? null
-    : null;
+  const selectedMessage = useMemo(() => {
+    return selectedMessageId
+      ? messages.find(m => m.id === selectedMessageId) ?? null
+      : null;
+  }, [selectedMessageId, messages]);
 
   return (
     <Box flexDirection="column">
       {/* 行级滚动窗口 */}
       <Box flexDirection="row">
         <Box flexDirection="column" flexGrow={1} width="100%">
-          {visibleLines.map((line, i) => (
+          {viewport.visibleLines.map((line, i) => (
             line.align === 'right' ? (
               <Box key={i} width="100%" justifyContent="flex-end">
                 <Text color={line.color} bold={line.bold}>{line.text}</Text>
@@ -143,7 +142,7 @@ export const MessageList: React.FC<Props> = ({
           {/* 底部信息栏 */}
           {totalLines > WINDOW_HEIGHT && (
             <Text color="gray" dimColor>
-              {' '}lines {startIdx + 1}-{Math.min(startIdx + WINDOW_HEIGHT, totalLines)}/{totalLines}
+              {' '}lines {viewport.startIdx + 1}-{Math.min(viewport.startIdx + WINDOW_HEIGHT, totalLines)}/{totalLines}
             </Text>
           )}
         </Box>
@@ -153,7 +152,7 @@ export const MessageList: React.FC<Props> = ({
           <ScrollBar
             total={totalLines}
             visible={WINDOW_HEIGHT}
-            offset={clampedOffset}
+            offset={viewport.clampedOffset}
             color={isFocused ? 'green' : 'blue'}
             // 内容区 = WINDOW_HEIGHT 行 + 1行信息栏
             height={totalLines > WINDOW_HEIGHT ? WINDOW_HEIGHT + 1 : WINDOW_HEIGHT}
@@ -163,6 +162,17 @@ export const MessageList: React.FC<Props> = ({
 
       {/* 代码写入动画窗口 - 实时显示文件写入过程 */}
       <CodeEditorPanel />
+
+      {/* Shell 输出面板 - 实时显示 exec 命令输出 */}
+      {shellOutput && (
+        <ShellOutputPanel
+          command={shellOutput.command}
+          outputs={shellOutput.outputs}
+          isRunning={shellOutput.isRunning}
+          exitCode={shellOutput.exitCode}
+          cwd={shellOutput.cwd}
+        />
+      )}
 
       {/* 消息查看器 - 固定14行 */}
       {messageViewerOpen && selectedMessage && (

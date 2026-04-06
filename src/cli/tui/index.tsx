@@ -62,6 +62,10 @@ function createMessageHandler(options: TuiOptions) {
       setSkills?: (skills: { id: string; name: string; active?: boolean }[]) => void;
       startCodeWriter?: (filePath: string, content: string) => Promise<void>;
       startCodeEditor?: (filePath: string, oldContent?: string, newContent?: string) => Promise<void>;
+      startShellOutput?: (command: string, cwd?: string) => void;
+      addShellOutput?: (type: 'stdout' | 'stderr', text: string) => void;
+      finishShellOutput?: (exitCode: number | null) => void;
+      closeShellOutput?: () => void;
       currentAgent?: string;
     }
   ): Promise<void> {
@@ -75,6 +79,10 @@ function createMessageHandler(options: TuiOptions) {
       setSkills,
       startCodeWriter,
       startCodeEditor,
+      startShellOutput,
+      addShellOutput,
+      finishShellOutput,
+      closeShellOutput,
       currentAgent,
     } = context;
 
@@ -371,13 +379,47 @@ function createMessageHandler(options: TuiOptions) {
             // 执行工具（构建完整 ToolContext）
             const { getRootDir } = await import('../../core/config.js');
             const rootDir = getRootDir(config);
-            const toolResult = await executeTool(tc.name, tc.arguments, {
-              agent,
-              session,
-              workspace: agent.workspace || process.cwd(),
-              logger: console,
-              allowedPaths: [rootDir],
-            });
+            
+            // ★ 特殊处理 exec 工具：添加流式回调
+            let toolResult;
+            if (tc.name === 'exec') {
+              // 启动 Shell 输出面板
+              const execCommand = tc.arguments.command as string;
+              const execCwd = tc.arguments.cwd as string | undefined;
+              startShellOutput?.(execCommand, execCwd);
+              
+              // 动态导入 exec 工具，使用流式回调
+              const { execTool, StreamCallbacks } = await import('../../tools/exec.js');
+              const streamCallbacks: StreamCallbacks = {
+                onStdout: (data) => {
+                  addShellOutput?.('stdout', data);
+                },
+                onStderr: (data) => {
+                  addShellOutput?.('stderr', data);
+                },
+              };
+              
+              // 执行工具（传递流式回调）
+              toolResult = await executeTool(tc.name, { ...tc.arguments, streamCallbacks }, {
+                agent,
+                session,
+                workspace: agent.workspace || process.cwd(),
+                logger: console,
+                allowedPaths: [rootDir],
+              });
+              
+              // 完成 Shell 输出
+              finishShellOutput?.(toolResult.metadata?.exitCode ?? null);
+            } else {
+              // 其他工具：正常执行
+              toolResult = await executeTool(tc.name, tc.arguments, {
+                agent,
+                session,
+                workspace: agent.workspace || process.cwd(),
+                logger: console,
+                allowedPaths: [rootDir],
+              });
+            }
 
             // 显示结果摘要
             const resultContent = typeof toolResult.content === 'string'

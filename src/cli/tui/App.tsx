@@ -16,6 +16,10 @@ export interface MessageContext {
   setSkills?: (skills: { id: string; name: string; active?: boolean }[]) => void;
   startCodeWriter?: (filePath: string, content: string) => Promise<void>;
   startCodeEditor?: (filePath: string, oldContent?: string, newContent?: string) => Promise<void>;
+  startShellOutput?: (command: string, cwd?: string) => void;
+  addShellOutput?: (type: 'stdout' | 'stderr', text: string) => void;
+  finishShellOutput?: (exitCode: number | null) => void;
+  closeShellOutput?: () => void;
   currentAgent?: string;
 }
 
@@ -95,6 +99,10 @@ const AppContent: React.FC<AppProps> = ({
       setSkills,
       startCodeWriter,
       startCodeEditor,
+      startShellOutput,
+      addShellOutput,
+      finishShellOutput,
+      closeShellOutput,
       currentAgent,
     } = useApp();
 
@@ -211,6 +219,10 @@ const AppContent: React.FC<AppProps> = ({
         setSkills,
         startCodeWriter,
         startCodeEditor,
+        startShellOutput,
+        addShellOutput,
+        finishShellOutput,
+        closeShellOutput,
         currentAgent,
       };
 

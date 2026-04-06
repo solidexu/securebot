@@ -4,6 +4,7 @@
 
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 import type { Message, AgentInfo, TaskStatus, LogEntry, SkillInfo } from '../types/index.js';
+import { AnimationManager } from '../utils/AnimationManager.js';
 
 interface AppState {
   messages: Message[];
@@ -35,6 +36,14 @@ interface AppState {
     additions: number;
     deletions: number;
   } | null;
+  /** Shell 输出面板（exec 工具流式输出） */
+  shellOutput: {
+    command: string;
+    outputs: Array<{ type: 'stdout' | 'stderr'; text: string; timestamp: number }>;
+    isRunning: boolean;
+    exitCode: number | null;
+    cwd?: string;
+  } | null;
 }
 
 interface AppContextValue extends AppState {
@@ -62,6 +71,14 @@ interface AppContextValue extends AppState {
   /** 启动代码编辑动画（edit 模式，显示 diff 风格） */
   startCodeEditor: (filePath: string, oldContent?: string, newContent?: string) => Promise<void>;
   closeCodeWriter: () => void;                       // 关闭编辑窗口
+  /** 启动 Shell 输出面板（exec 工具） */
+  startShellOutput: (command: string, cwd?: string) => void;
+  /** 添加 Shell 输出 */
+  addShellOutput: (type: 'stdout' | 'stderr', text: string) => void;
+  /** 完成 Shell 输出 */
+  finishShellOutput: (exitCode: number | null) => void;
+  /** 关闭 Shell 输出面板 */
+  closeShellOutput: () => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -218,6 +235,55 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (codeEditorTimerRef.current) clearInterval(codeEditorTimerRef.current);
     setCodeEditor(null);
   }, []);
+
+  // ===== Shell 输出状态管理 =====
+  const [shellOutput, setShellOutput] = useState<{
+    command: string;
+    outputs: Array<{ type: 'stdout' | 'stderr'; text: string; timestamp: number }>;
+    isRunning: boolean;
+    exitCode: number | null;
+    cwd?: string;
+  } | null>(null);
+
+  /** 启动 Shell 输出面板 */
+  const startShellOutput = useCallback((command: string, cwd?: string) => {
+    setShellOutput({
+      command,
+      outputs: [],
+      isRunning: true,
+      exitCode: null,
+      cwd,
+    });
+  }, []);
+
+  /** 添加 Shell 输出 */
+  const addShellOutput = useCallback((type: 'stdout' | 'stderr', text: string) => {
+    setShellOutput(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        outputs: [...prev.outputs, { type, text, timestamp: Date.now() }],
+      };
+    });
+  }, []);
+
+  /** 完成 Shell 输出 */
+  const finishShellOutput = useCallback((exitCode: number | null) => {
+    setShellOutput(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        isRunning: false,
+        exitCode,
+      };
+    });
+  }, []);
+
+  /** 关闭 Shell 输出面板 */
+  const closeShellOutput = useCallback(() => {
+    setShellOutput(null);
+  }, []);
+
   const historyIndexRef = useRef(-1);
   const tempInputRef = useRef('');
 
@@ -391,6 +457,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     startCodeWriter,
     startCodeEditor,
     closeCodeWriter,
+    shellOutput,
+    startShellOutput,
+    addShellOutput,
+    finishShellOutput,
+    closeShellOutput,
   };
 
   return (

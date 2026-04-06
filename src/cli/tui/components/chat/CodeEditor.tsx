@@ -1,15 +1,123 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { useApp } from '../../context/index.js';
 
 /** 编辑面板显示行数 */
 const EDITOR_LINES = 10;
 
+/** 缓冲区行数（上下各缓冲，提前渲染） */
+const BUFFER_LINES = 2;
+
 /** 进度条：生成 █░ 形式 */
 function progressBar(current: number, total: number, width: number): string {
   const pct = Math.round((current / total) * 100);
   const filled = Math.round((current / total) * width);
   return '█'.repeat(filled) + '░'.repeat(width - filled);
+}
+
+/**
+ * 计算滚动窗口的可见范围（虚拟化）
+ * 参考 ink-virtual-list 的实现思路
+ */
+function calculateViewport(
+  currentLine: number,
+  totalLines: number,
+  viewportHeight: number,
+  bufferLines: number = BUFFER_LINES
+): { start: number; end: number; cursorIdx: number } {
+  // 光标目标位置：中间偏下1/3位置
+  const cursorTargetRow = Math.floor(viewportHeight / 2) + 1;
+  
+  // 计算窗口起始位置（让光标在目标位置）
+  const windowStart = Math.max(0, Math.min(
+    currentLine - cursorTargetRow,
+    Math.max(0, totalLines - viewportHeight)
+  ));
+  
+  // 添加缓冲区（上下各 bufferLines 行）
+  const bufferedStart = Math.max(0, windowStart - bufferLines);
+  const bufferedEnd = Math.min(totalLines, windowStart + viewportHeight + bufferLines);
+  
+  // 计算光标在视口内的相对位置
+  const cursorIdx = currentLine < totalLines 
+    ? (currentLine - windowStart) 
+    : -1;
+  
+  return {
+    start: bufferedStart,
+    end: bufferedEnd,
+    cursorIdx,
+  };
+}
+
+/**
+ * 渲染单行代码
+ */
+function renderCodeLine(
+  line: { text: string; state: 'written' | 'changed' | 'added' | 'deleted' | 'pending' },
+  lineNum: number,
+  isCursor: boolean,
+  borderColor: string
+): React.ReactNode {
+  // 光标行：高亮背景色，最醒目
+  if (isCursor) {
+    return (
+      <Text key={lineNum}>
+        <Text color={borderColor} bold>{String(lineNum).padStart(3)} </Text>
+        <Text color={borderColor} bold bgHex="#1a2030">
+          {'▸ '}{line.text || ' '}
+        </Text>
+      </Text>
+    );
+  }
+
+  // 已写入行（亮蓝）
+  if (line.state === 'written') {
+    return (
+      <Text key={lineNum}>
+        <Text color="#333">{String(lineNum).padStart(3)} </Text>
+        <Text color="#7ecfff">{line.text || ' '}</Text>
+      </Text>
+    );
+  }
+
+  // 新增行（绿色+）
+  if (line.state === 'added') {
+    return (
+      <Text key={lineNum}>
+        <Text color="#333">{String(lineNum).padStart(3)} </Text>
+        <Text color="#88ffaa" bold>+ {line.text}</Text>
+      </Text>
+    );
+  }
+
+  // 删除行（红色-）
+  if (line.state === 'deleted') {
+    return (
+      <Text key={lineNum}>
+        <Text color="#333">{String(lineNum).padStart(3)} </Text>
+        <Text color="#ff6666" strikethrough>- {line.text}</Text>
+      </Text>
+    );
+  }
+
+  // 修改行（黄色~）
+  if (line.state === 'changed') {
+    return (
+      <Text key={lineNum}>
+        <Text color="#333">{String(lineNum).padStart(3)} </Text>
+        <Text color="#ffcc00">~ {line.text}</Text>
+      </Text>
+    );
+  }
+
+  // 待写入行（暗灰显示实际代码）
+  return (
+    <Text key={lineNum}>
+      <Text color="#222">{String(lineNum).padStart(3)} </Text>
+      <Text color="#444" dimColor>{line.text || ' '}</Text>
+    </Text>
+  );
 }
 
 export const CodeEditorPanel: React.FC = () => {
@@ -25,20 +133,20 @@ export const CodeEditorPanel: React.FC = () => {
   const shortName = filePath.split('/').pop() || filePath;
   const pct = Math.min(100, Math.round((currentLine / totalLines) * 100));
 
-  // 滚动窗口：始终让光标在中间区域（偏下1/3位置）
-  const cursorTargetRow = mode === 'edit' ? EDITOR_LINES - 3 : Math.floor(EDITOR_LINES / 2) + 1;
-  const windowStart = Math.max(0, Math.min(
-    currentLine - cursorTargetRow,
-    Math.max(0, totalLines - EDITOR_LINES)
-  ));
-  const visibleLines = displayLines.slice(windowStart, windowStart + EDITOR_LINES);
-  // 填充固定高度
-  while (visibleLines.length < EDITOR_LINES) {
-    visibleLines.push({ text: '', state: 'pending' });
-  }
+  // 使用 useMemo 优化视口计算（避免每次渲染都重新计算）
+  const viewport = useMemo(() => {
+    return calculateViewport(currentLine, totalLines, EDITOR_LINES, BUFFER_LINES);
+  }, [currentLine, totalLines]);
 
-  const lastWrittenIdx = currentLine - 1 - windowStart;
-  const cursorIdx = currentLine < totalLines ? lastWrittenIdx + 1 : -1;
+  // 虚拟化渲染：只渲染可见区域 + 缓冲区
+  const visibleLines = useMemo(() => {
+    const lines = displayLines.slice(viewport.start, viewport.end);
+    // 填充固定高度
+    while (lines.length < EDITOR_LINES) {
+      lines.push({ text: '', state: 'pending' as const });
+    }
+    return lines;
+  }, [displayLines, viewport.start, viewport.end]);
 
   // 状态标签
   const borderStyle = mode === 'edit' ? 'double' : 'single';
@@ -80,75 +188,11 @@ export const CodeEditorPanel: React.FC = () => {
         )}
       </Box>
 
-      {/* 内容区 */}
+      {/* 内容区 - 虚拟化渲染 */}
       {visibleLines.map((line, i) => {
-        const lineNum = windowStart + i + 1;
-        const isWritten = line.state === 'written';
-        const isAdded = line.state === 'added';
-        const isDeleted = line.state === 'deleted';
-        const isChanged = line.state === 'changed';
-        const isPending = line.state === 'pending';
-        const isCursor = i === cursorIdx;
-
-        // 光标行：高亮背景色，最醒目
-        if (isCursor) {
-          return (
-            <Text key={i}>
-              <Text color={borderColor} bold>{String(lineNum).padStart(3)} </Text>
-              <Text color={borderColor} bold bgHex="#1a2030">
-                {'▸ '}{line.text || ' '}
-              </Text>
-            </Text>
-          );
-        }
-
-        // 已写入行（亮蓝）
-        if (isWritten) {
-          return (
-            <Text key={i}>
-              <Text color="#333">{String(lineNum).padStart(3)} </Text>
-              <Text color="#7ecfff">{line.text || ' '}</Text>
-            </Text>
-          );
-        }
-
-        // 新增行（绿色+）
-        if (isAdded) {
-          return (
-            <Text key={i}>
-              <Text color="#333">{String(lineNum).padStart(3)} </Text>
-              <Text color="#88ffaa" bold>+ {line.text}</Text>
-            </Text>
-          );
-        }
-
-        // 删除行（红色-）
-        if (isDeleted) {
-          return (
-            <Text key={i}>
-              <Text color="#333">{String(lineNum).padStart(3)} </Text>
-              <Text color="#ff6666" strikethrough>- {line.text}</Text>
-            </Text>
-          );
-        }
-
-        // 修改行（黄色~）
-        if (isChanged) {
-          return (
-            <Text key={i}>
-              <Text color="#333">{String(lineNum).padStart(3)} </Text>
-              <Text color="#ffcc00">~ {line.text}</Text>
-            </Text>
-          );
-        }
-
-        // 待写入行（暗灰显示实际代码）
-        return (
-          <Text key={i}>
-            <Text color="#222">{String(lineNum).padStart(3)} </Text>
-            <Text color="#444" dimColor>{line.text || ' '}</Text>
-          </Text>
-        );
+        const lineNum = viewport.start + i + 1;
+        const isCursor = i === viewport.cursorIdx;
+        return renderCodeLine(line, lineNum, isCursor, borderColor);
       })}
     </Box>
   );

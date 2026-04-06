@@ -44,12 +44,23 @@ function isDangerousCommand(command: string): boolean {
 // ============ 命令执行 ============
 
 /**
- * 执行命令
+ * 流式输出回调接口
+ */
+export interface StreamCallbacks {
+  /** stdout 输出回调 */
+  onStdout?: (data: string) => void;
+  /** stderr 输出回调 */
+  onStderr?: (data: string) => void;
+}
+
+/**
+ * 执行命令（支持流式回调）
  */
 function runCommand(
   command: string,
   cwd: string,
-  timeout: number = 30000
+  timeout: number = 30000,
+  callbacks?: StreamCallbacks
 ): Promise<ExecResult> {
   return new Promise((resolvePromise) => {
     const proc = spawn('sh', ['-c', command], {
@@ -62,11 +73,21 @@ function runCommand(
     let stderr = '';
 
     proc.stdout.on('data', (data) => {
-      stdout += data.toString();
+      const text = data.toString();
+      stdout += text;
+      // 流式回调：立即通知调用方
+      if (callbacks?.onStdout) {
+        callbacks.onStdout(text);
+      }
     });
 
     proc.stderr.on('data', (data) => {
-      stderr += data.toString();
+      const text = data.toString();
+      stderr += text;
+      // 流式回调：立即通知调用方
+      if (callbacks?.onStderr) {
+        callbacks.onStderr(text);
+      }
     });
 
     // 超时处理
