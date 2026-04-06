@@ -11,10 +11,13 @@ interface Props {
 }
 
 /**
- * 与 AgentList(MAX_VISIBLE_AGENTS=4)、SkillViewer(MAX_VISIBLE_SKILLS=6) 相同模式：
- * 硬限制可见条数，每条内容截断，总渲染行数有上限。
+ * 与 AgentList(MAX_VISIBLE_AGENTS=4)、SkillViewer(MAX_VISIBLE_SKILLS=6) 完全相同的滚动模式：
+ * - 固定可见条数
+ * - 每条消息内容截断
+ * - 总渲染行数有硬上限
  *
- * 每条消息最多约 12 行 (header + content)，所以 6 条消息最多约 72 行。
+ * 每条消息最多约 13 行 (1 header + 12 content)，6 条消息 ≈ 78 行。
+ * 配合 ChatPanel 的 flexGrow={1} + overflow="hidden"，不会撑大 TUI。
  */
 const MAX_VISIBLE_MSGS = 6;
 
@@ -34,14 +37,15 @@ export const MessageList: React.FC<Props> = ({
     );
   }
 
-  // 与 AgentList/SkillViewer 完全相同的滚动逻辑：
-  // scrollOffset=0 显示最后 N 条，scrollOffset>0 向旧消息方向移动
+  // 与 AgentList / SkillViewer 完全一致的滚动逻辑：
+  // offset=0 → 显示最后 N 条（最新）
+  // offset=N → 向旧消息方向移动 N 步
   const endIdx = totalMessages - scrollOffset;
   const startIdx = Math.max(0, endIdx - MAX_VISIBLE_MSGS);
   const visibleMessages = messages.slice(startIdx, endIdx);
 
   return (
-    <Box flexDirection="row" flexGrow={1}>
+    <Box flexDirection="row" height="100%">
       {/* 消息内容区 */}
       <Box flexDirection="column" flexGrow={1} flexShrink={1} width="100%">
         {visibleMessages.map((msg) => (
@@ -61,7 +65,7 @@ export const MessageList: React.FC<Props> = ({
         )}
       </Box>
 
-      {/* 右侧滚动条 — 与 AgentList/SkillViewer 完全相同 */}
+      {/* 右侧滚动条 — 与 AgentList / SkillViewer 完全相同 */}
       {totalMessages > MAX_VISIBLE_MSGS && (
         <ScrollBar
           total={totalMessages}

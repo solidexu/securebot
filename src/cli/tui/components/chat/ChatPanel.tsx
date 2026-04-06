@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
-import Spinner from 'ink-spinner';
 import { useApp } from '../../context/index.js';
 import { MessageList } from './MessageList.js';
 import { theme } from '../../styles/theme.js';
@@ -62,10 +61,15 @@ export const ChatPanel: React.FC = () => {
         )}
       </Box>
 
-      {/* 消息列表 - 填充剩余空间，动态限制行数防止 TUI 被撑大 */}
-      <Box flexGrow={1} flexShrink={1}>
+      {/* 消息列表 - 填充剩余空间，高度由父容器决定，内容不撑大 */}
+      <Box flexGrow={1} flexShrink={1} overflow="hidden">
         <MessageList messages={messages} scrollOffset={chatScrollOffset} />
       </Box>
     </Box>
   );
 };
+
+// 内联 Spinner 避免额外导入问题
+const Spinner: React.FC<{ type?: string }> = () => (
+  <Text color="yellow">{'\u25a0'}</Text>
+);
