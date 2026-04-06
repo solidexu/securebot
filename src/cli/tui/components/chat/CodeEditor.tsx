@@ -72,8 +72,8 @@ function renderCodeLine(
           <Text color="#ffffff" bold>{writtenText}</Text>
           {/* 光标闪烁块 */}
           <Text backgroundColor="#00ffff" color="#000" bold> </Text>
-          {/* 待写入文字（暗淡） */}
-          <Text color="#446688">{pendingText || ''}</Text>
+          {/* 待写入文字：隐藏，用空白占位保持布局 */}
+          <Text color="#1a2030">{'\u2800'.repeat(pendingText.length) || ''}</Text>
         </Text>
       </Text>
     );
@@ -89,7 +89,7 @@ function renderCodeLine(
         <Text key={lineNum}>
           <Text color="#333">{String(lineNum).padStart(3)} </Text>
           <Text color="#7ecfff">{line.text.slice(0, written)}</Text>
-          <Text color="#446688">{line.text.slice(written) || ' '}</Text>
+          <Text color="#0d1117">{' '}</Text>
         </Text>
       );
     }
@@ -131,11 +131,11 @@ function renderCodeLine(
     );
   }
 
-  // 待写入行（暗灰）
+  // 待写入行 — 完全隐藏内容，只显示行号（像空白行）
   return (
     <Text key={lineNum}>
-      <Text color="#222">{String(lineNum).padStart(3)} </Text>
-      <Text color="#444" dimColor>{line.text || ' '}</Text>
+      <Text color="#1a1e2a">{String(lineNum).padStart(3)} </Text>
+      <Text color="#0d1117">{' '}</Text>
     </Text>
   );
 }
