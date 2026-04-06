@@ -14,6 +14,7 @@ export interface MessageContext {
   addLog?: (msg: string, level?: string) => void;
   setSkills?: (skills: { id: string; name: string; active?: boolean }[]) => void;
   startCodeWriter?: (filePath: string, content: string) => void;
+  startCodeEditor?: (filePath: string, oldContent?: string, newContent?: string) => void;
   currentAgent?: string;
 }
 
@@ -92,6 +93,7 @@ const AppContent: React.FC<AppProps> = ({
       setIsStreaming,
       setSkills,
       startCodeWriter,
+      startCodeEditor,
       currentAgent,
     } = useApp();
 
@@ -196,6 +198,7 @@ const AppContent: React.FC<AppProps> = ({
         addLog,
         setSkills,
         startCodeWriter,
+        startCodeEditor,
         currentAgent,
       };
 
@@ -212,7 +215,7 @@ const AppContent: React.FC<AppProps> = ({
         setIsStreaming(false);
       }
     }
-  }, [addMessage, addLog, onMessage, setCurrentAgent, setIsStreaming, startCodeWriter, updateMessage, setTaskStatus, currentAgent]);
+  }, [addMessage, addLog, onMessage, setCurrentAgent, setIsStreaming, startCodeWriter, startCodeEditor, updateMessage, setTaskStatus, currentAgent]);
 
   return (
     <Box flexDirection="column" height="100%" width="100%">

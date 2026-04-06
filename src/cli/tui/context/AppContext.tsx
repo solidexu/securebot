@@ -24,7 +24,17 @@ interface AppState {
   selectedMessageId: string | null;  // 当前选中的消息 ID（用于查看完整内容）
   messageViewerOpen: boolean;       // 消息查看器是否打开
   messageScrollOffset: number;       // 消息查看器内部滚动偏移
-  codeWriter: { filePath: string; lines: string[]; currentLine: number; totalLines: boolean } | null; // 代码写入窗口
+  /** 代码编辑面板（write/edit 统一） */
+  codeEditor: {
+    mode: 'write' | 'edit';
+    filePath: string;
+    displayLines: { text: string; state: 'written' | 'changed' | 'added' | 'deleted' | 'pending' }[];
+    currentLine: number;
+    totalLines: number;
+    isComplete: boolean;
+    additions: number;
+    deletions: number;
+  } | null;
 }
 
 interface AppContextValue extends AppState {
@@ -48,8 +58,10 @@ interface AppContextValue extends AppState {
   selectMessage: (id: string | null) => void;        // 选择消息查看完整内容
   setMessageViewerOpen: (open: boolean) => void;     // 打开/关闭消息查看器
   setMessageScrollOffset: (offset: number) => void;  // 消息查看器内部滚动
-  startCodeWriter: (filePath: string, content: string) => void;  // 启动代码写入动画
-  closeCodeWriter: () => void;                       // 关闭代码写入窗口
+  startCodeWriter: (filePath: string, content: string) => void;  // 启动代码写入动画（write 模式）
+  /** 启动代码编辑动画（edit 模式，显示 diff 风格） */
+  startCodeEditor: (filePath: string, oldContent?: string, newContent?: string) => void;
+  closeCodeWriter: () => void;                       // 关闭编辑窗口
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -72,34 +84,99 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const [messageViewerOpen, setMessageViewerOpen] = useState(false);
   const [messageScrollOffset, setMessageScrollOffset] = useState(0);
-  // 代码写入动画窗口状态
-  const [codeWriter, setCodeWriter] = useState<{
-    filePath: string; lines: string[]; currentLine: number; totalLines: number;
+  // 代码编辑面板状态（统一 write/edit 两种模式）
+  const [codeEditor, setCodeEditor] = useState<{
+    mode: 'write' | 'edit';
+    filePath: string;
+    displayLines: { text: string; state: 'written' | 'added' | 'deleted' | 'changed' | 'pending' }[];
+    currentLine: number;
+    totalLines: number;
+    isComplete: boolean;
+    additions: number;
+    deletions: number;
   } | null>(null);
-  const codeWriterTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const codeEditorTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  /** write 模式：逐行写入动画 */
   const startCodeWriter = useCallback((filePath: string, content: string) => {
-    // 清除之前的定时器
-    if (codeWriterTimerRef.current) clearInterval(codeWriterTimerRef.current);
-    // 解析内容为行数组（处理 JSON 转义的 \n）
-    const lines = content.split('\\\n');
-    setCodeWriter({ filePath, lines, currentLine: 0, totalLines: lines.length });
-    // 每行写入间隔：快速模式（每帧1行）
+    if (codeEditorTimerRef.current) clearInterval(codeEditorTimerRef.current);
+    const rawLines = content.split('\\\n');
+    const displayLines = rawLines.map(text => ({ text, state: 'pending' as const }));
+    setCodeEditor({
+      mode: 'write', filePath, displayLines, currentLine: 0,
+      totalLines: rawLines.length, isComplete: false,
+      additions: rawLines.length, deletions: 0,
+    });
     let lineIdx = 0;
-    codeWriterTimerRef.current = setInterval(() => {
+    codeEditorTimerRef.current = setInterval(() => {
       lineIdx++;
-      if (lineIdx >= lines.length) {
-        if (codeWriterTimerRef.current) clearInterval(codeWriterTimerRef.current);
-        setTimeout(() => setCodeWriter(null), 2000); // 写完后2秒关闭
+      if (lineIdx >= rawLines.length) {
+        if (codeEditorTimerRef.current) clearInterval(codeEditorTimerRef.current);
+        setCodeEditor(prev => prev ? { ...prev, currentLine: lineIdx, isComplete: true } : null);
+        setTimeout(() => setCodeEditor(null), 2500);
       } else {
-        setCodeWriter(prev => prev ? { ...prev, currentLine: lineIdx } : null);
+        setCodeEditor(prev => {
+          if (!prev) return null;
+          const updated = [...prev.displayLines];
+          for (let i = prev.currentLine; i < lineIdx && i < updated.length; i++) {
+            updated[i] = { ...updated[i], state: 'written' };
+          }
+          return { ...prev, displayLines: updated, currentLine: lineIdx };
+        });
       }
-    }, 30); // 每行 30ms（足够快但可见动画效果）
+    }, 25);
+  }, []);
+
+  /** edit 模式：diff 风格动画 */
+  const startCodeEditor = useCallback((filePath: string, oldContent?: string, newContent?: string) => {
+    if (codeEditorTimerRef.current) clearInterval(codeEditorTimerRef.current);
+    const oldLines = (oldContent || '').split('\\\n');
+    const newLines = (newContent || '').split('\\\n');
+    // 简单 diff：找出新增和删除的行
+    const additions = Math.max(0, newLines.length - oldLines.length);
+    const deletions = Math.max(0, oldLines.length - newLines.length);
+    const maxLen = Math.max(oldLines.length, newLines.length);
+    const displayLines: { text: string; state: 'written' | 'added' | 'deleted' | 'changed' | 'pending' }[] = [];
+    for (let i = 0; i < maxLen; i++) {
+      const oldLine = oldLines[i];
+      const newLine = newLines[i];
+      if (i >= oldLines.length) {
+        displayLines.push({ text: newLine, state: 'added' });
+      } else if (i >= newLines.length) {
+        displayLines.push({ text: oldLine, state: 'deleted' });
+      } else if (oldLine !== newLine) {
+        displayLines.push({ text: oldLine, state: 'deleted' });
+        displayLines.push({ text: newLine, state: 'added' });
+      } else {
+        displayLines.push({ text: oldLine, state: 'written' });
+      }
+    }
+    const totalLines = displayLines.length;
+    setCodeEditor({
+      mode: 'edit', filePath, displayLines, currentLine: 0,
+      totalLines, isComplete: false, additions, deletions,
+    });
+    let lineIdx = 0;
+    codeEditorTimerRef.current = setInterval(() => {
+      lineIdx++;
+      if (lineIdx >= totalLines) {
+        if (codeEditorTimerRef.current) clearInterval(codeEditorTimerRef.current);
+        setCodeEditor(prev => prev ? { ...prev, currentLine: lineIdx, isComplete: true } : null);
+        setTimeout(() => setCodeEditor(null), 2500);
+      } else {
+        setCodeEditor(prev => {
+          if (!prev) return null;
+          const updated = [...prev.displayLines];
+          updated[lineIdx] = { ...updated[lineIdx], state: 'written' };
+          return { ...prev, displayLines: updated, currentLine: lineIdx };
+        });
+      }
+    }, 35);
   }, []);
 
   const closeCodeWriter = useCallback(() => {
-    if (codeWriterTimerRef.current) clearInterval(codeWriterTimerRef.current);
-    setCodeWriter(null);
+    if (codeEditorTimerRef.current) clearInterval(codeEditorTimerRef.current);
+    setCodeEditor(null);
   }, []);
   const historyIndexRef = useRef(-1);
   const tempInputRef = useRef('');
@@ -210,7 +287,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // 重置所有状态（每次 TUI 启动时调用）
   const resetState = useCallback(() => {
-    if (codeWriterTimerRef.current) clearInterval(codeWriterTimerRef.current);
+    if (codeEditorTimerRef.current) clearInterval(codeEditorTimerRef.current);
     setMessages([]);
     setAgents([]);
     setCurrentAgent('dev');
@@ -229,7 +306,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSelectedMessageId(null);
     setMessageViewerOpen(false);
     setMessageScrollOffset(0);
-    setCodeWriter(null);
+    setCodeEditor(null);
   }, []);
 
   const value: AppContextValue = {
@@ -270,8 +347,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setMessageScrollOffset: setMessageScroll,
     selectedMessageId,
     messageViewerOpen,
-    codeWriter,
+    codeEditor,
     startCodeWriter,
+    startCodeEditor,
     closeCodeWriter,
   };
 

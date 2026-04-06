@@ -49,6 +49,7 @@ function createMessageHandler(options: TuiOptions) {
       addLog?: (msg: string, level?: string) => void;
       setSkills?: (skills: { id: string; name: string; active?: boolean }[]) => void;
       startCodeWriter?: (filePath: string, content: string) => void;
+      startCodeEditor?: (filePath: string, oldContent?: string, newContent?: string) => void;
       currentAgent?: string;
     }
   ): Promise<void> {
@@ -61,6 +62,7 @@ function createMessageHandler(options: TuiOptions) {
       addLog,
       setSkills,
       startCodeWriter,
+      startCodeEditor,
       currentAgent,
     } = context;
 
@@ -304,17 +306,29 @@ function createMessageHandler(options: TuiOptions) {
             const argsStr = JSON.stringify(tc.arguments, null, 0);
             let toolMsgId = '';
 
-            // write 工具：启动代码写入动画 + 简短摘要
-            if (tc.name === 'write' && typeof tc.arguments?.content === 'string') {
+            // write/edit 工具：启动代码编辑动画面板
+            if ((tc.name === 'write' || tc.name === 'edit') && typeof tc.arguments?.content === 'string') {
               const filePath = tc.arguments.path || '(unknown)';
               const codeLines = tc.arguments.content.split('\\\n').length;
-              startCodeWriter?.(filePath, tc.arguments.content);
-              toolMsgId = addMessage?.({
-                sender: 'Tool',
-                content: `[write] \u270E ${filePath} (${codeLines} lines)`,
-                type: 'tool',
-                meta: { name: tc.name, path: filePath, lineCount: codeLines },
-              }) || '';
+              if (tc.name === 'write') {
+                startCodeWriter?.(filePath, tc.arguments.content);
+                toolMsgId = addMessage?.({
+                  sender: 'Tool',
+                  content: `[write] \u270F ${filePath} (${codeLines} lines)`,
+                  type: 'tool',
+                  meta: { name: tc.name, path: filePath, lineCount: codeLines },
+                }) || '';
+              } else {
+                // edit 模式：需要老内容做 diff，目前只显示新内容（后续可扩展 old_content 参数）
+                const oldContent = tc.arguments.old_content;
+                startCodeEditor?.(filePath, oldContent, tc.arguments.content);
+                toolMsgId = addMessage?.({
+                  sender: 'Tool',
+                  content: `[edit] \u270E ${filePath}`,
+                  type: 'tool',
+                  meta: { name: tc.name, path: filePath },
+                }) || '';
+              }
             } else {
               // 其他工具：正常显示参数
               toolMsgId = addMessage?.({
