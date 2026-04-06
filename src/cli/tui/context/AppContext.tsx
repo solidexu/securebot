@@ -172,7 +172,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (!d) { clearInterval(codeEditorTimerRef.current!); resolve(); return; }
 
         // 计算当前应该写到哪个字符位置
-        globalCharIdx += 3; // 每帧写 3 个字符（打字机速度）
+        globalCharIdx += 15; // 每帧写 15 个字符 — 600字/秒，100行代码~6秒
         
         if (globalCharIdx >= allChars.length) {
           // 全部写完
