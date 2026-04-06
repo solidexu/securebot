@@ -302,26 +302,27 @@ function createMessageHandler(options: TuiOptions) {
           for (const tc of result.toolCalls) {
             const toolCallId = tc.id || `tc_${Date.now()}`;
             const argsStr = JSON.stringify(tc.arguments, null, 0);
+            let toolMsgId = '';
 
             // write 工具：启动代码写入动画 + 简短摘要
             if (tc.name === 'write' && typeof tc.arguments?.content === 'string') {
               const filePath = tc.arguments.path || '(unknown)';
               const codeLines = tc.arguments.content.split('\\\n').length;
               startCodeWriter?.(filePath, tc.arguments.content);
-              addMessage?.({
+              toolMsgId = addMessage?.({
                 sender: 'Tool',
                 content: `[write] \u270E ${filePath} (${codeLines} lines)`,
                 type: 'tool',
                 meta: { name: tc.name, path: filePath, lineCount: codeLines },
-              });
+              }) || '';
             } else {
               // 其他工具：正常显示参数
-              addMessage?.({
+              toolMsgId = addMessage?.({
                 sender: 'Tool',
                 content: `[${tc.name}](${argsStr})`,
                 type: 'tool',
                 meta: { name: tc.name, arguments: tc.arguments },
-              });
+              }) || '';
             }
 
             addLog?.(`[Tool] ${tc.name}(${argsStr})`, 'info');
