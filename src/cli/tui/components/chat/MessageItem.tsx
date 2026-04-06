@@ -13,7 +13,7 @@ interface Props {
   onSelect?: () => void;
 }
 
-const DEFAULT_MAX_LINES = 8; // 每条消息最多显示 8 行（减少单条占用空间）
+const DEFAULT_MAX_LINES = 20; // 每条消息最多显示 20 行（足够显示完整回复）
 
 export const MessageItem: React.FC<Props> = ({
   message,

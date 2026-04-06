@@ -11,10 +11,10 @@ interface Props {
 }
 
 /** 可见行数 - 固定窗口大小 */
-const VISIBLE_LINES = 25;
+const VISIBLE_LINES = 30;
 
-/** 单条消息最大渲染行数 */
-const MSG_MAX_LINES = 8;
+/** 单条消息最大渲染行数（足够显示完整回复） */
+const MSG_MAX_LINES = 20;
 
 /**
  * 将消息数组展开为扁平化行列表

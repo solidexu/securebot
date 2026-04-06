@@ -15,12 +15,13 @@ function calcTotalLines(messages: { content: string }[]): number {
   let total = 0;
   for (let i = 0; i < messages.length; i++) {
     total += 1; // header
-    total += Math.min(messages[i]!.content.split('\n').length, 8); // content
+    total += Math.min(messages[i]!.content.split('\n').length, MSG_MAX_LINES); // content
   }
   return total;
 }
 
-const CHAT_VISIBLE_LINES = 25;  // 与 MessageList.VISIBLE_LINES 保持一致
+const CHAT_VISIBLE_LINES = 30;  // 与 MessageList.VISIBLE_LINES 保持一致
+const MSG_MAX_LINES = 20;       // 与 MessageList.MSG_MAX_LINES 保持一致
 
 export const InputBox: React.FC<Props> = ({
   onSubmit,
