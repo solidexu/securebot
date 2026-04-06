@@ -1,14 +1,12 @@
 import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 
-/** Shell 输出面板显示行数 */
-const SHELL_PANEL_HEIGHT = 12;
-
-/** 最大输出行数（超出则滚动） */
-const MAX_OUTPUT_LINES = 100;
+/** 单行输出最大字符宽度（超出截断） */
+const OUTPUT_MAX_WIDTH = 80;
 
 /**
- * Shell 输出面板 Props
+ * Shell 输出面板 — 紧凑内联模式
+ * 只占 1-2 行，紧跟在 exec 命令下方显示
  */
 export interface ShellOutputPanelProps {
   /** 执行的命令 */
@@ -27,117 +25,55 @@ export interface ShellOutputPanelProps {
   cwd?: string;
 }
 
-/**
- * 解析 ANSI 颜色代码（简化版）
- * 只处理基本颜色，完整实现需要 ansi-regex 等库
- */
-function stripAnsiColors(text: string): string {
-  // 移除常见的 ANSI 转义序列
+function stripAnsi(text: string): string {
   return text.replace(/\x1b\[[0-9;]*m/g, '');
 }
 
-/**
- * 渲染单行输出
- */
-function renderOutputLine(
-  output: { type: 'stdout' | 'stderr'; text: string; timestamp: number },
-  index: number
-): React.ReactNode {
-  const text = stripAnsiColors(output.text);
-  const timestamp = new Date(output.timestamp).toLocaleTimeString('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
-
-  if (output.type === 'stderr') {
-    return (
-      <Text key={index} color="#ff6666" dimColor>
-        {text}
-      </Text>
-    );
-  }
-
-  return (
-    <Text key={index} color="#dddddd">
-      {text}
-    </Text>
-  );
-}
-
-/**
- * Shell 输出面板组件
- * 实时显示 exec 命令的 stdout/stderr 输出
- */
 export const ShellOutputPanel: React.FC<ShellOutputPanelProps> = ({
   command,
   outputs,
   isRunning,
   exitCode,
-  cwd,
 }) => {
-  // 使用 useMemo 优化输出处理
-  const displayOutputs = useMemo(() => {
-    // 限制最大行数，超出则截取最新部分
-    const limitedOutputs = outputs.length > MAX_OUTPUT_LINES
-      ? outputs.slice(-MAX_OUTPUT_LINES)
-      : outputs;
-    return limitedOutputs;
+  // 取最新一行输出显示
+  const lastLine = useMemo(() => {
+    if (outputs.length === 0) return '';
+    const raw = stripAnsi(outputs[outputs.length - 1]!.text);
+    // 去掉换行，限制长度
+    const trimmed = raw.replace(/\n/g, ' ').trim();
+    return trimmed.length > OUTPUT_MAX_WIDTH 
+      ? trimmed.slice(0, OUTPUT_MAX_WIDTH - 3) + '...' 
+      : trimmed;
   }, [outputs]);
 
-  // 截断显示的命令（避免过长）
-  const shortCommand = command.length > 60 ? command.substring(0, 57) + '...' : command;
-  const shortCwd = cwd ? (cwd.length > 30 ? '...' + cwd.substring(cwd.length - 27) : cwd) : '';
+  const shortCmd = command.length > 50 ? command.slice(0, 47) + '...' : command;
+
+  const statusColor = isRunning ? '#00ffff' : exitCode === 0 ? '#88ffaa' : '#ff6666';
+  const statusLabel = isRunning ? '▶ running' : `exit ${exitCode ?? '-'}`;
 
   return (
     <Box
       flexDirection="column"
-      borderTop="double"
-      borderColor={isRunning ? '#00ffff' : (exitCode === 0 ? 'green' : 'red')}
-      height={SHELL_PANEL_HEIGHT + 2}
+      borderStyle="round"
+      borderColor={statusColor}
+      paddingLeft={1} paddingRight={1}
       backgroundColor="#0d1117"
     >
-      {/* 标题栏：命令 + 状态 */}
-      <Box flexShrink={0}>
-        <Text bold color={isRunning ? '#00ffff' : (exitCode === 0 ? 'green' : 'red')}>
-          {' $ '}{shortCommand}
+      {/* 第1行：$ 命令 + 状态 */}
+      <Box>
+        <Text bold color={statusColor}>
+          {'$ '}{shortCmd}
         </Text>
-        {shortCwd && (
-          <Text color="#888" dimColor>
-            {' '}({shortCwd})
-          </Text>
-        )}
-        {/* 状态指示器 */}
-        {isRunning ? (
-          <Text color="#00ffff" bold> {'[running]'}</Text>
-        ) : (
-          <Text color={exitCode === 0 ? 'green' : 'red'}>
-            {' '}[exit: {exitCode}]
-          </Text>
-        )}
+        <Text color="#666" dimColor>
+          {'  '}<Text color={statusColor}>●</Text>{' '}{statusLabel}
+        </Text>
       </Box>
 
-      {/* 输出区域 */}
-      <Box flexDirection="column" flexGrow={1}>
-        {displayOutputs.length === 0 ? (
-          <Text color="#555" dimColor>
-            {isRunning ? 'Waiting for output...' : 'No output'}
-          </Text>
-        ) : (
-          displayOutputs.map((output, index) => renderOutputLine(output, index))
-        )}
-      </Box>
-
-      {/* 底部信息栏 */}
-      {displayOutputs.length > 0 && (
-        <Box flexShrink={0}>
-          <Text color="#666" dimColor>
-            {' '}lines: {displayOutputs.length}
-            {outputs.length > MAX_OUTPUT_LINES && (
-              <Text color="#888"> (truncated)</Text>
-            )}
-          </Text>
-        </Box>
+      {/* 第2行：最新输出（仅当有输出时显示） */}
+      {(lastLine || !isRunning) && (
+        <Text color={isRunning ? '#cccccc' : '#888888'} dimColor={!isRunning}>
+          {'  '}{isRunning ? lastLine : (lastLine || '(no output)')}
+        </Text>
       )}
     </Box>
   );
