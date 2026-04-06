@@ -35,8 +35,9 @@ export const ScrollBar: React.FC<ScrollBarProps> = ({
   const thumbRatio = Math.max(visible / total, 0.15);
   const thumbSize = Math.max(Math.round(thumbRatio * 6), 1); // 固定6行高度
 
-  // 滑块位置：offset=0 在底部（最新），offset=maxOffset 在顶部（最旧）
-  const positionRatio = maxOffset > 0 ? clampedOffset / maxOffset : 0;
+  // 滑块位置：offset=0 在顶部（最旧内容），offset=maxOffset 在底部（最新内容）
+  // 即：标准终端滚动条语义——thumb在底部时查看最新内容
+  const positionRatio = maxOffset > 0 ? 1 - (clampedOffset / maxOffset) : 1;
   const thumbPosition = Math.round(positionRatio * (6 - thumbSize));
 
   // 构建6行固定滚动条
