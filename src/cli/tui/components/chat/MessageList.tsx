@@ -13,39 +13,63 @@ interface Props {
 const WINDOW_HEIGHT = 30;
 
 /**
- * 扁平化行（带对齐信息）
+ * 扁平化行（带样式和对齐信息）
  */
 interface FlatLine {
   text: string;
-  align: 'left' | 'right'; // 用户消息右对齐，其他左对齐
+  align: 'left' | 'right';
+  color?: string;       // 文字颜色
+  bold?: boolean;       // 加粗（头部）
+  dim?: boolean;        // 暗淡
+  prefix?: string;      // 内容前缀
 }
+
+/** 消息类型视觉风格 — 炫酷现代风格 */
+const MSG_STYLES: Record<string, { headerColor: string; contentColor: string; icon: string; prefix: string }> = {
+  user:   { headerColor: 'green',   contentColor: 'white',   icon: '\u25b6', prefix: '' },
+  agent:  { headerColor: 'cyan',    contentColor: 'white',   icon: '\u2728', prefix: ' \u2503 ' },  // ✨ │
+  system: { headerColor: '#8888aa', contentColor: '#666688', icon: '\u25a1', prefix: ' \u25cb ' }, // □ ○ 暗淡灰蓝
+  tool:   { headerColor: 'yellow',  contentColor: '#dddd77', icon: '\u2699', prefix: ' \u25aa ' }, // ⚙ ▪ 金色
+  error:  { headerColor: 'red',     contentColor: 'red',     icon: '\u26a0', prefix: '' },
+  skill:  { headerColor: 'magenta',contentColor: 'white',   icon: '\u{1f527}', prefix: '' },
+  warn:   { headerColor: 'yellow',  contentColor: 'yellow',  icon: '~',     prefix: '' },
+};
 
 /**
  * 将所有消息完整展开为扁平化行列表（不截断）
- * 用户消息（type=user）右对齐，其他消息左对齐
+ * 每种消息类型有独特的视觉风格
  */
 function flattenAllMessages(messages: Message[]): FlatLine[] {
   const lines: FlatLine[] = [];
   messages.forEach((msg) => {
     const isUser = msg.type === 'user';
-    // 头部行
+    const style = MSG_STYLES[msg.type] || MSG_STYLES.system;
     const time = new Date(msg.timestamp).toLocaleTimeString('zh-CN', {
       hour: '2-digit',
       minute: '2-digit',
     });
+
     if (msg.type === 'tool') {
       const meta = msg.meta as { name?: string } | undefined;
-      lines.push({ text: `# ${meta?.name || 'Tool'} | ${time}`, align: 'left' });
+      lines.push({
+        text: `${style.icon} ${meta?.name || 'Tool'} ${time}`,
+        align: 'left', color: style.headerColor, bold: true,
+      });
     } else {
-      const iconMap: Record<string, string> = {
-        user: '>', agent: '*', system: '-', error: '!', skill: '\u{1f527}', warn: '~',
-      };
-      const icon = iconMap[msg.type] || '?';
-      lines.push({ text: `${icon} ${msg.sender} | ${time}`, align: isUser ? 'right' : 'left' });
+      lines.push({
+        text: `${style.icon} ${msg.sender} ${time}`,
+        align: isUser ? 'right' : 'left', color: style.headerColor, bold: true,
+      });
     }
-    // 内容行 - 全部保留，不截断
+
     for (const line of msg.content.split('\n')) {
-      lines.push({ text: line, align: isUser ? 'right' : 'left' });
+      lines.push({
+        text: line,
+        align: isUser ? 'right' : 'left',
+        color: style.contentColor,
+        dim: msg.type === 'system',
+        prefix: isUser ? '' : style.prefix,
+      });
     }
   });
   return lines;
@@ -107,10 +131,12 @@ export const MessageList: React.FC<Props> = ({
           {visibleLines.map((line, i) => (
             line.align === 'right' ? (
               <Box key={i} width="100%" justifyContent="flex-end">
-                <Text>{line.text}</Text>
+                <Text color={line.color} bold={line.bold}>{line.text}</Text>
               </Box>
             ) : (
-              <Text key={i}>{line.text}</Text>
+              <Text key={i} color={line.color} bold={line.bold} dimColor={line.dim}>
+                {line.prefix}{line.text}
+              </Text>
             )
           ))}
           {/* 底部信息栏 */}
