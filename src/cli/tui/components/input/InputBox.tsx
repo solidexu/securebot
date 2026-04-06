@@ -8,10 +8,9 @@ interface Props {
   agents?: string[];
 }
 
-const SCROLL_STEP = 12;       // PgUp/PgDn 翻页（大约1屏）
-const SCROLL_FINE_STEP = 1;  // 上下箭头/Wheel 微调（1行）
+const SCROLL_STEP = 1;        // PgUp/PgDn 翻页（1条消息）
+const SCROLL_FINE_STEP = 1;  // 上下箭头/Wheel 微调（1条消息）
 const CHAT_VISIBLE_COUNT = 2;  // 与 MessageList.MAX_VISIBLE_MSGS 保持一致
-const MSG_MAX_LINES = 12;     // 每条消息最大行数（与 MessageItem 保持一致）
 
 export const InputBox: React.FC<Props> = ({
   onSubmit,
@@ -72,17 +71,12 @@ export const InputBox: React.FC<Props> = ({
         return;
       }
 
-      // 消息查看器关闭时：在消息列表中滚动（按行滚动）
+      // 消息查看器关闭时：在消息列表中滚动（按消息条数）
       if (focusPanel === 'chat') {
-        // 计算总行数（从最新消息往上的累计行数）
-        let totalLines = 0;
-        for (let i = messages.length - 1; i >= 0; i--) {
-          totalLines += Math.min(messages[i]!.content.split('\n').length, MSG_MAX_LINES) + 1;
-        }
-        const maxScroll = Math.max(0, totalLines - CHAT_VISIBLE_COUNT * MSG_MAX_LINES);
-
+        // maxScroll = 跳过多少条消息后开始显示
+        const maxScroll = Math.max(0, messages.length - CHAT_VISIBLE_COUNT);
         if (deltaY < 0) {
-          // 向上滚动 = 向新内容 = 减少 offset（显示更新的消息）
+          // 向上滚动 = 向新内容 = 减少 offset
           setChatScroll(Math.max(chatScrollOffset - 1, 0));
         } else {
           // 向下滚动 = 向旧内容 = 增加 offset
