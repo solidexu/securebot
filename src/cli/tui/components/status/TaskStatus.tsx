@@ -31,8 +31,9 @@ export const TaskStatusPanel: React.FC = () => {
   const statusColor = statusColors[taskStatus.status] || 'white';
 
   return (
-    <Box flexDirection="column" paddingX={1}>
-      <Box>
+    <Box flexDirection="column" paddingX={1} flexShrink={0}>
+      {/* 状态行 */}
+      <Box flexGrow={1}>
         <Text color={statusColor as any}>
           {'\u25cf'} Status:{' '}
         </Text>
@@ -41,24 +42,33 @@ export const TaskStatusPanel: React.FC = () => {
         </Text>
       </Box>
 
-      <Text color="gray">
-        {'  Round:'}{' '}
-        <Text color="white">
-          {taskStatus.round}/{taskStatus.maxRounds}
+      {/* 回合行 */}
+      <Box flexGrow={1}>
+        <Text color="gray">
+          {'  Round:'}{' '}
+          <Text color="white">
+            {taskStatus.round}/{taskStatus.maxRounds}
+          </Text>
         </Text>
-      </Text>
+      </Box>
 
-      <Text color="magenta">
-        {'  From:'}{' '}
-        <Text color="white">{taskStatus.delegator}</Text>
-        {' \u2192 '}
-        <Text color="cyan">{taskStatus.delegatee}</Text>
-      </Text>
+      {/* 来源行 */}
+      <Box flexGrow={1}>
+        <Text color="magenta">
+          {'  From:'}{' '}
+          <Text color="white">{taskStatus.delegator}</Text>
+          {' \u2192 '}
+          <Text color="cyan">{taskStatus.delegatee}</Text>
+        </Text>
+      </Box>
 
-      <Text color="gray" dimColor>
-        {'  Task: '}<Text>{taskStatus.task.slice(0, 30)}</Text>
-        {taskStatus.task.length > 30 && '...'}
-      </Text>
+      {/* 任务行 */}
+      <Box flexGrow={1}>
+        <Text color="gray" dimColor>
+          {'  Task: '}<Text>{taskStatus.task.slice(0, 28)}</Text>
+          {taskStatus.task.length > 28 && '...'}
+        </Text>
+      </Box>
     </Box>
   );
 };
