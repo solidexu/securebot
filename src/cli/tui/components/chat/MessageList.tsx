@@ -21,11 +21,62 @@ interface Props {
  */
 const MAX_VISIBLE_MSGS = 3;
 
+/**
+ * 消息查看器 - 显示选中消息的完整内容
+ */
+const MessageViewer: React.FC<{ message: Message; scrollOffset: number; onScroll: (offset: number) => void }> = ({
+  message,
+  scrollOffset,
+  onScroll,
+}) => {
+  const lines = message.content.split('\n');
+  const totalLines = lines.length;
+  const VIEWER_LINES = 12; // 固定显示 12 行
+
+  const maxScroll = Math.max(0, totalLines - VIEWER_LINES);
+  const clampedScroll = Math.min(scrollOffset, maxScroll);
+  const visibleLines = lines.slice(clampedScroll, clampedScroll + VIEWER_LINES);
+
+  return (
+    <Box flexDirection="column" borderTop="single" borderColor="yellow" marginTop={1}>
+      <Box paddingY={0} flexShrink={0}>
+        <Text bold color="yellow">
+          {'\u25b6 '} Full Content [{clampedScroll + 1}-{Math.min(clampedScroll + VIEWER_LINES, totalLines)}/{totalLines}]
+        </Text>
+        <Text color="gray" dimColor> (PgUp/PgDn scroll | Enter next | Esc close)</Text>
+      </Box>
+      <Box flexDirection="column" flexShrink={1}>
+        {visibleLines.map((line, i) => (
+          <Text key={i} color="white">
+            {line || ' '}
+          </Text>
+        ))}
+      </Box>
+      {/* 内嵌滚动条 */}
+      {totalLines > VIEWER_LINES && (
+        <ScrollBar
+          total={totalLines}
+          visible={VIEWER_LINES}
+          offset={clampedScroll}
+          color="yellow"
+        />
+      )}
+    </Box>
+  );
+};
+
 export const MessageList: React.FC<Props> = ({
   messages,
   scrollOffset = 0,
 }) => {
-  const { focusPanel } = useApp();
+  const {
+    focusPanel,
+    selectedMessageId,
+    messageViewerOpen,
+    messageScrollOffset,
+    setMessageScrollOffset,
+    selectMessage,
+  } = useApp();
   const isFocused = focusPanel === 'chat';
   const totalMessages = messages.length;
 
@@ -37,41 +88,60 @@ export const MessageList: React.FC<Props> = ({
     );
   }
 
-  // 与 AgentList / SkillViewer 完全一致的滚动逻辑：
-  // offset=0 → 显示最后 N 条（最新）
-  // offset=N → 向旧消息方向移动 N 步
+  // 计算可见消息范围（基于 scrollOffset 在消息间滚动）
   const endIdx = totalMessages - scrollOffset;
   const startIdx = Math.max(0, endIdx - MAX_VISIBLE_MSGS);
   const visibleMessages = messages.slice(startIdx, endIdx);
 
+  // 获取当前选中的消息（用于查看完整内容）
+  const selectedMessage = selectedMessageId
+    ? messages.find(m => m.id === selectedMessageId) ?? null
+    : null;
+
   return (
-    <Box flexDirection="row" height="100%">
-      {/* 消息内容区 */}
-      <Box flexDirection="column" flexGrow={1} flexShrink={1} width="100%">
-        {visibleMessages.map((msg) => (
-          <MessageItem key={msg.id} message={msg} />
-        ))}
-        {/* 滚动指示器 */}
-        {scrollOffset > 0 && startIdx > 0 && (
-          <Text color="yellow" dimColor>
-            {' ... ('}{startIdx} older){' '}
-            <Text color="cyan">(PgUp/PgDn/\u2191\u2193)</Text>
-          </Text>
-        )}
-        {scrollOffset === 0 && totalMessages > MAX_VISIBLE_MSGS && (
-          <Text color="gray" dimColor>
-            {' '}{endIdx}/{totalMessages}
-          </Text>
+    <Box flexDirection="column" height="100%">
+      {/* 消息列表主体 */}
+      <Box flexDirection="row" flexGrow={1} flexShrink={1}>
+        <Box flexDirection="column" flexGrow={1} flexShrink={1} width="100%">
+          {visibleMessages.map((msg) => (
+            <MessageItem
+              key={msg.id}
+              message={msg}
+              isSelected={msg.id === selectedMessageId}
+              onSelect={() => selectMessage(msg.id)}
+            />
+          ))}
+          {/* 滚动指示器 */}
+          {scrollOffset > 0 && startIdx > 0 && (
+            <Text color="yellow" dimColor>
+              {' ... ('}{startIdx} older){' '}
+              <Text color="cyan">(PgUp/PgDn)</Text>
+            </Text>
+          )}
+          {scrollOffset === 0 && totalMessages > MAX_VISIBLE_MSGS && (
+            <Text color="gray" dimColor>
+              {' '}{endIdx}/{totalMessages}
+            </Text>
+          )}
+        </Box>
+
+        {/* 右侧滚动条 — 与 AgentList / SkillViewer 完全相同 */}
+        {totalMessages > MAX_VISIBLE_MSGS && (
+          <ScrollBar
+            total={totalMessages}
+            visible={MAX_VISIBLE_MSGS}
+            offset={scrollOffset}
+            color={isFocused ? 'green' : 'blue'}
+          />
         )}
       </Box>
 
-      {/* 右侧滚动条 — 与 AgentList / SkillViewer 完全相同 */}
-      {totalMessages > MAX_VISIBLE_MSGS && (
-        <ScrollBar
-          total={totalMessages}
-          visible={MAX_VISIBLE_MSGS}
-          offset={scrollOffset}
-          color={isFocused ? 'green' : 'blue'}
+      {/* 消息查看器 — 当选中消息时显示在底部 */}
+      {messageViewerOpen && selectedMessage && (
+        <MessageViewer
+          message={selectedMessage}
+          scrollOffset={messageScrollOffset}
+          onScroll={setMessageScrollOffset}
         />
       )}
     </Box>

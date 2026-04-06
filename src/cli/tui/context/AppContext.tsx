@@ -21,6 +21,9 @@ interface AppState {
   agentScrollOffset: number;  // Agent 列表滚动偏移（0=最新）
   focusPanel: 'chat' | 'agent' | 'skill'; // 当前焦点面板
   focusBlink: boolean;         // 焦点闪烁标记（Tab 切换时触发）
+  selectedMessageId: string | null;  // 当前选中的消息 ID（用于查看完整内容）
+  messageViewerOpen: boolean;       // 消息查看器是否打开
+  messageScrollOffset: number;       // 消息查看器内部滚动偏移
 }
 
 interface AppContextValue extends AppState {
@@ -41,6 +44,9 @@ interface AppContextValue extends AppState {
   setSkills: (skills: SkillInfo[]) => void;   // 更新技能列表
   setFocusPanel: (panel: 'chat' | 'agent' | 'skill') => void;
   resetState: () => void;                    // 重置所有状态
+  selectMessage: (id: string | null) => void;        // 选择消息查看完整内容
+  setMessageViewerOpen: (open: boolean) => void;     // 打开/关闭消息查看器
+  setMessageScrollOffset: (offset: number) => void;  // 消息查看器内部滚动
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -60,6 +66,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [agentScrollOffset, setAgentScrollOffsetState] = useState(0);
   const [focusPanel, setFocusPanelState] = useState<'chat' | 'agent' | 'skill'>('chat');
   const [focusBlink, setFocusBlinkState] = useState(false);
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+  const [messageViewerOpen, setMessageViewerOpen] = useState(false);
+  const [messageScrollOffset, setMessageScrollOffset] = useState(0);
   const historyIndexRef = useRef(-1);
   const tempInputRef = useRef('');
 
@@ -151,6 +160,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setTimeout(() => setFocusBlinkState(false), 300);
   }, []);
 
+  const selectMessage = useCallback((id: string | null) => {
+    setSelectedMessageId(id);
+    setMessageViewerOpen(id !== null);
+    setMessageScrollOffset(0); // 打开时重置内部滚动
+  }, []);
+
+  const closeMessageViewer = useCallback(() => {
+    setMessageViewerOpen(false);
+    setSelectedMessageId(null);
+    setMessageScrollOffset(0);
+  }, []);
+
+  const setMessageScroll = useCallback((offset: number) => {
+    setMessageScrollOffset(offset);
+  }, []);
+
   // 重置所有状态（每次 TUI 启动时调用）
   const resetState = useCallback(() => {
     setMessages([]);
@@ -168,6 +193,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAgentScrollOffsetState(0);
     setFocusPanelState('chat');
     setFocusBlinkState(false);
+    setSelectedMessageId(null);
+    setMessageViewerOpen(false);
+    setMessageScrollOffset(0);
   }, []);
 
   const value: AppContextValue = {
@@ -203,6 +231,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSkills,
     setFocusPanel,
     resetState,
+    selectMessage,
+    setMessageViewerOpen,
+    setMessageScrollOffset: setMessageScroll,
+    selectedMessageId,
+    messageViewerOpen,
+    messageScrollOffset,
   };
 
   return (

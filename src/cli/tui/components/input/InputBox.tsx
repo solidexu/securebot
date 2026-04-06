@@ -36,6 +36,13 @@ export const InputBox: React.FC<Props> = ({
     setAgentScroll,
     focusPanel,
     setFocusPanel,
+    // 消息查看器相关
+    selectedMessageId,
+    messageViewerOpen,
+    messageScrollOffset,
+    selectMessage,
+    closeMessageViewer,
+    setMessageScrollOffset,
   } = useApp();
 
   useEffect(() => {
@@ -49,9 +56,80 @@ export const InputBox: React.FC<Props> = ({
     setFocusPanel(order[(idx + 1) % order.length]);
   };
 
+  // 获取当前可见的消息列表（基于 chatScrollOffset）
+  const getVisibleMessages = () => {
+    const endIdx = messages.length - chatScrollOffset;
+    const startIdx = Math.max(0, endIdx - CHAT_VISIBLE_COUNT);
+    return messages.slice(startIdx, endIdx);
+  };
+
+  // 切换到下一条可见消息
+  const cycleToNextMessage = () => {
+    const visible = getVisibleMessages();
+    if (visible.length === 0) return;
+    const currentIdx = visible.findIndex(m => m.id === selectedMessageId);
+    const nextIdx = currentIdx < visible.length - 1 ? currentIdx + 1 : 0;
+    selectMessage(visible[nextIdx]!.id);
+  };
+
   useInput((char, key) => {
     if (isStreaming) return;
 
+    // 消息查看器打开时的特殊处理
+    if (messageViewerOpen) {
+      if (key.escape) {
+        closeMessageViewer();
+        return;
+      }
+      if (key.return) {
+        // Enter: 切换到下一条可见消息
+        cycleToNextMessage();
+        return;
+      }
+      if (key.pageUp) {
+        // PgUp: 在消息内容中向上滚动
+        const selectedMsg = messages.find(m => m.id === selectedMessageId);
+        if (selectedMsg) {
+          const maxScroll = Math.max(0, selectedMsg.content.split('\n').length - 12);
+          setMessageScrollOffset(Math.max(messageScrollOffset - SCROLL_STEP, 0));
+        }
+        return;
+      }
+      if (key.pageDown) {
+        // PgDn: 在消息内容中向下滚动
+        const selectedMsg = messages.find(m => m.id === selectedMessageId);
+        if (selectedMsg) {
+          const maxScroll = Math.max(0, selectedMsg.content.split('\n').length - 12);
+          setMessageScrollOffset(Math.min(messageScrollOffset + SCROLL_STEP, maxScroll));
+        }
+        return;
+      }
+      if (key.upArrow) {
+        // 微调滚动
+        const selectedMsg = messages.find(m => m.id === selectedMessageId);
+        if (selectedMsg) {
+          const maxScroll = Math.max(0, selectedMsg.content.split('\n').length - 12);
+          setMessageScrollOffset(Math.max(messageScrollOffset - SCROLL_FINE_STEP, 0));
+        }
+        return;
+      }
+      if (key.downArrow) {
+        // 微调滚动
+        const selectedMsg = messages.find(m => m.id === selectedMessageId);
+        if (selectedMsg) {
+          const maxScroll = Math.max(0, selectedMsg.content.split('\n').length - 12);
+          setMessageScrollOffset(Math.min(messageScrollOffset + SCROLL_FINE_STEP, maxScroll));
+        }
+        return;
+      }
+      // 其他按键：关闭查看器
+      if (char && !key.escape) {
+        closeMessageViewer();
+      }
+      return;
+    }
+
+    // 正常模式（非消息查看器）
     if (key.return) {
       if (input.trim()) {
         onSubmit?.(input.trim());
@@ -60,10 +138,19 @@ export const InputBox: React.FC<Props> = ({
         setCompletions([]);
         // 发送消息后自动回到最新
         if (chatScrollOffset > 0) setChatScroll(0);
+      } else {
+        // 空输入 + Enter: 选择最旧的消息查看完整内容
+        const visible = getVisibleMessages();
+        if (visible.length > 0) {
+          selectMessage(visible[0]!.id);
+        }
       }
     } else if (key.backspace || key.delete) {
       setInput(prev => prev.slice(0, -1));
       setCompletions([]);
+    } else if (key.escape) {
+      // Esc: 关闭查看器（如果打开的话）
+      closeMessageViewer();
     } else if (key.upArrow) {
       // 输入为空时，上箭头用于向上微调滚动（向新消息方向）
       if (input.length === 0) {
@@ -196,6 +283,9 @@ export const InputBox: React.FC<Props> = ({
   }, { isActive: !isStreaming });
 
   const focusLabel = focusPanel === 'chat' ? 'Chat' : focusPanel === 'agent' ? 'Agents' : 'Skills';
+  const viewerHint = messageViewerOpen
+    ? 'Enter=next msg | PgUp/PgDn scroll | Esc close'
+    : 'Enter=view full | PgUp/PgDn page | Tab=switch';
 
   return (
     <Box flexDirection="column">
@@ -209,7 +299,7 @@ export const InputBox: React.FC<Props> = ({
       </Box>
 
       {/* 焦点提示 + 补全提示 */}
-      {(completions.length > 0 || focusPanel !== 'chat') && (
+      {(completions.length > 0 || focusPanel !== 'chat' || messageViewerOpen) && (
         <Box paddingLeft={2}>
           {completions.length > 0 ? (
             <Text color="cyan" dimColor>
@@ -219,7 +309,7 @@ export const InputBox: React.FC<Props> = ({
             </Text>
           ) : (
             <Text color="gray" dimColor>
-              focus: {focusLabel} | \u2191\u2193 scroll | PgUp/Dn page | Tab switch
+              {messageViewerOpen ? viewerHint : `focus: ${focusLabel} | ${viewerHint}`}
             </Text>
           )}
         </Box>
