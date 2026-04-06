@@ -40,6 +40,7 @@ interface AppContextValue extends AppState {
   setAgentScroll: (offset: number) => void;
   setSkills: (skills: SkillInfo[]) => void;   // 更新技能列表
   setFocusPanel: (panel: 'chat' | 'agent' | 'skill') => void;
+  resetState: () => void;                    // 重置所有状态
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -150,6 +151,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setTimeout(() => setFocusBlinkState(false), 300);
   }, []);
 
+  // 重置所有状态（每次 TUI 启动时调用）
+  const resetState = useCallback(() => {
+    setMessages([]);
+    setAgents([]);
+    setCurrentAgent('dev');
+    setTaskStatus(null);
+    setLogs([]);
+    setSkillsState([]);
+    setIsStreaming(false);
+    setInputHistory([]);
+    historyIndexRef.current = -1;
+    setChatScrollOffset(0);
+    setLogScrollOffset(0);
+    setSkillScrollOffsetState(0);
+    setAgentScrollOffsetState(0);
+    setFocusPanelState('chat');
+    setFocusBlinkState(false);
+  }, []);
+
   const value: AppContextValue = {
     messages,
     agents,
@@ -182,6 +202,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAgentScroll,
     setSkills,
     setFocusPanel,
+    resetState,
   };
 
   return (

@@ -435,17 +435,28 @@ export async function startTuiRepl(options: TuiOptions = {}): Promise<void> {
 
   const onMessage = createMessageHandler(options);
 
-  const { waitUntilExit } = render(
+  // 切换到备用屏幕缓冲区（alternate screen），使 TUI 完全独立
+  process.stdout.write('\x1b[?1049h');  // 进入备用屏幕
+
+  const { waitUntilExit, unmount, cleanup } = render(
     <App
       defaultAgent={defaultAgentId}
       commands={['/help', '/exit', '/clear', '/agents', '/skills', '/status']}
       agents={realAgentIds.length > 0 ? realAgentIds : ['dev']}
       onMessage={onMessage}
       initialSkills={initialSkills}
-    />
+    />,
+    { exitOnCtrlC: false }
   );
 
   await waitUntilExit();
+
+  // 退出时：恢复正常屏幕 + 清理终端
+  process.stdout.write('\x1b[?1049l');  // 恢复主屏幕
+  process.stdout.write('\x1b[2J\x1b[H'); // 清屏 + 光标归位（保险）
+
+  unmount?.();
+  cleanup?.();
 }
 
 export { App } from './App.js';

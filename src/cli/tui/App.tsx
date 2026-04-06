@@ -123,7 +123,11 @@ const AppContent: React.FC<AppProps> = ({
         content: 'Goodbye!',
         type: 'system',
       });
-      setTimeout(() => exit(), 100);
+      // 延迟退出，让用户看到 Goodbye 消息
+      setTimeout(() => {
+        process.stdout.write('\x1b[?1049l');  // 恢复主屏幕
+        exit();
+      }, 150);
     }
   });
 
