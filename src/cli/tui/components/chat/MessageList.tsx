@@ -71,7 +71,7 @@ export const MessageList: React.FC<Props> = ({
 
   while (startIdx >= 0 && accumulatedLines < MAX_VISIBLE_ROWS) {
     accumulatedLines += msgLineCounts[startIdx];
-    if (accumulatedLines >= MAX_VISIBLE_LINES && startIdx < endIdx - 1) {
+    if (accumulatedLines >= MAX_VISIBLE_ROWS && startIdx < endIdx - 1) {
       break;
     }
     startIdx--;
