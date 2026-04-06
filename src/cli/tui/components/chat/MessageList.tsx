@@ -16,10 +16,9 @@ interface Props {
  * - 每条消息内容截断
  * - 总渲染行数有硬上限
  *
- * 每条消息最多约 13 行 (1 header + 12 content)，3 条消息 ≈ 39 行。
- * 配合 ChatPanel 的 flexGrow={1} + overflow="hidden"，不会撑大 TUI。
+ * 调整为约25行可见窗口（2条消息 x 约12行/条 + header）
  */
-const MAX_VISIBLE_MSGS = 3;
+const MAX_VISIBLE_MSGS = 2;  // 约25行窗口
 
 /**
  * 消息查看器 - 显示选中消息的完整内容（固定12行，覆盖在消息列表上方）
@@ -54,7 +53,7 @@ const MessageViewer: React.FC<{ message: Message; scrollOffset: number; onScroll
         <Text bold color="yellow">
           {'\u25b6 '} Full Content [{clampedScroll + 1}-{Math.min(clampedScroll + VIEWER_LINES, totalLines)}/{totalLines}]
         </Text>
-        <Text color="gray" dimColor> (PgUp/PgDn scroll | Enter next | Esc close)</Text>
+        <Text color="gray" dimColor> (Wheel/PgUp/PgDn scroll | Enter next | Esc close)</Text>
       </Box>
       <Box flexDirection="column" flexShrink={1} overflow="hidden">
         {visibleLines.map((line, i) => (
@@ -100,7 +99,25 @@ export const MessageList: React.FC<Props> = ({
   }
 
   // 计算可见消息范围（基于 scrollOffset 在消息间滚动）
-  const endIdx = totalMessages - scrollOffset;
+  // scrollOffset 是行偏移（0 = 从最新消息开始）
+  // 计算从最新消息往上看，累计了多少行
+  let accumulatedLines = 0;
+  let endIdx = totalMessages; // 从最新消息开始
+
+  // 找到 endIdx：累计行数刚好 >= scrollOffset 的位置
+  for (let i = totalMessages - 1; i >= 0; i--) {
+    const msgLines = Math.min(messages[i]!.content.split('\n').length, 12) + 1; // +1 for header
+    if (accumulatedLines + msgLines > scrollOffset) {
+      endIdx = i + 1;
+      break;
+    }
+    accumulatedLines += msgLines;
+    if (i === 0) {
+      endIdx = 0;
+    }
+  }
+
+  // startIdx：从 endIdx 往上看，最多 MAX_VISIBLE_MSGS 条消息
   const startIdx = Math.max(0, endIdx - MAX_VISIBLE_MSGS);
   const visibleMessages = messages.slice(startIdx, endIdx);
 
@@ -108,6 +125,13 @@ export const MessageList: React.FC<Props> = ({
   const selectedMessage = selectedMessageId
     ? messages.find(m => m.id === selectedMessageId) ?? null
     : null;
+
+  // 当前可见范围的起始行偏移（相对于 scrollOffset=0 的位置）
+  const visibleStartLine = accumulatedLines;
+  const visibleEndLine = visibleStartLine + visibleMessages.reduce(
+    (sum, m) => sum + Math.min(m.content.split('\n').length, 12) + 1,
+    0
+  );
 
   return (
     // 使用相对定位作为 absolute 子元素的容器
@@ -124,21 +148,21 @@ export const MessageList: React.FC<Props> = ({
             />
           ))}
           {/* 滚动指示器 */}
-          {scrollOffset > 0 && startIdx > 0 && (
+          {scrollOffset > 0 && (
             <Text color="yellow" dimColor>
               {' ... ('}{startIdx} older){' '}
-              <Text color="cyan">(PgUp/PgDn)</Text>
+              <Text color="cyan">(Wheel/PgUp/PgDn)</Text>
             </Text>
           )}
-          {scrollOffset === 0 && totalMessages > MAX_VISIBLE_MSGS && (
+          {scrollOffset === 0 && totalMessages > 1 && (
             <Text color="gray" dimColor>
-              {' '}{endIdx}/{totalMessages}
+              {' '}{totalMessages} msgs
             </Text>
           )}
         </Box>
 
         {/* 右侧滚动条 — 与 AgentList / SkillViewer 完全相同 */}
-        {totalMessages > MAX_VISIBLE_MSGS && (
+        {totalMessages > 1 && (
           <ScrollBar
             total={totalMessages}
             visible={MAX_VISIBLE_MSGS}

@@ -460,6 +460,51 @@ export async function startTuiRepl(options: TuiOptions = {}): Promise<void> {
   // 切换到备用屏幕缓冲区（alternate screen），使 TUI 完全独立
   process.stdout.write('\x1b[?1049h');  // 进入备用屏幕
 
+  // 启用 SGR 鼠标模式（支持滚轮）
+  process.stdout.write('\x1b[?1006h');
+
+  // 滚轮事件回调（由 InputBox 通过 props.onWheel 设置）
+  let wheelCallback: ((deltaY: number) => void) | null = null;
+
+  // 解析 SGR 滚轮事件: CSI < M followed by button(64=up, 65=down) and coords
+  let mouseBuffer = '';
+  const mouseHandler = (chunk: Buffer) => {
+    mouseBuffer += chunk.toString();
+    // SGR 模式格式: CSI M <btn> <x> <y>
+    // 滚轮: btn=64(up) 或 65(down)，后面跟 x y 坐标（1-indexed）
+    const SGR_WHEEL_UP = 64;
+    const SGR_WHEEL_DOWN = 65;
+    // 格式: CSI M ab x y (ab 是单个字符的 ASCII 代码)
+    while (mouseBuffer.includes('\x1b[<M') || mouseBuffer.includes('\x1b[Ma')) {
+      // 查找完整事件
+      const sgrMatch = mouseBuffer.match(/\x1b\[<M([^\x00-\x1a])([^\x00-\x1a])([^\x00-\x1a])/);
+      if (sgrMatch) {
+        const btnCode = sgrMatch[1].charCodeAt(0);
+        // 跳过坐标
+        mouseBuffer = mouseBuffer.slice(sgrMatch[0].length);
+        if (btnCode === SGR_WHEEL_UP) {
+          wheelCallback?.(-1); // 负数 = 向上滚动 = 向新内容
+        } else if (btnCode === SGR_WHEEL_DOWN) {
+          wheelCallback?.(1);  // 正数 = 向下滚动 = 向旧内容
+        }
+      } else {
+        // 没有完整事件，清除缓冲区
+        const idx = mouseBuffer.indexOf('\x1b[<M');
+        if (idx >= 0) mouseBuffer = mouseBuffer.slice(idx);
+        else mouseBuffer = '';
+        break;
+      }
+    }
+  };
+
+  // 导出滚轮回调设置函数（供 InputBox 使用）
+  (global as any).__tuiWheelCallback = (cb: ((deltaY: number) => void) | null) => {
+    wheelCallback = cb;
+  };
+
+  // 添加原始 stdin 监听（用于捕获滚轮事件，在 Ink 之前处理）
+  process.stdin.on('data', mouseHandler);
+
   const { waitUntilExit, unmount, cleanup } = render(
     <App
       defaultAgent={defaultAgentId}
@@ -476,6 +521,9 @@ export async function startTuiRepl(options: TuiOptions = {}): Promise<void> {
   // 退出时：恢复正常屏幕 + 清理终端
   process.stdout.write('\x1b[?1049l');  // 恢复主屏幕
   process.stdout.write('\x1b[2J\x1b[H'); // 清屏 + 光标归位（保险）
+  process.stdout.write('\x1b[?1006l');   // 禁用 SGR 鼠标模式
+  process.stdin.removeListener('data', mouseHandler);
+  delete (global as any).__tuiWheelCallback;
 
   unmount?.();
   cleanup?.();

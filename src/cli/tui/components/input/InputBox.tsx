@@ -8,9 +8,10 @@ interface Props {
   agents?: string[];
 }
 
-const SCROLL_STEP = 5;
-const SCROLL_FINE_STEP = 1;  // 上下箭头微调
-const CHAT_VISIBLE_COUNT = 3;  // 与 MessageList.MAX_VISIBLE_MSGS 保持一致
+const SCROLL_STEP = 12;       // PgUp/PgDn 翻页（大约1屏）
+const SCROLL_FINE_STEP = 1;  // 上下箭头/Wheel 微调（1行）
+const CHAT_VISIBLE_COUNT = 2;  // 与 MessageList.MAX_VISIBLE_MSGS 保持一致
+const MSG_MAX_LINES = 12;     // 每条消息最大行数（与 MessageItem 保持一致）
 
 export const InputBox: React.FC<Props> = ({
   onSubmit,
@@ -48,6 +49,67 @@ export const InputBox: React.FC<Props> = ({
   useEffect(() => {
     inputRef.current = input;
   }, [input]);
+
+  // 注册滚轮事件回调（在 render 之后设置全局回调）
+  useEffect(() => {
+    const wheelCallback = (deltaY: number) => {
+      if (isStreaming) return;
+
+      // deltaY: 负数=向上滚动(新内容), 正数=向下滚动(旧内容)
+      // 消息查看器打开时：在消息内容中滚动
+      if (messageViewerOpen) {
+        const selectedMsg = messages.find(m => m.id === selectedMessageId);
+        if (selectedMsg) {
+          const maxScroll = Math.max(0, selectedMsg.content.split('\n').length - MSG_MAX_LINES);
+          if (deltaY < 0) {
+            // 向上滚动 = 向新内容 = 减少 offset（内容向上滚）
+            setMessageScrollOffset(Math.max(messageScrollOffset - 1, 0));
+          } else {
+            // 向下滚动 = 向旧内容 = 增加 offset
+            setMessageScrollOffset(Math.min(messageScrollOffset + 1, maxScroll));
+          }
+        }
+        return;
+      }
+
+      // 消息查看器关闭时：在消息列表中滚动（按行滚动）
+      if (focusPanel === 'chat') {
+        // 计算总行数（从最新消息往上的累计行数）
+        let totalLines = 0;
+        for (let i = messages.length - 1; i >= 0; i--) {
+          totalLines += Math.min(messages[i]!.content.split('\n').length, MSG_MAX_LINES) + 1;
+        }
+        const maxScroll = Math.max(0, totalLines - CHAT_VISIBLE_COUNT * MSG_MAX_LINES);
+
+        if (deltaY < 0) {
+          // 向上滚动 = 向新内容 = 减少 offset（显示更新的消息）
+          setChatScroll(Math.max(chatScrollOffset - 1, 0));
+        } else {
+          // 向下滚动 = 向旧内容 = 增加 offset
+          setChatScroll(Math.min(chatScrollOffset + 1, maxScroll));
+        }
+      } else if (focusPanel === 'skill') {
+        if (deltaY < 0) {
+          setSkillScroll(Math.max(skillScrollOffset - 1, 0));
+        } else {
+          setSkillScroll(Math.min(skillScrollOffset + 1, Math.max(0, skills.length - 6)));
+        }
+      } else if (focusPanel === 'agent') {
+        if (deltaY < 0) {
+          setAgentScroll(Math.max(agentScrollOffset - 1, 0));
+        } else {
+          setAgentScroll(Math.min(agentScrollOffset + 1, Math.max(0, agents.length - 4)));
+        }
+      }
+    };
+
+    // 通过全局回调注册
+    (global as any).__tuiWheelCallback?.(wheelCallback);
+
+    return () => {
+      (global as any).__tuiWheelCallback?.(null);
+    };
+  }, [isStreaming, messageViewerOpen, messageScrollOffset, selectedMessageId, messages, chatScrollOffset, focusPanel, skillScrollOffset, agentScrollOffset, skills, agents]);
 
   // Tab 循环顺序: chat → agent → skill → chat
   const cycleFocusPanel = () => {
@@ -284,8 +346,8 @@ export const InputBox: React.FC<Props> = ({
 
   const focusLabel = focusPanel === 'chat' ? 'Chat' : focusPanel === 'agent' ? 'Agents' : 'Skills';
   const viewerHint = messageViewerOpen
-    ? 'Enter=next msg | PgUp/PgDn scroll | Esc close'
-    : 'Enter=view full | PgUp/PgDn page | Tab=switch';
+    ? 'Enter=next msg | Wheel/PgUp/PgDn scroll | Esc close'
+    : 'Enter=view full | Wheel/PgUp/PgDn scroll | Tab=switch';
 
   return (
     <Box flexDirection="column">
