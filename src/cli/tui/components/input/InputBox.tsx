@@ -8,20 +8,20 @@ interface Props {
   agents?: string[];
 }
 
-const SCROLL_STEP = 12;       // PgUp/PgDn 翻页（12行）
+const SCROLL_STEP = 10;       // PgUp/PgDn 翻页（10行）
 const SCROLL_FINE_STEP = 1;  // 上下箭头/Wheel 微调（1行）
-/** 计算消息总展开行数（用于滚轮最大值计算） */
+
+/** 计算消息完整展开行数（所有内容，不截断） */
 function calcTotalLines(messages: { content: string }[]): number {
   let total = 0;
   for (let i = 0; i < messages.length; i++) {
     total += 1; // header
-    total += Math.min(messages[i]!.content.split('\n').length, MSG_MAX_LINES); // content
+    total += messages[i]!.content.split('\n').length; // 全部内容行
   }
   return total;
 }
 
-const CHAT_VISIBLE_LINES = 30;  // 与 MessageList.VISIBLE_LINES 保持一致
-const MSG_MAX_LINES = 20;       // 与 MessageList.MSG_MAX_LINES 保持一致
+const CHAT_WINDOW_HEIGHT = 30;  // 与 MessageList.WINDOW_HEIGHT 保持一致
 
 export const InputBox: React.FC<Props> = ({
   onSubmit,
@@ -70,7 +70,7 @@ export const InputBox: React.FC<Props> = ({
       if (messageViewerOpen) {
         const selectedMsg = messages.find(m => m.id === selectedMessageId);
         if (selectedMsg) {
-          const maxScroll = Math.max(0, selectedMsg.content.split('\n').length - MSG_MAX_LINES);
+          const maxScroll = Math.max(0, selectedMsg.content.split('\n').length - 12);
           if (deltaY < 0) {
             // 向上滚动 = 向新内容 = 减少 offset（内容向上滚）
             setMessageScrollOffset(Math.max(messageScrollOffset - 1, 0));
@@ -86,7 +86,7 @@ export const InputBox: React.FC<Props> = ({
       if (focusPanel === 'chat') {
         // maxScroll = 跳过多少条消息后开始显示
         const totalLines = calcTotalLines(messages);
-        const maxScroll = Math.max(0, totalLines - CHAT_VISIBLE_LINES);
+        const maxScroll = Math.max(0, totalLines - CHAT_WINDOW_HEIGHT);
         if (deltaY < 0) {
           // 向上滚动 = 向新内容 = 减少行偏移
           setChatScroll(Math.max(chatScrollOffset - SCROLL_FINE_STEP, 0));
@@ -124,21 +124,18 @@ export const InputBox: React.FC<Props> = ({
     setFocusPanel(order[(idx + 1) % order.length]);
   };
 
-  // 获取当前可见行范围内的消息ID集合（用于空Enter选择）
-  const getVisibleMessageIds = () => {
-    if (messages.length === 0) return [];
+  // 获取当前可见行范围内第一条消息（用于空Enter选择）
+  const getFirstVisibleMsgId = () => {
+    if (messages.length === 0) return null;
     let lineIdx = 0;
     for (let i = 0; i < messages.length; i++) {
-      // 每条消息: header(1) + content(最多8)
-      const msgLines = 1 + Math.min(messages[i]!.content.split('\n').length, MSG_MAX_LINES);
-      // 当前消息的行范围
-      if (lineIdx + msgLines > chatScrollOffset && lineIdx < chatScrollOffset + CHAT_VISIBLE_LINES) {
-        return [messages[i]!.id];
+      const msgLines = 1 + messages[i]!.content.split('\n').length;
+      if (lineIdx + msgLines > chatScrollOffset && lineIdx < chatScrollOffset + CHAT_WINDOW_HEIGHT) {
+        return messages[i]!.id;
       }
       lineIdx += msgLines;
     }
-    // 默认返回最新消息
-    return [messages[messages.length - 1]?.id];
+    return messages[messages.length - 1]?.id ?? null;
   };
 
   // 切换到下一条可见消息
@@ -223,9 +220,9 @@ export const InputBox: React.FC<Props> = ({
         if (chatScrollOffset > 0) setChatScroll(0);
       } else {
         // 空输入 + Enter: 选择最旧的消息查看完整内容
-        const visibleIds = getVisibleMessageIds();
-        if (visibleIds.length > 0) {
-          selectMessage(visibleIds[0]!);
+        const visibleId = getFirstVisibleMsgId();
+        if (visibleId) {
+          selectMessage(visibleId);
         }
       }
     } else if (key.backspace || key.delete) {
@@ -239,7 +236,7 @@ export const InputBox: React.FC<Props> = ({
       if (input.length === 0) {
         if (focusPanel === 'chat') {
           const totalLines = calcTotalLines(messages);
-          const maxScroll = Math.max(0, totalLines - CHAT_VISIBLE_LINES);
+          const maxScroll = Math.max(0, totalLines - CHAT_WINDOW_HEIGHT);
           if (chatScrollOffset > 0) {
             setChatScroll(Math.max(chatScrollOffset - SCROLL_FINE_STEP, 0));
           }
@@ -265,7 +262,7 @@ export const InputBox: React.FC<Props> = ({
       if (input.length === 0) {
         if (focusPanel === 'chat') {
           const totalLines = calcTotalLines(messages);
-          const maxScroll = Math.max(0, totalLines - CHAT_VISIBLE_LINES);
+          const maxScroll = Math.max(0, totalLines - CHAT_WINDOW_HEIGHT);
           if (chatScrollOffset < maxScroll) {
             setChatScroll(Math.min(chatScrollOffset + SCROLL_FINE_STEP, maxScroll));
           }
@@ -305,7 +302,7 @@ export const InputBox: React.FC<Props> = ({
       // 根据当前焦点面板向下翻页（向旧消息方向）
       if (focusPanel === 'chat') {
         const totalLines = calcTotalLines(messages);
-        const maxScroll = Math.max(0, totalLines - CHAT_VISIBLE_LINES);
+        const maxScroll = Math.max(0, totalLines - CHAT_WINDOW_HEIGHT);
         if (chatScrollOffset < maxScroll) {
           setChatScroll(Math.min(chatScrollOffset + SCROLL_STEP, maxScroll));
         }
