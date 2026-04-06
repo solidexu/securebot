@@ -69,6 +69,7 @@ export const SkillViewer: React.FC = () => {
         visible={MAX_VISIBLE_SKILLS}
         offset={skillScrollOffset}
         color={isFocused ? 'green' : 'blue'}
+        height={MAX_VISIBLE_SKILLS + 1} // skill行 + 1行提示信息
       />
     </Box>
   );

@@ -112,6 +112,8 @@ export const MessageList: React.FC<Props> = ({
             visible={WINDOW_HEIGHT}
             offset={clampedOffset}
             color={isFocused ? 'green' : 'blue'}
+            // 内容区 = WINDOW_HEIGHT 行 + 1行信息栏
+            height={totalLines > WINDOW_HEIGHT ? WINDOW_HEIGHT + 1 : WINDOW_HEIGHT}
           />
         )}
       </Box>

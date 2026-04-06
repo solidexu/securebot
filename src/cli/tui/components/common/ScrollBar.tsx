@@ -6,6 +6,7 @@ interface ScrollBarProps {
   visible: number;         // 可见条目数
   offset: number;          // 滚动偏移（0=最新/底部）
   color?: string;          // 滚动条颜色
+  height?: number;         // 滚动条总高度（行数），默认 6
 }
 
 /**
@@ -24,6 +25,7 @@ export const ScrollBar: React.FC<ScrollBarProps> = ({
   visible,
   offset,
   color = 'cyan',
+  height = 6,
 }) => {
   if (total <= visible) return null;
 
@@ -31,19 +33,19 @@ export const ScrollBar: React.FC<ScrollBarProps> = ({
   // 确保 offset 不超出范围，防止计算出错误的滑块位置
   const clampedOffset = Math.min(offset, maxOffset);
 
-  // 滑块大小比例，至少占15%
-  const thumbRatio = Math.max(visible / total, 0.15);
-  const thumbSize = Math.max(Math.round(thumbRatio * 6), 1); // 固定6行高度
+  // 滑块大小比例，至少占10%（避免内容很多时thumb太小）
+  const thumbRatio = Math.max(visible / total, 0.1);
+  const thumbSize = Math.max(Math.round(thumbRatio * height), 1);
 
   // 滑块位置：底部锚定模式
   // offset=0 在底部（最新内容），offset=maxOffset 在顶部（最旧内容）
   const positionRatio = maxOffset > 0 ? clampedOffset / maxOffset : 0;
   // 反转位置：offset越大thumb越靠上，offset=0时thumb在底部
-  const thumbPosition = Math.round((1 - positionRatio) * (6 - thumbSize));
+  const thumbPosition = Math.round((1 - positionRatio) * (height - thumbSize));
 
-  // 构建6行固定滚动条
+  // 构建动态高度的滚动条（与内容区等高）
   const bars: React.ReactNode[] = [];
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < height; i++) {
     const isThumb = i >= thumbPosition && i < thumbPosition + thumbSize;
     bars.push(
       <Text key={i} color={isThumb ? color : 'gray'} dimColor={!isThumb} bold={isThumb}>
@@ -53,7 +55,7 @@ export const ScrollBar: React.FC<ScrollBarProps> = ({
   }
 
   return (
-    <Box flexDirection="column" marginLeft={1}>
+    <Box flexDirection="column" marginLeft={1} flexShrink={0}>
       {bars}
     </Box>
   );

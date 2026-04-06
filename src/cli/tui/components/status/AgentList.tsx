@@ -106,6 +106,7 @@ export const AgentList: React.FC = () => {
           visible={MAX_VISIBLE_AGENTS}
           offset={agentScrollOffset}
           color={isFocused ? 'green' : 'cyan'}
+          height={MAX_VISIBLE_AGENTS + 1} // agent行 + 1行提示信息
         />
       )}
     </Box>
