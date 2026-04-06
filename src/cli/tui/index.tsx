@@ -466,6 +466,12 @@ export async function startTuiRepl(options: TuiOptions = {}): Promise<void> {
   // 滚轮事件回调（由 InputBox 通过 props.onWheel 设置）
   let wheelCallback: ((deltaY: number) => void) | null = null;
 
+  // 滚轮速度检测：记录上次滚轮事件时间戳
+  let lastWheelTime = 0;
+  const FAST_SCROLL_THRESHOLD_MS = 50; // 50ms 内连续滚动 = 快速滚动
+  const SLOW_SCROLL_LINES = 1;   // 慢速滚动：每下 1 行
+  const FAST_SCROLL_LINES = 5;   // 快速滚动：每下 5 行
+
   // 解析 SGR 滚轮事件: CSI < M <btn> ; <x> ; <y> M
   // 滚轮: btn=64(up) 或 65(down)
   let mouseBuffer = '';
@@ -482,10 +488,17 @@ export async function startTuiRepl(options: TuiOptions = {}): Promise<void> {
       // 清除已处理的数据
       mouseBuffer = mouseBuffer.slice(sgrMatch[0].length);
 
+      // 检测滚轮速度
+      const now = Date.now();
+      const timeDelta = now - lastWheelTime;
+      const isFastScroll = lastWheelTime > 0 && timeDelta < FAST_SCROLL_THRESHOLD_MS;
+      const scrollLines = isFastScroll ? FAST_SCROLL_LINES : SLOW_SCROLL_LINES;
+      lastWheelTime = now;
+
       if (btnCode === SGR_WHEEL_UP) {
-        wheelCallback?.(-1); // 负数 = 向上滚动
+        wheelCallback?.(-scrollLines); // 负数 = 向上滚动（显示更新的内容）
       } else if (btnCode === SGR_WHEEL_DOWN) {
-        wheelCallback?.(1);  // 正数 = 向下滚动
+        wheelCallback?.(scrollLines);  // 正数 = 向下滚动（显示更旧的内容）
       }
     } else {
       // 没有完整事件，清除旧数据（防止缓冲区无限增长）

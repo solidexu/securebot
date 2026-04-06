@@ -42,10 +42,11 @@ export const AgentList: React.FC = () => {
   }
 
   // 根据滚动偏移计算可见范围
+  // offset=0 显示最新 agents[offset..offset+MAX_VISIBLE_AGENTS-1]
+  // offset=maxOffset 显示最旧 agents[maxOffset..maxOffset+MAX_VISIBLE_AGENTS-1]
   const maxScroll = Math.max(0, agents.length - MAX_VISIBLE_AGENTS);
-  const endIdx = agents.length - agentScrollOffset;
-  const startIdx = Math.max(0, endIdx - MAX_VISIBLE_AGENTS);
-  const visibleAgents = agents.slice(startIdx, endIdx);
+  const startIdx = Math.min(agentScrollOffset, maxScroll);
+  const visibleAgents = agents.slice(startIdx, startIdx + MAX_VISIBLE_AGENTS);
 
   // 截断过长的 agent id
   const truncateId = (id: string) =>
