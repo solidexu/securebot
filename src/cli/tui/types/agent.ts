@@ -27,3 +27,9 @@ export interface LogEntry {
   message: string;
   level: 'info' | 'warn' | 'error';
 }
+
+export interface SkillInfo {
+  id: string;
+  name: string;
+  active?: boolean;   // 当前是否激活
+}

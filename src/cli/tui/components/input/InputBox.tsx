@@ -9,11 +9,12 @@ interface Props {
 }
 
 const SCROLL_STEP = 5;
+const SCROLL_FINE_STEP = 1;  // 上下箭头微调
 
 export const InputBox: React.FC<Props> = ({
   onSubmit,
   commands = [],
-  agents = [],
+  agents: availableAgents = [],
 }) => {
   const [input, setInput] = useState('');
   const [completions, setCompletions] = useState<string[]>([]);
@@ -24,13 +25,28 @@ export const InputBox: React.FC<Props> = ({
     navigateHistory,
     isStreaming,
     messages,
+    skills,
+    agents,
     chatScrollOffset,
+    skillScrollOffset,
+    agentScrollOffset,
     setChatScroll,
+    setSkillScroll,
+    setAgentScroll,
+    focusPanel,
+    setFocusPanel,
   } = useApp();
 
   useEffect(() => {
     inputRef.current = input;
   }, [input]);
+
+  // Tab 循环顺序: chat → agent → skill → chat
+  const cycleFocusPanel = () => {
+    const order: Array<'chat' | 'agent' | 'skill'> = ['chat', 'agent', 'skill'];
+    const idx = order.indexOf(focusPanel);
+    setFocusPanel(order[(idx + 1) % order.length]);
+  };
 
   useInput((char, key) => {
     if (isStreaming) return;
@@ -48,28 +64,92 @@ export const InputBox: React.FC<Props> = ({
       setInput(prev => prev.slice(0, -1));
       setCompletions([]);
     } else if (key.upArrow) {
-      const historyItem = navigateHistory('up');
-      if (historyItem) setInput(historyItem);
-      setCompletions([]);
+      // 输入为空时，上箭头用于向上微调滚动（向新消息方向）
+      if (input.length === 0) {
+        if (focusPanel === 'chat') {
+          const maxScroll = Math.max(0, messages.length - 12);
+          if (chatScrollOffset > 0) {
+            setChatScroll(Math.max(chatScrollOffset - SCROLL_FINE_STEP, 0));
+          }
+        } else if (focusPanel === 'skill') {
+          const maxScroll = Math.max(0, skills.length - 6);
+          if (skillScrollOffset > 0) {
+            setSkillScroll(Math.max(skillScrollOffset - SCROLL_FINE_STEP, 0));
+          }
+        } else if (focusPanel === 'agent') {
+          const maxScroll = Math.max(0, agents.length - 4);
+          if (agentScrollOffset > 0) {
+            setAgentScroll(Math.max(agentScrollOffset - SCROLL_FINE_STEP, 0));
+          }
+        }
+      } else {
+        // 有输入内容时，上箭头用于历史导航
+        const historyItem = navigateHistory('up');
+        if (historyItem) setInput(historyItem);
+        setCompletions([]);
+      }
     } else if (key.downArrow) {
-      const historyItem = navigateHistory('down');
-      if (historyItem) setInput(historyItem);
-      setCompletions([]);
+      // 输入为空时，下箭头用于向下微调滚动（向旧消息方向）
+      if (input.length === 0) {
+        if (focusPanel === 'chat') {
+          const maxScroll = Math.max(0, messages.length - 12);
+          if (chatScrollOffset < maxScroll) {
+            setChatScroll(Math.min(chatScrollOffset + SCROLL_FINE_STEP, maxScroll));
+          }
+        } else if (focusPanel === 'skill') {
+          const maxScroll = Math.max(0, skills.length - 6);
+          if (skillScrollOffset < maxScroll) {
+            setSkillScroll(Math.min(skillScrollOffset + SCROLL_FINE_STEP, maxScroll));
+          }
+        } else if (focusPanel === 'agent') {
+          const maxScroll = Math.max(0, agents.length - 4);
+          if (agentScrollOffset < maxScroll) {
+            setAgentScroll(Math.min(agentScrollOffset + SCROLL_FINE_STEP, maxScroll));
+          }
+        }
+      } else {
+        // 有输入内容时，下箭头用于历史导航
+        const historyItem = navigateHistory('down');
+        if (historyItem) setInput(historyItem);
+        setCompletions([]);
+      }
     } else if (key.pageUp) {
-      // 向上滚动聊天记录（查看更早的历史）
-      const maxScroll = Math.max(0, messages.length - 15);
-      if (chatScrollOffset < maxScroll) {
-        setChatScroll(Math.min(chatScrollOffset + SCROLL_STEP, maxScroll));
+      // 根据当前焦点面板向上翻页（向新消息方向）
+      if (focusPanel === 'chat') {
+        if (chatScrollOffset > 0) {
+          setChatScroll(Math.max(chatScrollOffset - SCROLL_STEP, 0));
+        }
+      } else if (focusPanel === 'skill') {
+        if (skillScrollOffset > 0) {
+          setSkillScroll(Math.max(skillScrollOffset - SCROLL_STEP, 0));
+        }
+      } else if (focusPanel === 'agent') {
+        if (agentScrollOffset > 0) {
+          setAgentScroll(Math.max(agentScrollOffset - SCROLL_STEP, 0));
+        }
       }
     } else if (key.pageDown) {
-      // 向下滚动 / 回到最新
-      if (chatScrollOffset > 0) {
-        setChatScroll(Math.max(chatScrollOffset - SCROLL_STEP, 0));
+      // 根据当前焦点面板向下翻页（向旧消息方向）
+      if (focusPanel === 'chat') {
+        const maxScroll = Math.max(0, messages.length - 12);
+        if (chatScrollOffset < maxScroll) {
+          setChatScroll(Math.min(chatScrollOffset + SCROLL_STEP, maxScroll));
+        }
+      } else if (focusPanel === 'skill') {
+        const maxScroll = Math.max(0, skills.length - 6);
+        if (skillScrollOffset < maxScroll) {
+          setSkillScroll(Math.min(skillScrollOffset + SCROLL_STEP, maxScroll));
+        }
+      } else if (focusPanel === 'agent') {
+        const maxScroll = Math.max(0, availableAgents.length - 4);
+        if (agentScrollOffset < maxScroll) {
+          setAgentScroll(Math.min(agentScrollOffset + SCROLL_STEP, maxScroll));
+        }
       }
     } else if (key.tab) {
       // @agent 切换: 直接补全并立即切换
       if (input.startsWith('@')) {
-        const matches = getAgentMatches(input, agents);
+        const matches = getAgentMatches(input, availableAgents);
         if (matches.length === 1) {
           onSubmit?.(matches[0]!);
           addToHistory(matches[0]!);
@@ -90,11 +170,14 @@ export const InputBox: React.FC<Props> = ({
         setInput(completions[0]!);
         setCompletions([]);
       } else {
-        const matches = getCompletions(input, commands, agents);
+        const matches = getCompletions(input, commands, availableAgents);
         if (matches.length === 1) {
           setInput(matches[0]!);
         } else if (matches.length > 1) {
           setCompletions(matches);
+        } else {
+          // 无匹配时，Tab 切换焦点面板
+          cycleFocusPanel();
         }
       }
     } else if (char) {
@@ -111,6 +194,8 @@ export const InputBox: React.FC<Props> = ({
     }
   }, { isActive: !isStreaming });
 
+  const focusLabel = focusPanel === 'chat' ? 'Chat' : focusPanel === 'agent' ? 'Agents' : 'Skills';
+
   return (
     <Box flexDirection="column">
       {/* 输入行 */}
@@ -122,14 +207,20 @@ export const InputBox: React.FC<Props> = ({
         <Text color="white" backgroundColor="green">{' '}</Text>
       </Box>
 
-      {/* 补全提示 */}
-      {completions.length > 0 && (
+      {/* 焦点提示 + 补全提示 */}
+      {(completions.length > 0 || focusPanel !== 'chat') && (
         <Box paddingLeft={2}>
-          <Text color="cyan" dimColor>
-            {completions.slice(0, 5).map((c, i) => (
-              c + (i < Math.min(completions.length, 5) - 1 ? ' | ' : '')
-            ))}
-          </Text>
+          {completions.length > 0 ? (
+            <Text color="cyan" dimColor>
+              {completions.slice(0, 5).map((c, i) => (
+                c + (i < Math.min(completions.length, 5) - 1 ? ' | ' : '')
+              ))}
+            </Text>
+          ) : (
+            <Text color="gray" dimColor>
+              focus: {focusLabel} | \u2191\u2193 scroll | PgUp/Dn page | Tab switch
+            </Text>
+          )}
         </Box>
       )}
     </Box>

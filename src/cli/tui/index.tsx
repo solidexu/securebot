@@ -16,7 +16,9 @@ import { getAvailableTools, getAvailableToolNames, executeTool } from '../../too
 import { getSessionStorage } from '../../core/session-storage.js';
 import { getMemoryManager } from '../../core/memory.js';
 import { getSkillManager } from '../../core/skills.js';
+import { getSkillDetector, type SkillMatchResult } from '../../core/skills.js';
 import type { StreamCallback, ChatResult } from '../../model/ollama.js';
+import { executeQuickCommand } from './utils/shell-commands.js';
 
 export interface TuiOptions {
   defaultAgent?: string;
@@ -44,6 +46,7 @@ function createMessageHandler(options: TuiOptions) {
       addMessage?: (msg: any) => string;
       setTaskStatus?: (status: any) => void;
       addLog?: (msg: string, level?: string) => void;
+      setSkills?: (skills: { id: string; name: string; active?: boolean }[]) => void;
       currentAgent?: string;
     }
   ): Promise<void> {
@@ -54,6 +57,7 @@ function createMessageHandler(options: TuiOptions) {
       addMessage,
       setTaskStatus,
       addLog,
+      setSkills,
       currentAgent,
     } = context;
 
@@ -83,11 +87,15 @@ function createMessageHandler(options: TuiOptions) {
         return;
       }
 
-      const sessionStorage = getSessionStorage();
+      const sessionStorage = getSessionStorage(config);
       await sessionStorage.initialize();
 
-      const memoryManager = getMemoryManager();
+      const memoryManager = getMemoryManager(config);
       await memoryManager.initialize();
+
+      // 初始化技能系统（加载元数据，供 SkillDetector 匹配使用）
+      const initSkillManager = getSkillManager();
+      await initSkillManager.initialize();
 
       initialized = true;
     }
@@ -104,10 +112,89 @@ function createMessageHandler(options: TuiOptions) {
     const session = getOrCreateMainSession(agent);
     addUserMessage(session, message);
 
+    // === 快速 Shell 命令检测（与正常模式一致） ===
+    // 支持: ls, pwd, cat, head, tail, git status 等命令直接执行
+    const workspace = agent.workspace || process.cwd();
+    const shellResult = executeQuickCommand(message, { workspace });
+    
+    if (shellResult) {
+      // 是快速命令，显示结果后直接返回（不调用 LLM）
+      addLog?.(`[Shell] ⚡ ${shellResult.description}`, 'info');
+      
+      if (shellResult.success && shellResult.output) {
+        // 显示工作区路径和输出
+        addMessage?.({
+          sender: 'System',
+          content: `⚡ ${shellResult.description}\n📁 ${workspace}\n\n${shellResult.output}`,
+          type: 'tool',
+        });
+      } else if (!shellResult.success) {
+        addMessage?.({
+          sender: 'System',
+          content: `执行失败: ${shellResult.error}`,
+          type: 'error',
+        });
+      }
+      
+      addLog?.(`[Shell] 完成 (${shellResult.success ? 'OK' : 'FAIL'})`, shellResult.success ? 'info' : 'error');
+      return;  // 快速命令已处理，不再走 LLM 流程
+    }
+
+    // === 技能检测 + 加载技能列表到UI ===
+    const skillManager = getSkillManager();
+    const skillDetector = getSkillDetector();
+    let detectedSkill: SkillMatchResult | null = null;
+
+    // 加载当前 Agent 的所有技能并推送到右侧面板
+    try {
+      const allSkills = await skillManager.getAgentSkills(agent.id);
+      setSkills?.(allSkills.map(s => ({
+        id: s.id,
+        name: s.name || s.id,
+        active: false,
+      })));
+    } catch (e) {
+      addLog?.(`[Skill] 加载技能列表失败: ${e instanceof Error ? e.message : String(e)}`, 'warn');
+    }
+
+    // 意图检测匹配激活的技能
+    try {
+      const matchResults = await skillDetector.detect(message, agent.id);
+      if (matchResults.length > 0) {
+        detectedSkill = matchResults[0]!;
+        addLog?.(`激活技能：${detectedSkill.skill.name} (${detectedSkill.method})`, 'info');
+        addMessage?.({
+          sender: 'System',
+          content: `[技能：${detectedSkill.skill.name}]`,
+          type: 'skill',
+        });
+        // 更新技能面板，标记当前激活的技能
+        try {
+          const allSkills = await skillManager.getAgentSkills(agent.id);
+          setSkills?.(allSkills.map(s => ({
+            id: s.id,
+            name: s.name || s.id,
+            active: s.id === detectedSkill!.skill.id,
+          })));
+        } catch { /* ignore */ }
+      }
+    } catch (e) {
+      addLog?.(`[Skill] 检测跳过: ${e instanceof Error ? e.message : String(e)}`, 'warn');
+    }
+
     const availableTools = getAvailableTools(agent, config.tools);
 
-    const skillManager = getSkillManager();
-    const skillsPrompt = await skillManager.buildSkillsPrompt(agent.id, agent.skills);
+    // 如果检测到技能，优先加载该技能的完整内容
+    let skillsPrompt: string;
+    if (detectedSkill?.skill) {
+      skillsPrompt = await skillManager.buildSkillsPrompt(agent.id, [detectedSkill.skill.id]);
+      if (!skillsPrompt) {
+        // 回退到所有技能
+        skillsPrompt = await skillManager.buildSkillsPrompt(agent.id, agent.skills);
+      }
+    } else {
+      skillsPrompt = await skillManager.buildSkillsPrompt(agent.id, agent.skills);
+    }
 
     const systemPrompt = await buildSystemPrompt(
       agent,
@@ -203,25 +290,31 @@ function createMessageHandler(options: TuiOptions) {
             addLog?.(`[Tool] ${tc.name}(${argsStr})`, 'info');
             updateMessage?.(toolMsgId, `[${tc.name}]${argsStr} ...执行中`);
 
-            // 执行工具
+            // 执行工具（构建完整 ToolContext）
+            const { getRootDir } = await import('../../core/config.js');
+            const rootDir = getRootDir(config);
             const toolResult = await executeTool(tc.name, tc.arguments, {
               agent,
               session,
-              config,
+              workspace: agent.workspace || process.cwd(),
+              logger: console,
+              allowedPaths: [rootDir],
             });
 
             // 显示结果摘要
+            const resultContent = typeof toolResult.content === 'string'
+              ? toolResult.content
+              : typeof toolResult.content !== 'undefined'
+                ? JSON.stringify(toolResult.content)
+                : toolResult.error || '(无结果)';
+
             const resultPreview =
-              typeof toolResult.content === 'string'
-                ? toolResult.content.slice(0, 200) + (toolResult.content.length > 200 ? '...' : '')
-                : JSON.stringify(toolResult.content).slice(0, 200);
+              resultContent.slice(0, 200) + (resultContent.length > 200 ? '...' : '');
 
             updateMessage?.(toolMsgId, `[${tc.name}]${argsStr}\n→ ${resultPreview}`);
 
             // 添加工具结果到会话历史
-            addToolResultMessage(session, toolCallId, tc.name,
-              typeof toolResult.content === 'string' ? toolResult.content : JSON.stringify(toolResult.content)
-            );
+            addToolResultMessage(session, toolCallId, tc.name, resultContent);
 
             addLog?.(`[Tool] ${tc.name} → ${toolResult.success ? 'OK' : 'FAIL'}`, toolResult.success ? 'info' : 'error');
 
@@ -313,14 +406,42 @@ function createMessageHandler(options: TuiOptions) {
 }
 
 export async function startTuiRepl(options: TuiOptions = {}): Promise<void> {
+  // 预加载配置获取真实 agents 列表
+  let config: ReturnType<typeof loadConfig>;
+  try {
+    config = loadConfig();
+  } catch {
+    createDefaultConfig();
+    config = loadConfig();
+  }
+
+  const realAgentIds = config.agents.map(a => a.id);
+  const defaultAgentId = options.defaultAgent || config.defaultAgent || 'dev';
+
+  // 初始化技能系统（提前加载元数据）
+  const skillManager = getSkillManager();
+  await skillManager.initialize();
+
+  // 预加载默认 Agent 的技能列表
+  let initialSkills: { id: string; name: string; active?: boolean }[] = [];
+  try {
+    const allSkills = await skillManager.getAgentSkills(defaultAgentId);
+    initialSkills = allSkills.map(s => ({
+      id: s.id,
+      name: s.name || s.id,
+      active: false,
+    }));
+  } catch { /* 启动时加载失败不阻塞 */ }
+
   const onMessage = createMessageHandler(options);
 
   const { waitUntilExit } = render(
     <App
-      defaultAgent={options.defaultAgent || 'dev'}
+      defaultAgent={defaultAgentId}
       commands={['/help', '/exit', '/clear', '/agents', '/skills', '/status']}
-      agents={['dev', 'support', 'analyst']}
+      agents={realAgentIds.length > 0 ? realAgentIds : ['dev']}
       onMessage={onMessage}
+      initialSkills={initialSkills}
     />
   );
 

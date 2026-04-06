@@ -12,6 +12,7 @@ export interface MessageContext {
   addMessage?: (msg: any) => string;
   setTaskStatus?: (status: any) => void;
   addLog?: (msg: string, level?: string) => void;
+  setSkills?: (skills: { id: string; name: string; active?: boolean }[]) => void;
   currentAgent?: string;
 }
 
@@ -21,6 +22,7 @@ interface AppProps {
   onMessage?: (message: string, context: MessageContext) => Promise<void> | void;
   commands?: string[];
   agents?: string[];
+  initialSkills?: { id: string; name: string; active?: boolean }[];
 }
 
 /**
@@ -76,18 +78,20 @@ const AppContent: React.FC<AppProps> = ({
   onMessage,
   commands = ['/help', '/exit', '/clear', '/agents', '/skills'],
   agents = ['dev', 'support', 'analyst'],
+  initialSkills = [],
 }) => {
   const { exit } = useInkApp();
-  const {
-    addMessage,
-    updateMessage,
-    setCurrentAgent,
-    setAgents,
-    setTaskStatus,
-    addLog,
-    setIsStreaming,
-    currentAgent,
-  } = useApp();
+    const {
+      addMessage,
+      updateMessage,
+      setCurrentAgent,
+      setAgents,
+      setTaskStatus,
+      addLog,
+      setIsStreaming,
+      setSkills,
+      currentAgent,
+    } = useApp();
 
   useEffect(() => {
     setAgents(agents.map(id => ({
@@ -97,6 +101,11 @@ const AppContent: React.FC<AppProps> = ({
     })));
 
     setCurrentAgent(defaultAgent);
+
+    // 预加载默认 Agent 的技能列表
+    if (initialSkills.length > 0) {
+      setSkills(initialSkills);
+    }
 
     addMessage({
       sender: 'System',
@@ -179,6 +188,7 @@ const AppContent: React.FC<AppProps> = ({
         addMessage,
         setTaskStatus,
         addLog,
+        setSkills,
         currentAgent,
       };
 

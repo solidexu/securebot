@@ -30,6 +30,8 @@ export const theme = {
     system: { color: 'gray', icon: '-' },
     tool: { color: 'blue', icon: '#' },
     error: { color: 'red', icon: '!' },
+    skill: { color: 'magenta', icon: '🔧' },
+    warn: { color: 'yellow', icon: '~' },
   },
 
   agent: {
