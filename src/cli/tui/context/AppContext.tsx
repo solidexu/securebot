@@ -29,7 +29,7 @@ interface AppState {
   codeEditor: {
     mode: 'write' | 'edit';
     filePath: string;
-    displayLines: { text: string; state: 'written' | 'changed' | 'added' | 'deleted' | 'pending' }[];
+    displayLines: { text: string; state: 'written' | 'changed' | 'added' | 'deleted' | 'pending'; writtenChars?: number; totalChars?: number }[];
     currentLine: number;
     totalLines: number;
     isComplete: boolean;
@@ -105,7 +105,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [codeEditor, setCodeEditor] = useState<{
     mode: 'write' | 'edit';
     filePath: string;
-    displayLines: { text: string; state: 'written' | 'added' | 'deleted' | 'changed' | 'pending' }[];
+    displayLines: { text: string; state: 'written' | 'added' | 'deleted' | 'changed' | 'pending'; writtenChars?: number; totalChars?: number }[];
     currentLine: number;
     totalLines: number;
     isComplete: boolean;
@@ -116,7 +116,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const codeEditorDataRef = useRef<{
     mode: 'write' | 'edit';
     filePath: string;
-    displayLines: { text: string; state: 'written' | 'added' | 'deleted' | 'changed' | 'pending' }[];
+    displayLines: { text: string; state: 'written' | 'added' | 'deleted' | 'changed' | 'pending'; writtenChars?: number; totalChars?: number }[];
     currentLine: number;
     totalLines: number;
     additions: number;
@@ -143,49 +143,91 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setEditorVersion(v => v + 1);
   }, []);
 
-  /** write 模式：逐行写入动画（返回 Promise，await 可暂停推理） */
-  const startCodeWriter = useCallback((filePath: string, content: string): Promise<void> => {
+  /** write 模式：逐字符写入动画（返回 Promise，await 可暂停推理）
+   *  完成后自动关闭面板（delayMs 后关闭，让用户看到完成状态）
+   */
+  const startCodeWriter = useCallback((
+    filePath: string, 
+    content: string, 
+    closeDelayMs: number = 800
+  ): Promise<void> => {
     return new Promise<void>((resolve) => {
       if (codeEditorTimerRef.current) clearInterval(codeEditorTimerRef.current);
-      const rawLines = content.split('\\\n');
+      const rawLines = content.split('\n');
       const displayLines = rawLines.map(text => ({ text, state: 'pending' as const }));
       codeEditorDataRef.current = {
         mode: 'write', filePath, displayLines,
         currentLine: 0, totalLines: rawLines.length,
         additions: rawLines.length, deletions: 0,
+        writtenChars: 0,  // 当前行已写字符数
+        totalChars: 0,    // 当前行总字符数
       };
-      syncToState();  // 初始渲染
-      let lineIdx = 0;
-      // 每帧写1行，120ms/行（足够慢，用户可清晰看到逐行写入）
+      syncToState();
+
+      let globalCharIdx = 0;
+      const allChars = content.split('');
+
       codeEditorTimerRef.current = setInterval(() => {
-        lineIdx++;
         const d = codeEditorDataRef.current;
-        if (!d) { resolve(); return; }
-        if (lineIdx >= d.totalLines) {
+        if (!d) { clearInterval(codeEditorTimerRef.current!); resolve(); return; }
+
+        // 计算当前应该写到哪个字符位置
+        globalCharIdx += 3; // 每帧写 3 个字符（打字机速度）
+        
+        if (globalCharIdx >= allChars.length) {
+          // 全部写完
           clearInterval(codeEditorTimerRef.current!);
-          d.currentLine = lineIdx;
+          d.displayLines = d.displayLines.map(l => ({ ...l, state: 'written' as const }));
+          d.currentLine = d.totalLines;
           syncToState();
-          resolve();  // 写入完成，resolve Promise
+          // 延迟后自动关闭
+          setTimeout(() => { setCodeEditor(null); }, closeDelayMs);
+          resolve();
           return;
         }
-        // 标记当前行为已写入
-        d.displayLines[lineIdx] = { ...d.displayLines[lineIdx], state: 'written' };
-        d.currentLine = lineIdx;
+
+        // 根据全局字符位置计算每行的状态
+        let charCount = 0;
+        for (let li = 0; li < d.displayLines.length; li++) {
+          const lineLen = d.displayLines[li].text.length + 1; // +1 for \n
+          if (charCount + lineLen > globalCharIdx) {
+            // 当前行（部分写入）
+            const charsInLine = Math.min(globalCharIdx - charCount, d.displayLines[li].text.length);
+            d.displayLines[li] = { 
+              text: d.displayLines[li].text, 
+              state: 'written' as const,
+              writtenChars: charsInLine,
+              totalChars: d.displayLines[li].text.length,
+            };
+            d.currentLine = li;
+            break;
+          } else {
+            // 已写完的整行
+            d.displayLines[li] = { ...d.displayLines[li], state: 'written' as const, writtenChars: d.displayLines[li].text.length, totalChars: d.displayLines[li].text.length };
+            d.currentLine = li + 1;
+          }
+          charCount += lineLen;
+        }
         syncToState();
-      }, 120); // 120ms/行 — 清晰可见的逐行写入效果
+      }, 35); // ~28fps，每帧 3 字符 ≈ 84 字符/秒（舒适阅读速度）
     });
   }, [syncToState]);
 
-  /** edit 模式：diff 风格动画（返回 Promise） */
-  const startCodeEditor = useCallback((filePath: string, oldContent?: string, newContent?: string): Promise<void> => {
+  /** edit 模式：diff 风格动画（返回 Promise，完成后自动关闭） */
+  const startCodeEditor = useCallback((
+    filePath: string, 
+    oldContent?: string, 
+    newContent?: string,
+    closeDelayMs: number = 800
+  ): Promise<void> => {
     return new Promise<void>((resolve) => {
       if (codeEditorTimerRef.current) clearInterval(codeEditorTimerRef.current);
-      const oldLines = (oldContent || '').split('\\\n');
-      const newLines = (newContent || '').split('\\\n');
+      const oldLines = (oldContent || '').split('\n');
+      const newLines = (newContent || '').split('\n');
       const additions = Math.max(0, newLines.length - oldLines.length);
       const deletions = Math.max(0, oldLines.length - newLines.length);
       const maxLen = Math.max(oldLines.length, newLines.length);
-      const displayLines: { text: string; state: 'written' | 'added' | 'deleted' | 'changed' | 'pending' }[] = [];
+      const displayLines: { text: string; state: 'written' | 'added' | 'deleted' | 'changed' | 'pending'; writtenChars?: number; totalChars?: number }[] = [];
       for (let i = 0; i < maxLen; i++) {
         const oLine = oldLines[i];
         const nLine = newLines[i];
@@ -206,19 +248,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         additions, deletions,
       };
       syncToState();
+      
       let lineIdx = 0;
       codeEditorTimerRef.current = setInterval(() => {
         lineIdx++;
         const d = codeEditorDataRef.current;
-        if (!d) { resolve(); return; }
+        if (!d) { clearInterval(codeEditorTimerRef.current!); resolve(); return; }
         if (lineIdx >= d.totalLines) {
           clearInterval(codeEditorTimerRef.current!);
           d.currentLine = lineIdx;
           syncToState();
+          // 延迟后自动关闭
+          setTimeout(() => { setCodeEditor(null); }, closeDelayMs);
           resolve();
           return;
         }
-        // 高亮当前行
         if (lineIdx < d.displayLines.length) {
           const line = d.displayLines[lineIdx];
           if (line.state === 'pending') {
@@ -227,7 +271,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         d.currentLine = lineIdx;
         syncToState();
-      }, 140); // edit 稍慢一点
+      }, 100); // edit 行扫描速度
     });
   }, [syncToState]);
 
@@ -267,8 +311,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   }, []);
 
-  /** 完成 Shell 输出 */
-  const finishShellOutput = useCallback((exitCode: number | null) => {
+  /** 完成 Shell 输出（延迟后自动关闭面板） */
+  const finishShellOutput = useCallback((exitCode: number | null, closeDelayMs: number = 1500) => {
     setShellOutput(prev => {
       if (!prev) return prev;
       return {
@@ -277,6 +321,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         exitCode,
       };
     });
+    // 延迟关闭，让用户看到执行结果（exit code）
+    setTimeout(() => { setShellOutput(null); }, closeDelayMs);
   }, []);
 
   /** 关闭 Shell 输出面板 */

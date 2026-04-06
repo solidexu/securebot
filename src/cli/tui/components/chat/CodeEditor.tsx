@@ -17,7 +17,6 @@ function progressBar(current: number, total: number, width: number): string {
 
 /**
  * 计算滚动窗口的可见范围（虚拟化）
- * 参考 ink-virtual-list 的实现思路
  */
 function calculateViewport(
   currentLine: number,
@@ -25,20 +24,16 @@ function calculateViewport(
   viewportHeight: number,
   bufferLines: number = BUFFER_LINES
 ): { start: number; end: number; cursorIdx: number } {
-  // 光标目标位置：中间偏下1/3位置
   const cursorTargetRow = Math.floor(viewportHeight / 2) + 1;
   
-  // 计算窗口起始位置（让光标在目标位置）
   const windowStart = Math.max(0, Math.min(
     currentLine - cursorTargetRow,
     Math.max(0, totalLines - viewportHeight)
   ));
   
-  // 添加缓冲区（上下各 bufferLines 行）
   const bufferedStart = Math.max(0, windowStart - bufferLines);
   const bufferedEnd = Math.min(totalLines, windowStart + viewportHeight + bufferLines);
   
-  // 计算光标在视口内的相对位置
   const cursorIdx = currentLine < totalLines 
     ? (currentLine - windowStart) 
     : -1;
@@ -51,28 +46,53 @@ function calculateViewport(
 }
 
 /**
- * 渲染单行代码
+ * 渲染单行代码 — 支持逐字符打字效果
  */
 function renderCodeLine(
-  line: { text: string; state: 'written' | 'changed' | 'added' | 'deleted' | 'pending' },
+  line: { text: string; state: 'written' | 'changed' | 'added' | 'deleted' | 'pending'; writtenChars?: number; totalChars?: number },
   lineNum: number,
   isCursor: boolean,
   borderColor: string
 ): React.ReactNode {
-  // 光标行：高亮背景色，最醒目
+  // 光标行：高亮背景色，显示打字进度
   if (isCursor) {
+    const written = line.writtenChars ?? 0;
+    const total = line.totalChars ?? line.text.length;
+    // 已写出的部分
+    const writtenText = line.text.slice(0, written);
+    // 未写出的部分（暗灰）
+    const pendingText = line.text.slice(written);
+    
     return (
       <Text key={lineNum}>
         <Text color={borderColor} bold>{String(lineNum).padStart(3)} </Text>
         <Text color={borderColor} bold bgHex="#1a2030">
-          {'▸ '}{line.text || ' '}
+          {'▸ '}
+          {/* 已写入文字 */}
+          <Text color="#ffffff" bold>{writtenText}</Text>
+          {/* 光标闪烁块 */}
+          <Text backgroundColor="#00ffff" color="#000" bold> </Text>
+          {/* 待写入文字（暗淡） */}
+          <Text color="#446688">{pendingText || ''}</Text>
         </Text>
       </Text>
     );
   }
 
-  // 已写入行（亮蓝）
+  // 已写入完整行（亮蓝）
   if (line.state === 'written') {
+    const isPartial = (line.writtenChars ?? 0) > 0 && (line.writtenChars ?? 0) < (line.totalChars ?? line.text.length);
+    if (isPartial) {
+      // 正在写入中的非光标行
+      const written = line.writtenChars ?? 0;
+      return (
+        <Text key={lineNum}>
+          <Text color="#333">{String(lineNum).padStart(3)} </Text>
+          <Text color="#7ecfff">{line.text.slice(0, written)}</Text>
+          <Text color="#446688">{line.text.slice(written) || ' '}</Text>
+        </Text>
+      );
+    }
     return (
       <Text key={lineNum}>
         <Text color="#333">{String(lineNum).padStart(3)} </Text>
@@ -111,7 +131,7 @@ function renderCodeLine(
     );
   }
 
-  // 待写入行（暗灰显示实际代码）
+  // 待写入行（暗灰）
   return (
     <Text key={lineNum}>
       <Text color="#222">{String(lineNum).padStart(3)} </Text>
@@ -133,7 +153,7 @@ export const CodeEditorPanel: React.FC = () => {
   const shortName = filePath.split('/').pop() || filePath;
   const pct = Math.min(100, Math.round((currentLine / totalLines) * 100));
 
-  // 使用 useMemo 优化视口计算（避免每次渲染都重新计算）
+  // 使用 useMemo 优化视口计算
   const viewport = useMemo(() => {
     return calculateViewport(currentLine, totalLines, EDITOR_LINES, BUFFER_LINES);
   }, [currentLine, totalLines]);
@@ -141,7 +161,6 @@ export const CodeEditorPanel: React.FC = () => {
   // 虚拟化渲染：只渲染可见区域 + 缓冲区
   const visibleLines = useMemo(() => {
     const lines = displayLines.slice(viewport.start, viewport.end);
-    // 填充固定高度
     while (lines.length < EDITOR_LINES) {
       lines.push({ text: '', state: 'pending' as const });
     }
@@ -167,14 +186,12 @@ export const CodeEditorPanel: React.FC = () => {
         <Text bold color={borderColor}>
           {' '}{icon} {shortName}
         </Text>
-        {/* diff 统计 */}
         {mode === 'edit' && (
           <>
             {additions > 0 && <Text color="#88ffaa"> +{additions}</Text>}
             {deletions > 0 && <Text color="#ff6666"> -{deletions}</Text>}
           </>
         )}
-        {/* 进度条 */}
         <Text color={isComplete ? 'green' : borderColor}>
           {' '}[{progressBar(currentLine, totalLines, 12)}]{' '}
         </Text>
@@ -188,7 +205,7 @@ export const CodeEditorPanel: React.FC = () => {
         )}
       </Box>
 
-      {/* 内容区 - 虚拟化渲染 */}
+      {/* 内容区 - 虚拟化渲染 + 打字机效果 */}
       {visibleLines.map((line, i) => {
         const lineNum = viewport.start + i + 1;
         const isCursor = i === viewport.cursorIdx;
