@@ -10,7 +10,7 @@ interface Props {
 
 const SCROLL_STEP = 5;
 const SCROLL_FINE_STEP = 1;  // 上下箭头微调
-const CHAT_VISIBLE_COUNT = 20;  // 与 MessageList.VISIBLE_COUNT 保持一致
+const CHAT_VISIBLE_COUNT = 6;  // 与 MessageList.MAX_VISIBLE_MSGS 保持一致
 
 export const InputBox: React.FC<Props> = ({
   onSubmit,

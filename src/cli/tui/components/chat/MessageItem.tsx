@@ -9,7 +9,7 @@ interface Props {
   maxContentLines?: number;
 }
 
-const DEFAULT_MAX_LINES = 30; // 默认截断到 30 行
+const DEFAULT_MAX_LINES = 12; // 每条消息最多显示 12 行（与 MAX_VISIBLE_MSGS=6 配合使用）
 
 export const MessageItem: React.FC<Props> = ({ message, maxContentLines = DEFAULT_MAX_LINES }) => {
   const time = new Date(message.timestamp).toLocaleTimeString('zh-CN', {

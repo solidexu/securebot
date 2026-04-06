@@ -10,6 +10,14 @@ interface Props {
   scrollOffset?: number;
 }
 
+/**
+ * 与 AgentList(MAX_VISIBLE_AGENTS=4)、SkillViewer(MAX_VISIBLE_SKILLS=6) 相同模式：
+ * 硬限制可见条数，每条内容截断，总渲染行数有上限。
+ *
+ * 每条消息最多约 12 行 (header + content)，所以 6 条消息最多约 72 行。
+ */
+const MAX_VISIBLE_MSGS = 6;
+
 export const MessageList: React.FC<Props> = ({
   messages,
   scrollOffset = 0,
@@ -26,10 +34,10 @@ export const MessageList: React.FC<Props> = ({
     );
   }
 
-  // 固定显示最近 N 条消息，防止 TUI 被撑大
-  const VISIBLE_COUNT = 20;
+  // 与 AgentList/SkillViewer 完全相同的滚动逻辑：
+  // scrollOffset=0 显示最后 N 条，scrollOffset>0 向旧消息方向移动
   const endIdx = totalMessages - scrollOffset;
-  const startIdx = Math.max(0, endIdx - VISIBLE_COUNT);
+  const startIdx = Math.max(0, endIdx - MAX_VISIBLE_MSGS);
   const visibleMessages = messages.slice(startIdx, endIdx);
 
   return (
@@ -46,20 +54,22 @@ export const MessageList: React.FC<Props> = ({
             <Text color="cyan">(PgUp/PgDn/\u2191\u2193)</Text>
           </Text>
         )}
-        {scrollOffset === 0 && totalMessages > VISIBLE_COUNT && (
+        {scrollOffset === 0 && totalMessages > MAX_VISIBLE_MSGS && (
           <Text color="gray" dimColor>
-            {' '}{VISIBLE_COUNT}/{totalMessages}
+            {' '}{endIdx}/{totalMessages}
           </Text>
         )}
       </Box>
 
-      {/* 右侧滚动条指示器 */}
-      <ScrollBar
-        total={totalMessages}
-        visible={VISIBLE_COUNT}
-        offset={scrollOffset}
-        color={isFocused ? 'green' : 'blue'}
-      />
+      {/* 右侧滚动条 — 与 AgentList/SkillViewer 完全相同 */}
+      {totalMessages > MAX_VISIBLE_MSGS && (
+        <ScrollBar
+          total={totalMessages}
+          visible={MAX_VISIBLE_MSGS}
+          offset={scrollOffset}
+          color={isFocused ? 'green' : 'blue'}
+        />
+      )}
     </Box>
   );
 };
