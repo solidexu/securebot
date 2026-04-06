@@ -5,6 +5,13 @@ import { useApp } from '../../context/index.js';
 /** 编辑面板显示行数 */
 const EDITOR_LINES = 10;
 
+/** 进度条：生成 █░ 形式 */
+function progressBar(current: number, total: number, width: number): string {
+  const pct = Math.round((current / total) * 100);
+  const filled = Math.round((current / total) * width);
+  return '█'.repeat(filled) + '░'.repeat(width - filled);
+}
+
 export const CodeEditorPanel: React.FC = () => {
   const { codeEditor } = useApp();
 
@@ -16,10 +23,12 @@ export const CodeEditorPanel: React.FC = () => {
   } = codeEditor;
 
   const shortName = filePath.split('/').pop() || filePath;
+  const pct = Math.min(100, Math.round((currentLine / totalLines) * 100));
 
-  // 计算可见行范围（滚动跟随当前写入位置）
+  // 滚动窗口：始终让光标在中间区域（偏下1/3位置）
+  const cursorTargetRow = mode === 'edit' ? EDITOR_LINES - 3 : Math.floor(EDITOR_LINES / 2) + 1;
   const windowStart = Math.max(0, Math.min(
-    currentLine - Math.floor(EDITOR_LINES / 2),
+    currentLine - cursorTargetRow,
     Math.max(0, totalLines - EDITOR_LINES)
   ));
   const visibleLines = displayLines.slice(windowStart, windowStart + EDITOR_LINES);
@@ -29,12 +38,13 @@ export const CodeEditorPanel: React.FC = () => {
   }
 
   const lastWrittenIdx = currentLine - 1 - windowStart;
+  const cursorIdx = currentLine < totalLines ? lastWrittenIdx + 1 : -1;
 
   // 状态标签
   const borderStyle = mode === 'edit' ? 'double' : 'single';
   const borderColor = mode === 'edit' ? '#ffaa00' : '#00ffff';
-  const icon = mode === 'edit' ? '\u270E' : '\u270F';  // ✎ vs ✏
-  const modeLabel = mode === 'edit' ? 'modifying' : 'writing';
+  const icon = mode === 'edit' ? '\u270E' : '\u270F';
+  const modeLabel = isComplete ? 'done' : (mode === 'edit' ? 'modifying' : 'writing');
 
   return (
     <Box
@@ -44,25 +54,29 @@ export const CodeEditorPanel: React.FC = () => {
       height={EDITOR_LINES + 2}
       backgroundColor="#0d1117"
     >
-      {/* 标题栏：文件名 + diff 统计 + 状态 */}
+      {/* 标题栏：文件名 + 进度条 + 统计 */}
       <Box flexShrink={0}>
         <Text bold color={borderColor}>
-          {` ${icon} ${shortName}`}
+          {' '}{icon} {shortName}
         </Text>
-        {mode === 'edit' && additions > 0 && (
-          <Text color="green"> +{additions}</Text>
+        {/* diff 统计 */}
+        {mode === 'edit' && (
+          <>
+            {additions > 0 && <Text color="#88ffaa"> +{additions}</Text>}
+            {deletions > 0 && <Text color="#ff6666"> -{deletions}</Text>}
+          </>
         )}
-        {mode === 'edit' && deletions > 0 && (
-          <Text color="red"> -{deletions}</Text>
-        )}
-        <Text color="#555" dimColor>
-          {' '}({modeLabel})
+        {/* 进度条 */}
+        <Text color={isComplete ? 'green' : borderColor}>
+          {' '}[{progressBar(currentLine, totalLines, 12)}]{' '}
         </Text>
-        <Text color="#333" dimColor>
-          {' ── '}{mode === 'edit' ? 'editing file' : 'writing file'}
+        <Text color={isComplete ? 'green' : '#888'} dimColor={!isComplete}>
+          {pct}%
         </Text>
-        {isComplete && (
+        {isComplete ? (
           <Text color="green"> ✓</Text>
+        ) : (
+          <Text color="#555" dimColor> ({modeLabel})</Text>
         )}
       </Box>
 
@@ -74,27 +88,65 @@ export const CodeEditorPanel: React.FC = () => {
         const isDeleted = line.state === 'deleted';
         const isChanged = line.state === 'changed';
         const isPending = line.state === 'pending';
-        const isCurrentLine = i === lastWrittenIdx + 1 && currentLine < totalLines;
+        const isCursor = i === cursorIdx;
 
+        // 光标行：高亮背景色，最醒目
+        if (isCursor) {
+          return (
+            <Text key={i}>
+              <Text color={borderColor} bold>{String(lineNum).padStart(3)} </Text>
+              <Text color={borderColor} bold bgHex="#1a2030">
+                {'▸ '}{line.text || ' '}
+              </Text>
+            </Text>
+          );
+        }
+
+        // 已写入行（亮蓝）
+        if (isWritten) {
+          return (
+            <Text key={i}>
+              <Text color="#333">{String(lineNum).padStart(3)} </Text>
+              <Text color="#7ecfff">{line.text || ' '}</Text>
+            </Text>
+          );
+        }
+
+        // 新增行（绿色+）
+        if (isAdded) {
+          return (
+            <Text key={i}>
+              <Text color="#333">{String(lineNum).padStart(3)} </Text>
+              <Text color="#88ffaa" bold>+ {line.text}</Text>
+            </Text>
+          );
+        }
+
+        // 删除行（红色-）
+        if (isDeleted) {
+          return (
+            <Text key={i}>
+              <Text color="#333">{String(lineNum).padStart(3)} </Text>
+              <Text color="#ff6666" strikethrough>- {line.text}</Text>
+            </Text>
+          );
+        }
+
+        // 修改行（黄色~）
+        if (isChanged) {
+          return (
+            <Text key={i}>
+              <Text color="#333">{String(lineNum).padStart(3)} </Text>
+              <Text color="#ffcc00">~ {line.text}</Text>
+            </Text>
+          );
+        }
+
+        // 待写入行（暗灰显示实际代码）
         return (
           <Text key={i}>
-            <Text color="#333">{String(lineNum).padStart(3)} </Text>
-
-            {isAdded ? (
-              <Text color="#88ffaa" bold>+ {line.text}</Text>
-            ) : isDeleted ? (
-              <Text color="#ff6666" strikethrough>- {line.text}</Text>
-            ) : isChanged ? (
-              <Text color="#ffcc00">~ {line.text}</Text>
-            ) : isWritten ? (
-              <Text color="#7ecfff" bold>{line.text}</Text>
-            ) : isCurrentLine ? (
-              <Text color={borderColor} bold>▸ {line.text}</Text>
-            ) : isPending ? (
-              <Text color="#333">{line.text || ' '}</Text>
-            ) : (
-              <Text color="#a8d1ff">{line.text}</Text>
-            )}
+            <Text color="#222">{String(lineNum).padStart(3)} </Text>
+            <Text color="#444" dimColor>{line.text || ' '}</Text>
           </Text>
         );
       })}
