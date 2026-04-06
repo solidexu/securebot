@@ -3,6 +3,7 @@ import { Box, Text } from 'ink';
 import type { Message } from '../../types/index.js';
 import { ScrollBar } from '../common/ScrollBar.js';
 import { useApp } from '../../context/index.js';
+import { CodeWriterPanel } from './CodeWriter.js';
 
 interface Props {
   messages: Message[];
@@ -159,6 +160,9 @@ export const MessageList: React.FC<Props> = ({
           />
         )}
       </Box>
+
+      {/* 代码写入动画窗口 - 实时显示文件写入过程 */}
+      <CodeWriterPanel />
 
       {/* 消息查看器 - 固定14行 */}
       {messageViewerOpen && selectedMessage && (

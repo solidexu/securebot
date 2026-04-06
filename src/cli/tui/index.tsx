@@ -48,6 +48,7 @@ function createMessageHandler(options: TuiOptions) {
       setTaskStatus?: (status: any) => void;
       addLog?: (msg: string, level?: string) => void;
       setSkills?: (skills: { id: string; name: string; active?: boolean }[]) => void;
+      startCodeWriter?: (filePath: string, content: string) => void;
       currentAgent?: string;
     }
   ): Promise<void> {
@@ -59,6 +60,7 @@ function createMessageHandler(options: TuiOptions) {
       setTaskStatus,
       addLog,
       setSkills,
+      startCodeWriter,
       currentAgent,
     } = context;
 
@@ -301,16 +303,28 @@ function createMessageHandler(options: TuiOptions) {
             const toolCallId = tc.id || `tc_${Date.now()}`;
             const argsStr = JSON.stringify(tc.arguments, null, 0);
 
-            // 在UI中显示工具调用
-            const toolMsgId = addMessage?.({
-              sender: 'Tool',
-              content: `[${tc.name}](${argsStr})`,
-              type: 'tool',
-              meta: { name: tc.name, arguments: tc.arguments },
-            }) || '';
+            // write 工具：启动代码写入动画 + 简短摘要
+            if (tc.name === 'write' && typeof tc.arguments?.content === 'string') {
+              const filePath = tc.arguments.path || '(unknown)';
+              const codeLines = tc.arguments.content.split('\\\n').length;
+              startCodeWriter?.(filePath, tc.arguments.content);
+              addMessage?.({
+                sender: 'Tool',
+                content: `[write] \u270E ${filePath} (${codeLines} lines)`,
+                type: 'tool',
+                meta: { name: tc.name, path: filePath, lineCount: codeLines },
+              });
+            } else {
+              // 其他工具：正常显示参数
+              addMessage?.({
+                sender: 'Tool',
+                content: `[${tc.name}](${argsStr})`,
+                type: 'tool',
+                meta: { name: tc.name, arguments: tc.arguments },
+              });
+            }
 
             addLog?.(`[Tool] ${tc.name}(${argsStr})`, 'info');
-            updateMessage?.(toolMsgId, `[${tc.name}]${argsStr} ...执行中`);
 
             // 执行工具（构建完整 ToolContext）
             const { getRootDir } = await import('../../core/config.js');

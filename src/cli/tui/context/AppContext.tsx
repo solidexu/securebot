@@ -24,6 +24,7 @@ interface AppState {
   selectedMessageId: string | null;  // 当前选中的消息 ID（用于查看完整内容）
   messageViewerOpen: boolean;       // 消息查看器是否打开
   messageScrollOffset: number;       // 消息查看器内部滚动偏移
+  codeWriter: { filePath: string; lines: string[]; currentLine: number; totalLines: boolean } | null; // 代码写入窗口
 }
 
 interface AppContextValue extends AppState {
@@ -47,6 +48,8 @@ interface AppContextValue extends AppState {
   selectMessage: (id: string | null) => void;        // 选择消息查看完整内容
   setMessageViewerOpen: (open: boolean) => void;     // 打开/关闭消息查看器
   setMessageScrollOffset: (offset: number) => void;  // 消息查看器内部滚动
+  startCodeWriter: (filePath: string, content: string) => void;  // 启动代码写入动画
+  closeCodeWriter: () => void;                       // 关闭代码写入窗口
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -69,6 +72,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const [messageViewerOpen, setMessageViewerOpen] = useState(false);
   const [messageScrollOffset, setMessageScrollOffset] = useState(0);
+  // 代码写入动画窗口状态
+  const [codeWriter, setCodeWriter] = useState<{
+    filePath: string; lines: string[]; currentLine: number; totalLines: number;
+  } | null>(null);
+  const codeWriterTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const startCodeWriter = useCallback((filePath: string, content: string) => {
+    // 清除之前的定时器
+    if (codeWriterTimerRef.current) clearInterval(codeWriterTimerRef.current);
+    // 解析内容为行数组（处理 JSON 转义的 \n）
+    const lines = content.split('\\\n');
+    setCodeWriter({ filePath, lines, currentLine: 0, totalLines: lines.length });
+    // 每行写入间隔：快速模式（每帧1行）
+    let lineIdx = 0;
+    codeWriterTimerRef.current = setInterval(() => {
+      lineIdx++;
+      if (lineIdx >= lines.length) {
+        if (codeWriterTimerRef.current) clearInterval(codeWriterTimerRef.current);
+        setTimeout(() => setCodeWriter(null), 2000); // 写完后2秒关闭
+      } else {
+        setCodeWriter(prev => prev ? { ...prev, currentLine: lineIdx } : null);
+      }
+    }, 30); // 每行 30ms（足够快但可见动画效果）
+  }, []);
+
+  const closeCodeWriter = useCallback(() => {
+    if (codeWriterTimerRef.current) clearInterval(codeWriterTimerRef.current);
+    setCodeWriter(null);
+  }, []);
   const historyIndexRef = useRef(-1);
   const tempInputRef = useRef('');
 
@@ -178,6 +210,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // 重置所有状态（每次 TUI 启动时调用）
   const resetState = useCallback(() => {
+    if (codeWriterTimerRef.current) clearInterval(codeWriterTimerRef.current);
     setMessages([]);
     setAgents([]);
     setCurrentAgent('dev');
@@ -196,6 +229,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSelectedMessageId(null);
     setMessageViewerOpen(false);
     setMessageScrollOffset(0);
+    setCodeWriter(null);
   }, []);
 
   const value: AppContextValue = {
@@ -236,7 +270,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setMessageScrollOffset: setMessageScroll,
     selectedMessageId,
     messageViewerOpen,
-    messageScrollOffset,
+    codeWriter,
+    startCodeWriter,
+    closeCodeWriter,
   };
 
   return (
