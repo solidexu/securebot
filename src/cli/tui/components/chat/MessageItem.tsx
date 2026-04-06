@@ -22,7 +22,8 @@ export const MessageItem: React.FC<Props> = ({ message, maxContentLines = DEFAUL
     const meta = message.meta as { name?: string; arguments?: Record<string, unknown> } | undefined;
     const lines = message.content.split('\n');
     const truncated = maxContentLines > 0 && lines.length > maxContentLines;
-    const displayLines = truncated ? lines.slice(0, maxContentLines) : lines;
+    // 显示最后 N 行（最新内容在前），而非前 N 行
+    const displayLines = truncated ? lines.slice(-maxContentLines) : lines;
 
     return (
       <Box flexDirection="column" marginBottom={1}>
@@ -35,16 +36,16 @@ export const MessageItem: React.FC<Props> = ({ message, maxContentLines = DEFAUL
           </Text>
         </Box>
         <Box paddingLeft={2} flexDirection="column">
+          {truncated && (
+            <Text color="yellow" dimColor>
+              [... {lines.length - maxContentLines} earlier lines]{' '}
+            </Text>
+          )}
           {displayLines.map((line, i) => (
             <Text key={i} color="cyan">
               {line || ' '}
             </Text>
           ))}
-          {truncated && (
-            <Text color="yellow" dimColor>
-              {' '}[... {lines.length - maxContentLines} more lines]
-            </Text>
-          )}
         </Box>
       </Box>
     );
@@ -53,7 +54,8 @@ export const MessageItem: React.FC<Props> = ({ message, maxContentLines = DEFAUL
   const config = theme.message[message.type];
   const lines = message.content.split('\n');
   const truncated = maxContentLines > 0 && lines.length > maxContentLines;
-  const displayLines = truncated ? lines.slice(0, maxContentLines) : lines;
+  // 显示最后 N 行（最新内容在前），而非前 N 行
+  const displayLines = truncated ? lines.slice(-maxContentLines) : lines;
 
   return (
     <Box flexDirection="column" marginBottom={1}>
@@ -74,16 +76,16 @@ export const MessageItem: React.FC<Props> = ({ message, maxContentLines = DEFAUL
 
       {/* 消息内容 */}
       <Box paddingLeft={2} flexDirection="column">
+        {truncated && (
+          <Text color="yellow" dimColor>
+            [... {lines.length - maxContentLines} earlier lines]{' '}
+          </Text>
+        )}
         {displayLines.map((line, i) => (
           <Text key={i}>
             {line || ' '}
           </Text>
         ))}
-        {truncated && (
-          <Text color="yellow" dimColor>
-            {' '}[... {lines.length - maxContentLines} more lines]
-          </Text>
-        )}
       </Box>
     </Box>
   );
