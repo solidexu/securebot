@@ -466,33 +466,31 @@ export async function startTuiRepl(options: TuiOptions = {}): Promise<void> {
   // 滚轮事件回调（由 InputBox 通过 props.onWheel 设置）
   let wheelCallback: ((deltaY: number) => void) | null = null;
 
-  // 解析 SGR 滚轮事件: CSI < M followed by button(64=up, 65=down) and coords
+  // 解析 SGR 滚轮事件: CSI < M <btn> ; <x> ; <y> M
+  // 滚轮: btn=64(up) 或 65(down)
   let mouseBuffer = '';
   const mouseHandler = (chunk: Buffer) => {
     mouseBuffer += chunk.toString();
-    // SGR 模式格式: CSI M <btn> <x> <y>
-    // 滚轮: btn=64(up) 或 65(down)，后面跟 x y 坐标（1-indexed）
-    const SGR_WHEEL_UP = 64;
-    const SGR_WHEEL_DOWN = 65;
-    // 格式: CSI M ab x y (ab 是单个字符的 ASCII 代码)
-    while (mouseBuffer.includes('\x1b[<M') || mouseBuffer.includes('\x1b[Ma')) {
-      // 查找完整事件
-      const sgrMatch = mouseBuffer.match(/\x1b\[<M([^\x00-\x1a])([^\x00-\x1a])([^\x00-\x1a])/);
-      if (sgrMatch) {
-        const btnCode = sgrMatch[1].charCodeAt(0);
-        // 跳过坐标
-        mouseBuffer = mouseBuffer.slice(sgrMatch[0].length);
-        if (btnCode === SGR_WHEEL_UP) {
-          wheelCallback?.(-1); // 负数 = 向上滚动 = 向新内容
-        } else if (btnCode === SGR_WHEEL_DOWN) {
-          wheelCallback?.(1);  // 正数 = 向下滚动 = 向旧内容
-        }
-      } else {
-        // 没有完整事件，清除缓冲区
-        const idx = mouseBuffer.indexOf('\x1b[<M');
-        if (idx >= 0) mouseBuffer = mouseBuffer.slice(idx);
-        else mouseBuffer = '';
-        break;
+    const SGR_WHEEL_UP = 64;   // '@' char code
+    const SGR_WHEEL_DOWN = 65; // 'A' char code
+
+    // SGR 格式: \x1b[<M<btn>;<x>;<y>M
+    // 匹配整个序列直到结尾的 M
+    const sgrMatch = mouseBuffer.match(/\x1b\[<M(\d+)(;\d+;\d+)?M/);
+    if (sgrMatch) {
+      const btnCode = parseInt(sgrMatch[1], 10);
+      // 清除已处理的数据
+      mouseBuffer = mouseBuffer.slice(sgrMatch[0].length);
+
+      if (btnCode === SGR_WHEEL_UP) {
+        wheelCallback?.(-1); // 负数 = 向上滚动
+      } else if (btnCode === SGR_WHEEL_DOWN) {
+        wheelCallback?.(1);  // 正数 = 向下滚动
+      }
+    } else {
+      // 没有完整事件，清除旧数据（防止缓冲区无限增长）
+      if (mouseBuffer.length > 20) {
+        mouseBuffer = '';
       }
     }
   };
