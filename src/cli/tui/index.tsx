@@ -305,10 +305,11 @@ function createMessageHandler(options: TuiOptions) {
             const toolCallId = tc.id || `tc_${Date.now()}`;
             const argsStr = JSON.stringify(tc.arguments, null, 0);
             let toolMsgId = '';
+            // 提取文件路径（write/edit 工具共用）
+            const filePath = tc.arguments?.path || '(unknown)';
 
             // write/edit 工具：启动代码编辑动画面板
             if ((tc.name === 'write' || tc.name === 'edit') && typeof tc.arguments?.content === 'string') {
-              const filePath = tc.arguments.path || '(unknown)';
               const codeLines = tc.arguments.content.split('\\\n').length;
               if (tc.name === 'write') {
                 startCodeWriter?.(filePath, tc.arguments.content);
@@ -362,7 +363,14 @@ function createMessageHandler(options: TuiOptions) {
             const resultPreview =
               resultContent.slice(0, 200) + (resultContent.length > 200 ? '...' : '');
 
-            updateMessage?.(toolMsgId, `[${tc.name}]${argsStr}\n→ ${resultPreview}`);
+            // write/edit 工具：不把文件内容文本化输出到聊天（CodeEditor 面板已展示）
+            // 其他工具：正常显示结果摘要
+            if (tc.name === 'write' || tc.name === 'edit') {
+              const status = toolResult.success ? '\u2713 done' : `\u2717 ${toolResult.error || 'FAIL'}`;
+              updateMessage?.(toolMsgId, `[${tc.name}] ${filePath} ${status}`);
+            } else {
+              updateMessage?.(toolMsgId, `[${tc.name}]${argsStr}\n→ ${resultPreview}`);
+            }
 
             // 添加工具结果到会话历史
             addToolResultMessage(session, toolCallId, tc.name, resultContent);
