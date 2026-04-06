@@ -58,9 +58,9 @@ export const theme = {
     footerHeight: 3,     // 底部状态栏（固定行数）
 
     // 右侧面板内部比例（总和 100%）
-    taskHeight: '25%',
+    taskHeight: '18%',
     agentHeight: '35%',
-    logHeight: '40%',
+    logHeight: '47%',
 
     // 间距
     gap: 0,

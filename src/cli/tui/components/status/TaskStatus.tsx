@@ -32,7 +32,7 @@ export const TaskStatusPanel: React.FC = () => {
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Box marginBottom={1}>
+      <Box>
         <Text color={statusColor as any}>
           {'\u25cf'} Status:{' '}
         </Text>
@@ -41,26 +41,24 @@ export const TaskStatusPanel: React.FC = () => {
         </Text>
       </Box>
 
-      <Box flexDirection="column">
-        <Text color="gray">
-          {'  Round:'}{' '}
-          <Text color="white">
-            {taskStatus.round}/{taskStatus.maxRounds}
-          </Text>
+      <Text color="gray">
+        {'  Round:'}{' '}
+        <Text color="white">
+          {taskStatus.round}/{taskStatus.maxRounds}
         </Text>
+      </Text>
 
-        <Text color="magenta">
-          {'  From:'}{' '}
-          <Text color="white">{taskStatus.delegator}</Text>
-          {' \u2192 '}
-          <Text color="cyan">{taskStatus.delegatee}</Text>
-        </Text>
+      <Text color="magenta">
+        {'  From:'}{' '}
+        <Text color="white">{taskStatus.delegator}</Text>
+        {' \u2192 '}
+        <Text color="cyan">{taskStatus.delegatee}</Text>
+      </Text>
 
-        <Text color="gray" dimColor>
-          {'  Task: '}<Text>{taskStatus.task.slice(0, 30)}</Text>
-          {taskStatus.task.length > 30 && '...'}
-        </Text>
-      </Box>
+      <Text color="gray" dimColor>
+        {'  Task: '}<Text>{taskStatus.task.slice(0, 30)}</Text>
+        {taskStatus.task.length > 30 && '...'}
+      </Text>
     </Box>
   );
 };

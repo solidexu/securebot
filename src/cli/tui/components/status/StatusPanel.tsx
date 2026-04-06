@@ -67,7 +67,7 @@ export const StatusPanel: React.FC = () => {
         marginBottom={0}
         paddingX={1}
       >
-        <Box borderBottom borderColor={theme.panel.task.border} paddingY={0} marginBottom={1}>
+        <Box borderBottom borderColor={theme.panel.task.border} paddingY={0} marginBottom={0}>
           <Text bold color={theme.panel.task.title}>
             {' \u25cf '} Task Status
           </Text>
