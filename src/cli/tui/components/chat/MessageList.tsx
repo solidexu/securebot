@@ -58,11 +58,12 @@ export const MessageList: React.FC<Props> = ({
   const isFocused = focusPanel === 'chat';
 
   // Streaming 时强制保持在最新位置（offset=0 = 最底部）
+  // 依赖 scrollOffset 确保用户手动滚动后也能重置回来
   React.useEffect(() => {
     if (isStreaming && scrollOffset !== 0) {
       setChatScroll(0);
     }
-  }, [isStreaming, messages.length]);
+  }, [isStreaming, scrollOffset, messages.length]);
 
   if (messages.length === 0) {
     return (
