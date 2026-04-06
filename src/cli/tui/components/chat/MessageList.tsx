@@ -22,7 +22,7 @@ interface Props {
 const MAX_VISIBLE_MSGS = 3;
 
 /**
- * 消息查看器 - 显示选中消息的完整内容
+ * 消息查看器 - 显示选中消息的完整内容（固定12行，覆盖在消息列表上方）
  */
 const MessageViewer: React.FC<{ message: Message; scrollOffset: number; onScroll: (offset: number) => void }> = ({
   message,
@@ -38,14 +38,25 @@ const MessageViewer: React.FC<{ message: Message; scrollOffset: number; onScroll
   const visibleLines = lines.slice(clampedScroll, clampedScroll + VIEWER_LINES);
 
   return (
-    <Box flexDirection="column" borderTop="single" borderColor="yellow" marginTop={1}>
+    <Box
+      flexDirection="column"
+      borderTop="single"
+      borderColor="yellow"
+      // 覆盖在消息列表上方，不挤占 flex 空间
+      position="absolute"
+      top={0}
+      left={0}
+      right={0}
+      bottom={0}
+      backgroundColor="#1a1b26"
+    >
       <Box paddingY={0} flexShrink={0}>
         <Text bold color="yellow">
           {'\u25b6 '} Full Content [{clampedScroll + 1}-{Math.min(clampedScroll + VIEWER_LINES, totalLines)}/{totalLines}]
         </Text>
         <Text color="gray" dimColor> (PgUp/PgDn scroll | Enter next | Esc close)</Text>
       </Box>
-      <Box flexDirection="column" flexShrink={1}>
+      <Box flexDirection="column" flexShrink={1} overflow="hidden">
         {visibleLines.map((line, i) => (
           <Text key={i} color="white">
             {line || ' '}
@@ -99,7 +110,8 @@ export const MessageList: React.FC<Props> = ({
     : null;
 
   return (
-    <Box flexDirection="column" height="100%">
+    // 使用相对定位作为 absolute 子元素的容器
+    <Box flexDirection="column" height="100%" position="relative">
       {/* 消息列表主体 */}
       <Box flexDirection="row" flexGrow={1} flexShrink={1}>
         <Box flexDirection="column" flexGrow={1} flexShrink={1} width="100%">
@@ -136,7 +148,7 @@ export const MessageList: React.FC<Props> = ({
         )}
       </Box>
 
-      {/* 消息查看器 — 当选中消息时显示在底部 */}
+      {/* 消息查看器 — 覆盖在消息列表上方（当选中消息时） */}
       {messageViewerOpen && selectedMessage && (
         <MessageViewer
           message={selectedMessage}
