@@ -1,6 +1,5 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import { useStdoutDimensions } from 'ink';
 import type { Message } from '../../types/index.js';
 import { MessageItem } from './MessageItem.js';
 import { ScrollBar } from '../common/ScrollBar.js';
@@ -33,7 +32,6 @@ export const MessageList: React.FC<Props> = ({
 
   // 获取终端高度，动态计算可见行数
   // 减去：header(3) + inputArea(3) + statusBar(1) + chatPanel标题栏(1) + 边框/间距(4) ≈ 12
-  const [columns] = useStdoutDimensions();
   const availableRows = process.stdout.rows || 30;
   const MAX_VISIBLE_ROWS = Math.max(8, availableRows - 14);
 
