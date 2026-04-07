@@ -1,2 +1,7 @@
+/**
+ * TUI 类型定义
+ */
+
+export * from './colors.js';
 export * from './message.js';
-export * from './agent.js';
+export * from './index.js';
