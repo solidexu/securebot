@@ -94,7 +94,7 @@ export async function executeTool(
   
   if (!tool) {
     // 发布工具调用失败事件
-    eventBus.publishSync({
+    eventBus.emit({
       type: EventTypes.TOOL_CALL_FAILURE,
       timestamp: new Date(),
       agentId: context.agent.id,
@@ -113,7 +113,7 @@ export async function executeTool(
   }
   
   // 发布工具调用开始事件
-  eventBus.publishSync({
+  eventBus.emit({
     type: EventTypes.TOOL_CALL_START,
     timestamp: new Date(),
     agentId: context.agent.id,
@@ -130,7 +130,7 @@ export async function executeTool(
     
     // 发布工具调用结果事件
     if (result.success) {
-      eventBus.publishSync({
+      eventBus.emit({
         type: EventTypes.TOOL_CALL_SUCCESS,
         timestamp: new Date(),
         agentId: context.agent.id,
@@ -143,7 +143,7 @@ export async function executeTool(
         },
       });
     } else {
-      eventBus.publishSync({
+      eventBus.emit({
         type: EventTypes.TOOL_CALL_FAILURE,
         timestamp: new Date(),
         agentId: context.agent.id,
@@ -163,7 +163,7 @@ export async function executeTool(
     const duration = Date.now() - startTime;
     
     // 发布工具调用失败事件
-    eventBus.publishSync({
+    eventBus.emit({
       type: EventTypes.TOOL_CALL_FAILURE,
       timestamp: new Date(),
       agentId: context.agent.id,

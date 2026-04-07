@@ -200,7 +200,7 @@ export class FeedbackCollector {
     await this.syncToUnifiedStore(entry);
     
     // 发布反馈事件
-    eventBus.publishSync({
+    eventBus.emit({
       type: EventTypes.USER_MESSAGE, // 复用现有事件类型
       timestamp: new Date(),
       agentId: feedback.agentId,

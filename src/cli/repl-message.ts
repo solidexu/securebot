@@ -818,7 +818,7 @@ export async function processMessage(
     const complexity = assessComplexity(message);
     
     // 发布用户消息事件
-    eventBus.publishSync({
+    eventBus.emit({
       type: EventTypes.USER_MESSAGE,
       timestamp: new Date(),
       agentId: agent.id,
@@ -1916,7 +1916,7 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
         if (isTaskCompleted) {
           addAssistantMessage(session, result.content);
           
-          eventBus.publishSync({
+          eventBus.emit({
             type: EventTypes.TASK_COMPLETE,
             timestamp: new Date(),
             agentId: agent.id,
@@ -2138,7 +2138,7 @@ async function runToolCallLoop(ctx: ToolCallLoopContext): Promise<void> {
       if (isTaskCompleted) {
         addAssistantMessage(session, result.content);
         
-        eventBus.publishSync({
+        eventBus.emit({
           type: EventTypes.TASK_COMPLETE,
           timestamp: new Date(),
           agentId: agent.id,
@@ -2684,7 +2684,7 @@ async function executeToolCall(ctx: ToolCallExecuteContext): Promise<ToolCallRes
       );
       
       if (!confirmResult.confirmed) {
-        eventBus.publishSync({
+        eventBus.emit({
           type: EventTypes.TOOL_CONFIRMATION_RESULT,
           timestamp: new Date(),
           agentId: agent.id,
@@ -2725,7 +2725,7 @@ async function executeToolCall(ctx: ToolCallExecuteContext): Promise<ToolCallRes
       
       if (confirmResult.remember) {
         const scope = confirmResult.rememberScope ?? 'tool';
-        eventBus.publishSync({
+        eventBus.emit({
           type: EventTypes.TOOL_CONFIRMATION_RESULT,
           timestamp: new Date(),
           agentId: agent.id,

@@ -367,7 +367,7 @@ async function handleInitMemoryCommand(state: ReplState): Promise<void> {
     console.log(chalk.gray(`   ✓ memory/profiles/agent_${agent.id}.json`));
     
     console.log(chalk.white('2. 创建工作记忆...'));
-    eventBus.publishSync({
+    eventBus.emit({
       type: EventTypes.MEMORY_REMEMBER,
       timestamp: new Date(),
       agentId: agent.id,
