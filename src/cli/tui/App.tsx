@@ -127,7 +127,8 @@ const AppContent: React.FC<AppProps> = ({
     });
 
     addLog('TUI initialized', 'info');
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultAgent]);  // 只依赖 defaultAgent，其他是稳定的 state setter
 
   useInput((char, key) => {
     if (key.ctrl && char === 'c') {

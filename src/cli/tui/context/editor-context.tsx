@@ -4,7 +4,7 @@
  * 管理代码编辑器和 Shell 输出面板
  */
 
-import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 
 // ============ 类型定义 ============
 
@@ -79,6 +79,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     deletions: number;
   } | null>(null);
   const codeEditorTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const closeDelayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const shellCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /** 将 ref 数据同步到 state */
   const syncToState = useCallback(() => {
@@ -143,7 +145,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           }));
           d.currentLine = d.totalLines;
           syncToState();
-          setTimeout(() => setCodeEditor(null), closeDelayMs);
+          closeDelayTimerRef.current = setTimeout(() => setCodeEditor(null), closeDelayMs);
           resolve();
           return;
         }
@@ -237,7 +239,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           clearInterval(codeEditorTimerRef.current!);
           d.currentLine = lineIdx;
           syncToState();
-          setTimeout(() => setCodeEditor(null), closeDelayMs);
+          closeDelayTimerRef.current = setTimeout(() => setCodeEditor(null), closeDelayMs);
           resolve();
           return;
         }
@@ -295,12 +297,27 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       };
     });
     // 3秒后自动关闭
-    setTimeout(() => setShellOutput(null), 3000);
+    shellCloseTimerRef.current = setTimeout(() => setShellOutput(null), 3000);
   }, []);
 
   /** 关闭 Shell 输出面板 */
   const closeShellOutput = useCallback(() => {
     setShellOutput(null);
+  }, []);
+
+  // 清理所有 timer
+  useEffect(() => {
+    return () => {
+      if (codeEditorTimerRef.current) {
+        clearInterval(codeEditorTimerRef.current);
+      }
+      if (closeDelayTimerRef.current) {
+        clearTimeout(closeDelayTimerRef.current);
+      }
+      if (shellCloseTimerRef.current) {
+        clearTimeout(shellCloseTimerRef.current);
+      }
+    };
   }, []);
 
   const value: EditorContextValue = {

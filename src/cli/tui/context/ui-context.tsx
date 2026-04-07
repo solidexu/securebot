@@ -4,7 +4,7 @@
  * 管理界面状态（滚动、焦点、历史、流式状态等）
  */
 
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import type { LogEntry } from '../types/index.js';
 
 // ============ 类型定义 ============
@@ -81,6 +81,9 @@ const UIContext = createContext<UIContextValue | null>(null);
 
 export const UIProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, setState] = useState<UIState>(defaultState);
+  
+  // 使用 useRef 存储 timer 以便清理
+  const focusBlinkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 滚动控制
   const setChatScroll = useCallback((offset: number) => {
@@ -101,20 +104,31 @@ export const UIProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
   // 焦点控制
   const setFocusPanel = useCallback((panel: FocusPanel) => {
+    // 清理之前的 timer
+    if (focusBlinkTimerRef.current) {
+      clearTimeout(focusBlinkTimerRef.current);
+    }
+    
     setState((prev) => ({
       ...prev,
       focusPanel: panel,
       focusBlink: true,
     }));
+    
     // 闪烁效果在 200ms 后自动消失
-    setTimeout(() => {
+    focusBlinkTimerRef.current = setTimeout(() => {
       setState((prev) => ({ ...prev, focusBlink: false }));
     }, 200);
   }, []);
 
   const triggerFocusBlink = useCallback(() => {
+    // 清理之前的 timer
+    if (focusBlinkTimerRef.current) {
+      clearTimeout(focusBlinkTimerRef.current);
+    }
+    
     setState((prev) => ({ ...prev, focusBlink: true }));
-    setTimeout(() => {
+    focusBlinkTimerRef.current = setTimeout(() => {
       setState((prev) => ({ ...prev, focusBlink: false }));
     }, 200);
   }, []);
@@ -168,6 +182,15 @@ export const UIProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   // 重置
   const resetUIState = useCallback(() => {
     setState(defaultState);
+  }, []);
+
+  // 清理 timer
+  useEffect(() => {
+    return () => {
+      if (focusBlinkTimerRef.current) {
+        clearTimeout(focusBlinkTimerRef.current);
+      }
+    };
   }, []);
 
   const value: UIContextValue = {
