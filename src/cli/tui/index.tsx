@@ -56,8 +56,8 @@ function createMessageHandler(options: TuiOptions) {
       setCurrentAgent?: (id: string) => void;
       setIsStreaming?: (v: boolean) => void;
       updateMessage?: (id: string, content: string) => void;
-      addMessage?: (msg: any) => string;
-      setTaskStatus?: (status: any) => void;
+      addMessage?: (msg: { sender: string; content: string; type: string; meta?: Record<string, unknown> }) => string;
+      setTaskStatus?: (status: { phase: string; progress?: number; message?: string } | null) => void;
       addLog?: (msg: string, level?: string) => void;
       setSkills?: (skills: { id: string; name: string; active?: boolean }[]) => void;
       startCodeWriter?: (filePath: string, content: string) => Promise<void>;

@@ -6,6 +6,7 @@
 
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import type { LogEntry } from '../types/index.js';
+import { BLINK_DURATION, MAX_INPUT_HISTORY, MAX_LOG_ENTRIES } from '../constants/index.js';
 
 // ============ 类型定义 ============
 
@@ -115,10 +116,10 @@ export const UIProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       focusBlink: true,
     }));
     
-    // 闪烁效果在 200ms 后自动消失
+    // 闪烁效果自动消失
     focusBlinkTimerRef.current = setTimeout(() => {
       setState((prev) => ({ ...prev, focusBlink: false }));
-    }, 200);
+    }, BLINK_DURATION);
   }, []);
 
   const triggerFocusBlink = useCallback(() => {
@@ -130,7 +131,7 @@ export const UIProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     setState((prev) => ({ ...prev, focusBlink: true }));
     focusBlinkTimerRef.current = setTimeout(() => {
       setState((prev) => ({ ...prev, focusBlink: false }));
-    }, 200);
+    }, BLINK_DURATION);
   }, []);
 
   // 流式状态
@@ -143,7 +144,7 @@ export const UIProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     if (!input.trim()) return;
     setState((prev) => ({
       ...prev,
-      inputHistory: [input, ...prev.inputHistory].slice(0, 100), // 保留最近 100 条
+      inputHistory: [input, ...prev.inputHistory].slice(0, MAX_INPUT_HISTORY),
       historyIndex: -1,
     }));
   }, []);
@@ -175,7 +176,7 @@ export const UIProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     };
     setState((prev) => ({
       ...prev,
-      logs: [...prev.logs, entry].slice(-100), // 保留最近 100 条
+      logs: [...prev.logs, entry].slice(-MAX_LOG_ENTRIES),
     }));
   }, []);
 

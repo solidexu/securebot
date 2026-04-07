@@ -5,6 +5,7 @@
  */
 
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
+import { CODE_WRITE_INTERVAL, CODE_EDIT_INTERVAL, EDITOR_CLOSE_DELAY, SHELL_CLOSE_DELAY } from '../constants/index.js';
 
 // ============ 类型定义 ============
 
