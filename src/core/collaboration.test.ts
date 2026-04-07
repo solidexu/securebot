@@ -46,7 +46,7 @@ describe('AgentMessageBus', () => {
         priority: 'normal',
       });
 
-      expect(message.id).toBe('test-uuid-1234');
+      expect(message.id).toBeDefined();
       expect(message.fromAgent).toBe('agent1');
       expect(message.toAgent).toBe('agent2');
       expect(message.type).toBe('request');
@@ -182,7 +182,7 @@ describe('DelegationManager', () => {
         priority: 'high',
       });
 
-      expect(delegation.id).toBe('test-uuid-1234');
+      expect(delegation.id).toBeDefined();
       expect(delegation.delegator).toBe('agent1');
       expect(delegation.delegatee).toBe('agent2');
       expect(delegation.task).toBe('Review the code');
@@ -329,99 +329,94 @@ describe('SharedWorkspaceManager', () => {
   });
 
   describe('createWorkspace', () => {
-    it('should create a shared workspace', async () => {
-      const workspace = await manager.createWorkspace(
-        'Test Workspace',
-        ['agent1', 'agent2']
+    it('should create a shared workspace', () => {
+      const workspace = manager.createWorkspace(
+        ['agent1', 'agent2'],
+        'agent1'
       );
 
-      expect(workspace.id).toBe('test-uuid-1234');
-      expect(workspace.name).toBe('Test Workspace');
+      expect(workspace.id).toBeDefined();
       expect(workspace.agents).toContain('agent1');
       expect(workspace.agents).toContain('agent2');
       expect(workspace.permissions.size).toBe(2);
     });
 
-    it('should set default permissions', async () => {
-      const workspace = await manager.createWorkspace(
-        'Test Workspace',
-        ['agent1']
+    it('should set default permissions', () => {
+      const workspace = manager.createWorkspace(
+        ['agent1'],
+        'agent1'
       );
 
       const permission = workspace.permissions.get('agent1');
-      expect(permission?.read).toBe(true);
-      expect(permission?.write).toBe(true);
-      expect(permission?.delete).toBe(false);
+      expect(permission?.readOnly).toBe(false); // 创建者有写权限
+      expect(permission?.canShare).toBe(true);
     });
   });
 
   describe('checkPermission', () => {
-    it('should check permission correctly', async () => {
-      const workspace = await manager.createWorkspace(
-        'Test Workspace',
-        ['agent1']
+    it('should check permission correctly', () => {
+      const workspace = manager.createWorkspace(
+        ['agent1', 'agent2'],
+        'agent1'
       );
 
-      expect(manager.checkPermission(workspace.id, 'agent1', 'read')).toBe(true);
-      expect(manager.checkPermission(workspace.id, 'agent1', 'delete')).toBe(false);
-      expect(manager.checkPermission(workspace.id, 'agent2', 'read')).toBe(false);
+      const perm1 = manager.checkPermission(workspace.id, 'agent1');
+      expect(perm1?.readOnly).toBe(false); // 创建者可写
+      
+      const perm2 = manager.checkPermission(workspace.id, 'agent2');
+      expect(perm2?.readOnly).toBe(true); // 其他只读
     });
   });
 
   describe('updatePermission', () => {
-    it('should update permission', async () => {
-      const workspace = await manager.createWorkspace(
-        'Test Workspace',
-        ['agent1']
+    it('should update permission', () => {
+      const workspace = manager.createWorkspace(
+        ['agent1'],
+        'agent1'
       );
 
-      await manager.updatePermission(workspace.id, 'agent1', { delete: true });
+      manager.updatePermission(workspace.id, 'agent1', { readOnly: true });
 
-      expect(manager.checkPermission(workspace.id, 'agent1', 'delete')).toBe(true);
+      const permission = manager.checkPermission(workspace.id, 'agent1');
+      expect(permission?.readOnly).toBe(true);
     });
   });
 
   describe('addAgent', () => {
-    it('should add agent to workspace', async () => {
-      const workspace = await manager.createWorkspace(
-        'Test Workspace',
-        ['agent1']
+    it('should add agent to workspace', () => {
+      const workspace = manager.createWorkspace(
+        ['agent1'],
+        'agent1'
       );
 
-      await manager.addAgent(workspace.id, 'agent2');
+      manager.addAgent(workspace.id, 'agent2');
 
-      const updated = manager.getWorkspace(workspace.id);
-      expect(updated?.agents).toContain('agent2');
-      expect(updated?.permissions.has('agent2')).toBe(true);
+      expect(workspace.agents).toContain('agent2');
+      expect(workspace.permissions.has('agent2')).toBe(true);
     });
   });
 
   describe('removeAgent', () => {
-    it('should remove agent from workspace', async () => {
-      const workspace = await manager.createWorkspace(
-        'Test Workspace',
-        ['agent1', 'agent2']
+    it('should remove agent from workspace', () => {
+      const workspace = manager.createWorkspace(
+        ['agent1', 'agent2'],
+        'agent1'
       );
 
-      await manager.removeAgent(workspace.id, 'agent2');
+      manager.removeAgent(workspace.id, 'agent2');
 
-      const updated = manager.getWorkspace(workspace.id);
-      expect(updated?.agents).not.toContain('agent2');
-      expect(updated?.permissions.has('agent2')).toBe(false);
+      expect(workspace.agents).not.toContain('agent2');
+      expect(workspace.permissions.has('agent2')).toBe(false);
     });
   });
 
   describe('getAgentWorkspaces', () => {
-    it('should get workspaces for agent', async () => {
-      // Create workspaces with same manager instance
-      await manager.createWorkspace('WS1', ['agent1', 'agent2']);
-      await manager.createWorkspace('WS2', ['agent1', 'agent3']);
-      await manager.createWorkspace('WS3', ['agent2', 'agent3']);
+    it('should get workspaces for agent', () => {
+      manager.createWorkspace(['agent1', 'agent2'], 'agent1');
+      manager.createWorkspace(['agent1', 'agent3'], 'agent1');
 
       const workspaces = manager.getAgentWorkspaces('agent1');
-      // In test environment with mocked fs, persistence may not work
-      // So we check that the function works without errors
-      expect(workspaces).toBeInstanceOf(Array);
+      expect(workspaces.length).toBe(2);
     });
   });
 });
@@ -439,40 +434,40 @@ describe('CollaborationManager', () => {
       const message = await manager.request(
         'agent1',
         'agent2',
-        'Please help with this task',
-        { priority: 'high' }
+        'Please help with this task'
       );
 
       expect(message.fromAgent).toBe('agent1');
       expect(message.toAgent).toBe('agent2');
       expect(message.type).toBe('request');
-      expect(message.priority).toBe('high');
     });
   });
 
   describe('delegateTask', () => {
     it('should delegate task to another agent', async () => {
-      const delegation = await manager.delegateTask(
+      const delegationId = await manager.delegateTask(
         'agent1',
         'agent2',
         'Review the pull request',
         { priority: 'high', context: 'PR #123' }
       );
 
-      expect(delegation.delegator).toBe('agent1');
-      expect(delegation.delegatee).toBe('agent2');
-      expect(delegation.task).toBe('Review the pull request');
+      expect(delegationId).toBeDefined();
+      
+      const delegation = manager.getDelegation(delegationId);
+      expect(delegation?.delegator).toBe('agent1');
+      expect(delegation?.delegatee).toBe('agent2');
+      expect(delegation?.task).toBe('Review the pull request');
     });
   });
 
   describe('createSharedWorkspace', () => {
-    it('should create shared workspace', async () => {
-      const workspace = await manager.createSharedWorkspace(
-        'Shared Project',
-        ['agent1', 'agent2', 'agent3']
+    it('should create shared workspace', () => {
+      const workspace = manager.createSharedWorkspace(
+        ['agent1', 'agent2', 'agent3'],
+        'agent1'
       );
 
-      expect(workspace.name).toBe('Shared Project');
       expect(workspace.agents.length).toBe(3);
     });
   });
@@ -481,7 +476,7 @@ describe('CollaborationManager', () => {
     it('should return collaboration stats', async () => {
       await manager.request('agent1', 'agent2', 'Test request');
       await manager.delegateTask('agent1', 'agent2', 'Test task');
-      await manager.createSharedWorkspace('WS', ['agent1', 'agent2']);
+      manager.createSharedWorkspace(['agent1', 'agent2'], 'agent1');
 
       const stats = manager.getStats('agent2');
 

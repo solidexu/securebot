@@ -83,16 +83,21 @@ export class AgentMessageBus {
   /**
    * 回复消息
    */
-  async reply(originalMessageId: string, content: string): Promise<AgentMessage> {
-    // 找到原消息
+  async reply(originalMessageOrId: AgentMessage | string, content: string): Promise<AgentMessage> {
+    // 支持传入消息对象或 ID
     let originalMessage: AgentMessage | undefined;
-    for (const messages of this.messages.values()) {
-      originalMessage = messages.find(m => m.id === originalMessageId);
-      if (originalMessage) break;
+    if (typeof originalMessageOrId === 'string') {
+      // 找到原消息
+      for (const messages of this.messages.values()) {
+        originalMessage = messages.find(m => m.id === originalMessageOrId);
+        if (originalMessage) break;
+      }
+    } else {
+      originalMessage = originalMessageOrId;
     }
 
     if (!originalMessage) {
-      throw new Error(`Original message not found: ${originalMessageId}`);
+      throw new Error(`Original message not found`);
     }
 
     // 创建回复
@@ -102,7 +107,7 @@ export class AgentMessageBus {
       type: 'response',
       content,
       priority: originalMessage.priority,
-      replyTo: originalMessageId,
+      replyTo: originalMessage.id,
     });
   }
 

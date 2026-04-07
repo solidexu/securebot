@@ -435,6 +435,32 @@ export class DelegationManager {
     return this.rejectDelegation(id, reason);
   }
 
+  /**
+   * 标记消息已读
+   */
+  async markMessagesAsRead(delegationId: string, agentId: string): Promise<void> {
+    const delegation = this.delegations.get(delegationId);
+    if (!delegation) return;
+    // 简化实现：标记所有消息为已读
+    delegation.unreadCount = 0;
+    this.saveDelegation(delegation);
+  }
+
+  /**
+   * 获取未读消息数量
+   */
+  getUnreadCount(delegationId: string, agentId: string): number {
+    const delegation = this.delegations.get(delegationId);
+    return delegation?.unreadCount ?? 0;
+  }
+
+  /**
+   * 注册处理器
+   */
+  registerHandler(agentId: string, handler: (request: DelegationRequest) => Promise<boolean>): void {
+    this.handlers.set(agentId, handler);
+  }
+
   // ============ 私有方法 ============
 
   private emit(event: string): void {
