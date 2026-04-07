@@ -414,6 +414,27 @@ export class DelegationManager {
     return this.completeExecution(delegationId, result);
   }
 
+  /**
+   * @deprecated 使用 completeDelegation 代替
+   */
+  async completeDelegation(id: string, result: string): Promise<void> {
+    return this.completeExecution(id, result);
+  }
+
+  /**
+   * @deprecated 使用 getAgentDelegations 代替
+   */
+  getDelegations(agentId: string): DelegationRequest[] {
+    return this.getAgentDelegations(agentId);
+  }
+
+  /**
+   * @deprecated 使用 rejectDelegation 代替
+   */
+  async rejectDelegationWithReason(id: string, reason: string): Promise<void> {
+    return this.rejectDelegation(id, reason);
+  }
+
   // ============ 私有方法 ============
 
   private emit(event: string): void {

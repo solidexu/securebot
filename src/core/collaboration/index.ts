@@ -49,4 +49,5 @@ export {
   CollaborationManager,
   getCollaborationManager,
   configureCollaborationManager,
+  resetCollaborationManager,
 } from './collaboration-manager.js';

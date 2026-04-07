@@ -292,6 +292,37 @@ export class CollaborationManager {
   cleanup(): void {
     this.messageBus.clearMessages();
   }
+
+  // ============ 向后兼容方法 ============
+
+  /**
+   * @deprecated 使用 sendMessage 代替
+   */
+  async request(fromAgent: string, toAgent: string, content: string): Promise<AgentMessage> {
+    return this.sendMessage(fromAgent, toAgent, content, { type: 'request' });
+  }
+
+  /**
+   * @deprecated 使用 createDelegation 代替
+   */
+  async delegateTask(
+    delegator: string,
+    delegatee: string,
+    task: string,
+    options?: {
+      priority?: DelegationRequest['priority'];
+      context?: string;
+    }
+  ): Promise<string> {
+    return this.createDelegation(delegator, delegatee, task, options);
+  }
+
+  /**
+   * @deprecated 使用 createWorkspace 代替
+   */
+  createSharedWorkspace(agents: string[], createdBy: string): SharedWorkspace {
+    return this.createWorkspace(agents, createdBy);
+  }
 }
 
 // ============ 便捷函数 ============
@@ -317,4 +348,14 @@ export function configureCollaborationManager(
   config: Partial<CollaborationConfig>
 ): void {
   globalManager = new CollaborationManager(config);
+}
+
+/**
+ * 重置全局协作管理器
+ */
+export function resetCollaborationManager(): void {
+  if (globalManager) {
+    globalManager.cleanup();
+  }
+  globalManager = null;
 }

@@ -42,7 +42,7 @@ export class AgentMessageBus {
    */
   async sendMessage(
     message: Omit<AgentMessage, 'id' | 'createdAt' | 'status'>
-  ): Promise<string> {
+  ): Promise<AgentMessage> {
     const msg: AgentMessage = {
       ...message,
       id: `msg-${Date.now()}-${uuidv4().slice(0, 8)}`,
@@ -58,14 +58,59 @@ export class AgentMessageBus {
     // 通知监听器
     this.notifyListeners(message.toAgent, msg);
 
-    return msg.id;
+    return msg;
   }
 
   /**
    * 获取 Agent 的消息
    */
-  getMessages(agentId: string): AgentMessage[] {
-    return this.messages.get(agentId) || [];
+  getMessages(agentId: string, options?: { type?: string; limit?: number }): AgentMessage[] {
+    let messages = this.messages.get(agentId) || [];
+    
+    // 过滤类型
+    if (options?.type) {
+      messages = messages.filter(m => m.type === options.type);
+    }
+    
+    // 限制数量
+    if (options?.limit) {
+      messages = messages.slice(0, options.limit);
+    }
+    
+    return messages;
+  }
+
+  /**
+   * 回复消息
+   */
+  async reply(originalMessageId: string, content: string): Promise<AgentMessage> {
+    // 找到原消息
+    let originalMessage: AgentMessage | undefined;
+    for (const messages of this.messages.values()) {
+      originalMessage = messages.find(m => m.id === originalMessageId);
+      if (originalMessage) break;
+    }
+
+    if (!originalMessage) {
+      throw new Error(`Original message not found: ${originalMessageId}`);
+    }
+
+    // 创建回复
+    return this.sendMessage({
+      fromAgent: originalMessage.toAgent,
+      toAgent: originalMessage.fromAgent,
+      type: 'response',
+      content,
+      priority: originalMessage.priority,
+      replyTo: originalMessageId,
+    });
+  }
+
+  /**
+   * 注册消息处理器（subscribe 的别名）
+   */
+  registerHandler(agentId: string, handler: (message: AgentMessage) => void): () => void {
+    return this.subscribe(agentId, handler);
   }
 
   /**

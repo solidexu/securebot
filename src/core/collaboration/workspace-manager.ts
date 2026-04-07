@@ -138,6 +138,43 @@ export class SharedWorkspaceManager {
   }
 
   /**
+   * 检查权限
+   */
+  checkPermission(workspaceId: string, agentId: string): WorkspacePermission | undefined {
+    const workspace = this.workspaces.get(workspaceId);
+    if (!workspace) return undefined;
+    return workspace.permissions.get(agentId);
+  }
+
+  /**
+   * 更新权限
+   */
+  updatePermission(workspaceId: string, agentId: string, permission: Partial<WorkspacePermission>): void {
+    const workspace = this.workspaces.get(workspaceId);
+    if (!workspace) throw new Error(`Workspace not found: ${workspaceId}`);
+
+    const current = workspace.permissions.get(agentId);
+    if (current) {
+      workspace.permissions.set(agentId, { ...current, ...permission });
+      this.saveWorkspace(workspace);
+    }
+  }
+
+  /**
+   * 获取 Agent 的所有工作空间
+   */
+  getAgentWorkspaces(agentId: string): SharedWorkspace[] {
+    return Array.from(this.workspaces.values()).filter(ws => ws.agents.includes(agentId));
+  }
+
+  /**
+   * 创建工作空间（旧 API 兼容）
+   */
+  createSharedWorkspace(agents: string[], createdBy: string): SharedWorkspace {
+    return this.createWorkspace(agents, createdBy);
+  }
+
+  /**
    * 读取文件
    */
   readFile(workspaceId: string, filePath: string): string | undefined {
