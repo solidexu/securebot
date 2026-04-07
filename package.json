@@ -43,7 +43,8 @@
     "ora": "^9.3.0",
     "react": "^19.2.4",
     "undici": "^7.5.0",
-    "uuid": "^13.0.0"
+    "uuid": "^13.0.0",
+    "zustand": "^5.0.12"
   },
   "devDependencies": {
     "@types/adm-zip": "^0.5.8",

@@ -24,6 +24,9 @@ export * from './logger.js';
 // 追踪系统
 export * from './tracing.js';
 
+// 事件总线
+export * from './event-bus.js';
+
 // 协作系统
 export * from './collaboration/index.js';
 
