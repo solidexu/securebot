@@ -1,6 +1,6 @@
 import React, { useEffect, useCallback } from 'react';
 import { Box, Text, useApp as useInkApp, useInput } from 'ink';
-import { AppProvider, useApp } from './context/index.js';
+import { AppProviders, useApp } from './context/index.js';
 import { MainLayout, InputArea } from './components/index.js';
 import { theme } from './styles/theme.js';
 import { abortCurrentExecution } from './index.js';
@@ -268,8 +268,8 @@ const AppContent: React.FC<AppProps> = ({
 
 export const App: React.FC<AppProps> = (props) => {
   return (
-    <AppProvider>
+    <AppProviders>
       <AppContent {...props} />
-    </AppProvider>
+    </AppProviders>
   );
 };
