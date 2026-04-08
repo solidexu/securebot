@@ -33,6 +33,7 @@ export interface ConversationMessage {
   content: string;
   timestamp: number;
   agentId?: string;
+  read?: boolean;
 }
 
 export interface DelegationRequest {
@@ -160,6 +161,17 @@ export class DelegationManager {
     this.delegations.set(id, delegation);
     this.saveDelegation(delegation);
     this.emit('delegation:created');
+    
+    // 调用 delegatee 的 handler
+    const handler = this.handlers.get(request.delegatee);
+    if (handler) {
+      try {
+        await handler(delegation);
+      } catch (error) {
+        console.error(`Handler error for ${request.delegatee}:`, error);
+      }
+    }
+    
     this.processQueue();
 
     return id;
@@ -232,11 +244,12 @@ export class DelegationManager {
   /**
    * 完成执行
    */
-  async completeExecution(id: string, result: string): Promise<void> {
+  async completeExecution(id: string, result: string, skipReview = false): Promise<void> {
     const delegation = this.delegations.get(id);
     if (!delegation) throw new Error(`Delegation not found: ${id}`);
 
-    delegation.status = 'pending_review';
+    // 如果跳过审核，直接标记为完成
+    delegation.status = skipReview ? 'completed' : 'pending_review';
     delegation.result = result;
     delegation.updatedAt = Date.now();
 
@@ -379,14 +392,31 @@ export class DelegationManager {
     const delegation = this.delegations.get(delegationId);
     if (!delegation) throw new Error('委派不存在');
 
+    // 验证发送者权限
+    if (sender !== delegation.delegator && sender !== delegation.delegatee) {
+      throw new Error('无权限：发送者不是委派参与者');
+    }
+
+    // 验证内容
+    if (!content || content.trim().length === 0) {
+      throw new Error('消息内容不能为空');
+    }
+
+    // 验证内容长度
+    if (content.length > 10000) {
+      throw new Error('消息长度不能超过 10000 字符');
+    }
+
     const message: ConversationMessage = {
       role: sender === delegation.delegator ? 'user' : 'assistant',
       content,
       timestamp: Date.now(),
       agentId: sender,
+      read: false,
     };
 
     delegation.conversationHistory.push(message);
+    delegation.unreadCount = (delegation.unreadCount ?? 0) + 1;
     delegation.updatedAt = Date.now();
     this.saveDelegation(delegation);
 
@@ -418,7 +448,7 @@ export class DelegationManager {
    * @deprecated 使用 completeDelegation 代替
    */
   async completeDelegation(id: string, result: string): Promise<void> {
-    return this.completeExecution(id, result);
+    return this.completeExecution(id, result, true);  // 跳过审核，直接完成
   }
 
   /**
@@ -441,8 +471,18 @@ export class DelegationManager {
   async markMessagesAsRead(delegationId: string, agentId: string): Promise<void> {
     const delegation = this.delegations.get(delegationId);
     if (!delegation) return;
-    // 简化实现：标记所有消息为已读
-    delegation.unreadCount = 0;
+    
+    // 标记不是由 agentId 发送的消息为已读
+    let unreadCount = 0;
+    for (const msg of delegation.conversationHistory) {
+      if (msg.agentId !== agentId && !msg.read) {
+        msg.read = true;
+      }
+      if (!msg.read) {
+        unreadCount++;
+      }
+    }
+    delegation.unreadCount = unreadCount;
     this.saveDelegation(delegation);
   }
 
@@ -451,7 +491,12 @@ export class DelegationManager {
    */
   getUnreadCount(delegationId: string, agentId: string): number {
     const delegation = this.delegations.get(delegationId);
-    return delegation?.unreadCount ?? 0;
+    if (!delegation) return 0;
+    
+    // 计算不是由 agentId 发送的未读消息数量
+    return delegation.conversationHistory.filter(
+      msg => msg.agentId !== agentId && !msg.read
+    ).length;
   }
 
   /**
