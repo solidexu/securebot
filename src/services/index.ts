@@ -13,6 +13,8 @@ import {
 import { AgentServiceImpl } from './agent-service.js';
 import { ModelServiceImpl } from './model-service.js';
 import { CollaborationServiceImpl } from './collaboration-service.js';
+import { SessionService, getSessionService } from './session-service.js';
+import { MessageService, getMessageService } from './message-service.js';
 
 // 导出类型
 export type {
@@ -26,8 +28,19 @@ export type {
   DelegationRequestParams,
 } from './types.js';
 
+export type { SessionService, SessionConfig, SessionState, ConversationMessage } from './session-service.js';
+export type { MessageService, MessageOptions, FormattedMessage } from './message-service.js';
+
 // 导出容器
 export { ServiceContainer, ServiceNames, registerService, resolveService };
+
+// ============ 服务名称扩展 ============
+
+export const ExtendedServiceNames = {
+  ...ServiceNames,
+  SESSION_SERVICE: 'SessionService',
+  MESSAGE_SERVICE: 'MessageService',
+} as const;
 
 // ============ 服务初始化 ============
 
@@ -61,6 +74,12 @@ export function initializeServices(config?: {
   // 注册协作服务
   container.register(ServiceNames.COLLABORATION_SERVICE, new CollaborationServiceImpl());
 
+  // 注册会话服务
+  container.register(ExtendedServiceNames.SESSION_SERVICE, getSessionService());
+
+  // 注册消息服务
+  container.register(ExtendedServiceNames.MESSAGE_SERVICE, getMessageService());
+
   initialized = true;
 }
 
@@ -83,4 +102,18 @@ export function getModelService() {
  */
 export function getCollaborationService() {
   return resolveService<import('./types.js').CollaborationService>(ServiceNames.COLLABORATION_SERVICE);
+}
+
+/**
+ * 获取会话服务
+ */
+export function getSessionServiceInstance() {
+  return resolveService<SessionService>(ExtendedServiceNames.SESSION_SERVICE);
+}
+
+/**
+ * 获取消息服务
+ */
+export function getMessageServiceInstance() {
+  return resolveService<MessageService>(ExtendedServiceNames.MESSAGE_SERVICE);
 }
