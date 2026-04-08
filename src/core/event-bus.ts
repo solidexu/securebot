@@ -139,6 +139,13 @@ class EventBusImpl {
   }
 
   /**
+   * 订阅事件（别名）
+   */
+  subscribe<T>(event: string, callback: EventCallback<T>): () => void {
+    return this.on(event, callback);
+  }
+
+  /**
    * 订阅一次性事件
    */
   once<T>(event: string, callback: EventCallback<T>): () => void {
