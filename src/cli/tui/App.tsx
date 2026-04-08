@@ -4,6 +4,12 @@ import { AppProviders, useApp } from './context/index.js';
 import { MainLayout, InputArea } from './components/index.js';
 import { theme } from './styles/theme.js';
 import { abortCurrentExecution } from './index.js';
+import { 
+  useUIMessage, 
+  useUIStream, 
+  useUICode, 
+  useUIShell 
+} from './hooks/index.js';
 
 /** onMessage 回调的上下文参数 */
 export interface MessageContext {
