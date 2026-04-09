@@ -136,7 +136,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           return;
         }
 
-        globalCharIdx += 15; // 每帧写 15 个字符
+        globalCharIdx += 30; // 每帧写 30 个字符 — ~856字/秒，100行代码约3秒
 
         if (globalCharIdx >= allChars.length) {
           clearInterval(codeEditorTimerRef.current!);
