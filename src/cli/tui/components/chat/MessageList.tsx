@@ -94,12 +94,13 @@ export const MessageList: React.FC<Props> = ({
   } = useApp();
   const isFocused = focusPanel === 'chat';
 
-  // Streaming 时强制保持在最新位置（offset=0 = 最底部）
-  // 依赖 scrollOffset 确保用户手动滚动后也能重置回来
+  // Streaming 时默认跟随最新内容，但用户主动上滚时尊重用户意图
+  // 只有 offset=0（在底部）时才自动跟随，用户上滚后不再强制拉回
   React.useEffect(() => {
-    if (isStreaming && scrollOffset !== 0) {
-      setChatScroll(0);
+    if (isStreaming && scrollOffset === 0) {
+      // 已经在底部，保持跟随（无需操作，新消息自动可见）
     }
+    // 用户已上滚(scrollOffset > 0)：不强制拉回
   }, [isStreaming, scrollOffset, messages.length]);
 
   // 使用 useMemo 优化：完整展开所有消息（缓存结果）
