@@ -53,6 +53,28 @@ export interface StreamCallbacks {
   onStderr?: (data: string) => void;
 }
 
+function getShell(): string {
+  // 优先使用绝对路径，避免 PATH 环境问题
+  const candidates = ['/bin/sh', '/usr/bin/sh', '/bin/bash', '/usr/bin/bash'];
+  for (const shell of candidates) {
+    try {
+      require('fs').accessSync(shell, require('fs').constants.X_OK);
+      return shell;
+    } catch { /* continue */ }
+  }
+  // 回退到 PATH 搜索
+  return 'sh';
+}
+
+// 缓存 shell 路径（只检测一次）
+let _cachedShell: string | null = null;
+function getCachedShell(): string {
+  if (!_cachedShell) {
+    _cachedShell = getShell();
+  }
+  return _cachedShell;
+}
+
 /**
  * 执行命令（支持流式回调）
  */
@@ -63,9 +85,10 @@ function runCommand(
   callbacks?: StreamCallbacks
 ): Promise<ExecResult> {
   return new Promise((resolvePromise) => {
-    const proc = spawn('sh', ['-c', command], {
+    const shell = getCachedShell();
+    const proc = spawn(shell, ['-c', command], {
       cwd,
-      env: process.env,
+      env: { ...process.env },  // 显式传递环境变量
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
