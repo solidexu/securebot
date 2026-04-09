@@ -290,21 +290,26 @@ function createMessageHandler(options: TuiOptions) {
         round++;
         addLog?.(`[Round ${round}] 调用模型...`, 'info');
 
-        // 创建/更新助手消息
-        if (!assistantMsgId) {
-          assistantMsgId = addMessage?.({
-            sender: agent.name || agentId,
-            content: '',
-            type: round > 1 ? 'tool' : 'agent',
-          }) || '';
-        }
+        // 创建/更新助手消息（只在有文本内容或第一轮时创建）
+        let hasAssistantText = false;
 
         let roundContent = '';
 
         const onStream: StreamCallback = (chunk) => {
           if (chunk.content) {
+            if (!hasAssistantText) {
+              hasAssistantText = true;
+            }
             roundContent += chunk.content;
             finalContent = finalContent ? finalContent + chunk.content : roundContent;
+            // 延迟创建助手消息直到有内容
+            if (!assistantMsgId && hasAssistantText) {
+              assistantMsgId = addMessage?.({
+                sender: agent.name || agentId,
+                content: '',
+                type: 'agent',
+              }) || '';
+            }
             updateMessage?.(assistantMsgId, finalContent);
           }
         };
@@ -317,15 +322,28 @@ function createMessageHandler(options: TuiOptions) {
           onStream,
         });
 
-        if (!result.content && !roundContent) {
-          result.content = '(空回复)';
+        // 判断是否有文本内容（排除纯工具调用无文本的情况）
+        const hasContent = !!(result.content || roundContent);
+        
+        if (hasContent) {
+          // 有文本内容：确保消息存在并更新
+          if (!result.content && roundContent) {
+            result.content = roundContent;
+          }
+          if (result.content && !roundContent) {
+            roundContent = result.content;
+            finalContent = result.content;
+          }
+          if (!assistantMsgId) {
+            assistantMsgId = addMessage?.({
+              sender: agent.name || agentId,
+              content: result.content || roundContent || '',
+              type: 'agent',
+            }) || '';
+          } else {
+            updateMessage?.(assistantMsgId, result.content || roundContent || '');
+          }
         }
-        if (result.content && !roundContent) {
-          roundContent = result.content;
-          finalContent = result.content;
-        }
-
-        updateMessage?.(assistantMsgId, result.content || roundContent || '');
 
         // 检查是否有工具调用
         if (result.toolCalls && result.toolCalls.length > 0) {
