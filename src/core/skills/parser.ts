@@ -18,6 +18,14 @@ import type {
   ResourceReference,
 } from './types.js';
 
+
+// ============ YAML 解析缓存 ============
+
+/** YAML 解析缓存 */
+const yamlCache = new Map<string, Record<string, unknown>>();
+
+/** 缓存最大容量 */
+const MAX_YAML_CACHE_SIZE = 50;
 /**
  * 解析 SKILL.md 文件
  * @param skillFile 技能文件路径
@@ -101,19 +109,30 @@ export function parseSkillFile(skillFile: string, skillDirName?: string): Markdo
  * - 嵌套对象
  */
 function parseYamlFrontMatter(yamlContent: string): Record<string, any> {
+  // 检查缓存
+  const cached = yamlCache.get(yamlContent);
+  if (cached) {
+    return cached;
+  }
+  
+  // 解析 YAML
   try {
-    return yaml.load(yamlContent) as Record<string, any>;
+    const result = yaml.load(yamlContent) as Record<string, any>;
+    
+    // 添加到缓存（LRU 淘汰）
+    if (yamlCache.size >= MAX_YAML_CACHE_SIZE) {
+      // 删除最旧的条目（第一个）
+      const firstKey = yamlCache.keys().next().value;
+      if (firstKey) yamlCache.delete(firstKey);
+    }
+    yamlCache.set(yamlContent, result);
+    
+    return result;
   } catch (e) {
     console.warn("Failed to parse YAML:", e);
     return {};
   }
 }
-
-// Old implementation (fallback)
-  // 字符串
-  return value;
-}
-
 /**
  * 解析 Markdown 章节
  * 
@@ -396,4 +415,25 @@ export function extractOverview(body: string): string | undefined {
   // 如果没有 ## 标题，匹配到字符串结尾
   const match2 = body.match(/^#\s+.+\n\n(.+)$/s);
   return match2 ? match2[1].trim() : undefined;
+}
+// ============ 缓存管理 ============
+
+/**
+ * 清除 YAML 解析缓存
+ */
+export function clearYamlCache(): void {
+  yamlCache.clear();
+}
+
+/**
+ * 获取缓存统计信息
+ */
+export function getYamlCacheStats(): {
+  size: number;
+  maxSize: number;
+} {
+  return {
+    size: yamlCache.size,
+    maxSize: MAX_YAML_CACHE_SIZE,
+  };
 }
