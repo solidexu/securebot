@@ -5,6 +5,7 @@
  */
 
 import type { Session, Message, AgentConfig, Config } from './types.js';
+import { buildMemoryContextBlock } from './memory/memory-fence.js';
 import { getAgentsDir, getMemoryDir, getSkillsDir, getSessionsDir, getRootDir } from './config.js';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -169,7 +170,7 @@ function loadMemoryContext(memoryDir: string, agentId: string): string {
   const dailyNotes = loadRecentDailyNotes(memoryDir, 3);
   if (dailyNotes) sections.push(dailyNotes);
   
-  return sections.length > 0 ? '\n\n' + sections.join('\n\n') : '';
+  return buildMemoryContextBlock(sections.join('\n\n'));
 }
 
 // ============ Session 创建 ============

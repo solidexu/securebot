@@ -13,6 +13,7 @@ import { execTool } from './exec.js';
 import { ragTools } from '../rag/tools.js';
 import { memoryTools } from './memory.js';
 import { skillTools } from './skill.js';
+import { progressiveSkillTools } from './skill-progressive.js';
 
 // ============ 工具注册表 ============
 
@@ -68,166 +69,24 @@ export function getAvailableTools(agent: Agent, globalPolicy: ToolPolicy): Tool[
   );
 }
 
-/**
- * 获取 Agent 可用的工具名称
- */
-export function getAvailableToolNames(agent: Agent, globalPolicy: ToolPolicy): string[] {
-  return getAvailableTools(agent, globalPolicy).map(t => t.name);
-}
+// ============ 默认注册 ============
 
-// ============ 工具执行 ============
+registerTools([
+  readTool,
+  writeTool,
+  editTool,
+  execTool,
+]);
 
-/**
- * 执行工具（通过事件系统记录审计）
- * 
- * 注意：此函数假设工具已通过外层权限检查（getAvailableTools）
- * 内部不再重复检查权限，避免冗余计算
- */
-export async function executeTool(
-  toolName: string,
-  params: Record<string, unknown>,
-  context: ToolContext
-): Promise<ToolResult> {
-  const startTime = Date.now();
-  
-  const tool = getTool(toolName);
-  
-  if (!tool) {
-    // 发布工具调用失败事件
-    eventBus.emit({
-      type: EventTypes.TOOL_CALL_FAILURE,
-      timestamp: new Date(),
-      agentId: context.agent.id,
-      sessionId: context.session.sessionKey,
-      payload: {
-        toolName,
-        arguments: params,
-        error: `工具不存在: ${toolName}`,
-        duration: 0,
-      },
-    });
-    return {
-      success: false,
-      error: `工具不存在: ${toolName}`,
-    };
-  }
-  
-  // 发布工具调用开始事件
-  eventBus.emit({
-    type: EventTypes.TOOL_CALL_START,
-    timestamp: new Date(),
-    agentId: context.agent.id,
-    sessionId: context.session.sessionKey,
-    payload: {
-      toolName,
-      arguments: params,
-    },
-  });
-  
-  try {
-    const result = await tool.execute(params, context);
-    const duration = Date.now() - startTime;
-    
-    // 发布工具调用结果事件
-    if (result.success) {
-      eventBus.emit({
-        type: EventTypes.TOOL_CALL_SUCCESS,
-        timestamp: new Date(),
-        agentId: context.agent.id,
-        sessionId: context.session.sessionKey,
-        payload: {
-          toolName,
-          arguments: params,
-          result: result.content,
-          duration,
-        },
-      });
-    } else {
-      eventBus.emit({
-        type: EventTypes.TOOL_CALL_FAILURE,
-        timestamp: new Date(),
-        agentId: context.agent.id,
-        sessionId: context.session.sessionKey,
-        payload: {
-          toolName,
-          arguments: params,
-          error: result.error || '未知错误',
-          duration,
-        },
-      });
-    }
-    
-    return result;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const duration = Date.now() - startTime;
-    
-    // 发布工具调用失败事件
-    eventBus.emit({
-      type: EventTypes.TOOL_CALL_FAILURE,
-      timestamp: new Date(),
-      agentId: context.agent.id,
-      sessionId: context.session.sessionKey,
-      payload: {
-        toolName,
-        arguments: params,
-        error: message,
-        duration,
-      },
-    });
-    
-    return {
-      success: false,
-      error: `工具执行失败: ${message}`,
-    };
-  }
-}
-
-// ============ 工具 Schema 生成 ============
-
-/**
- * 生成工具的 OpenAI 格式 Schema
- */
-export function generateToolSchema(tool: Tool): {
-  type: 'function';
-  function: {
-    name: string;
-    description: string;
-    parameters: Record<string, unknown>;
-  };
-} {
-  return {
-    type: 'function',
-    function: {
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters as unknown as Record<string, unknown>,
-    },
-  };
-}
-
-/**
- * 生成所有工具的 Schema
- */
-export function generateAllToolSchemas(): ReturnType<typeof generateToolSchema>[] {
-  return getAllTools().map(generateToolSchema);
-}
-
-// ============ 自动注册所有工具 ============
-
-// 文件系统工具
-registerTool(readTool);
-registerTool(writeTool);
-registerTool(editTool);
-
-// 命令执行工具
-registerTool(execTool);
-
-// 记忆工具
-registerTools(memoryTools);
-
-// RAG 工具
 registerTools(ragTools);
-
-// 技能工具
+registerTools(memoryTools);
 registerTools(skillTools);
+registerTools(progressiveSkillTools);
+
+// ============ 导出 ============
+
+export { readTool, writeTool, editTool, execTool };
+export { ragTools };
+export { memoryTools };
+export { skillTools };
+export { progressiveSkillTools };

@@ -33,6 +33,9 @@ export interface MarkdownSkill {
   skillFile: string;
   category: 'public' | 'private';
   agentId?: string;
+  
+  /** 信任等级 */
+  trustLevel?: TrustLevel;
   isPublic?: boolean; // 添加isPublic字段
 }
 
@@ -72,6 +75,13 @@ export interface ResourceReference {
   description?: string;
 }
 
+// ============ Trust Level ============
+
+/**
+ * 技能信任等级
+ */
+export type TrustLevel = 'builtin' | 'trusted' | 'community' | 'user';
+
 // ============ 渐进式加载 ============
 
 /**
@@ -85,6 +95,32 @@ export interface SkillMetadata {
   category: 'public' | 'private';
   skillFile: string;  // 文件路径，用于按需加载
   agentId?: string;
+  
+  /** 信任等级 */
+  trustLevel?: TrustLevel;
+  
+  /** 信任等级 */
+  trustLevel?: TrustLevel;
+  
+  // 可选的触发条件
+  trigger?: SkillTrigger;
+}
+
+/**
+ * 技能元数据（轻量级，用于匹配）
+ */
+export interface SkillMetadata {
+  trustLevel?: TrustLevel;
+  id: string;
+  name: string;
+  keywords: string[];
+  description?: string;
+  category: 'public' | 'private';
+  skillFile: string;  // 文件路径，用于按需加载
+  agentId?: string;
+  
+  /** 信任等级 */
+  trustLevel?: TrustLevel;
   
   // 可选的触发条件
   trigger?: SkillTrigger;
@@ -186,6 +222,9 @@ export interface LegacySkill {
   }>;
   isPublic: boolean;
   agentId?: string;
+  
+  /** 信任等级 */
+  trustLevel?: TrustLevel;
   createdAt: string;
   updatedAt: string;
 }
