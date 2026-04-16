@@ -147,6 +147,11 @@ export interface AgentConfig {
   rag?: RAGConfig;
   /** 技能列表（技能 ID） */
   skills?: string[];
+/** 工具集配置（启用/禁用） */
+  toolsets?: {
+    enabled?: string[];
+    disabled?: string[];
+  };
   /** 沙箱配置 */
   sandbox?: {
     /** 是否启用沙箱 */

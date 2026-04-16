@@ -19,6 +19,8 @@ import {
 } from './skills/index.js';
 
 // 重导出类型
+import { isSkillConditionsAllowed } from "./skills/skill-conditions.js";
+import { getAvailableToolsets, type ToolsetConfig } from "./toolsets.js";
 export type {
   MarkdownSkill,
   SkillMetadata,
@@ -108,15 +110,29 @@ export class SkillManager {
     return this.loader.getCachedMetadata(skillId);
   }
 
-  async buildSkillsPrompt(agentId: string, skillIds?: string[]): Promise<string> {
+  async buildSkillsPrompt(
+    agentId: string,
+    skillIds?: string[],
+    toolsets?: ToolsetConfig
+  ): Promise<string> {
+    // 获取可用工具集
+    const availableToolsets = new Set(getAvailableToolsets(toolsets || {}));
+    
     const allSkills = await this.getAgentSkills(agentId);
+    
+    // 阶段 1：基于条件过滤技能
+    const filteredByConditions = allSkills.filter(skill => 
+      isSkillConditionsAllowed(skill, availableToolsets)
+    );
+    
+    // 阶段 2：基于 skillIds 过滤（如果指定）
     const skills = skillIds && skillIds.length > 0
-      ? allSkills.filter(s => skillIds.includes(s.id))
-      : allSkills;
+      ? filteredByConditions.filter(s => skillIds.includes(s.id))
+      : filteredByConditions;
 
-    if (skills.length === 0) return '';
+    if (skills.length === 0) return "";
 
-    const parts: string[] = ['## 技能模块\n'];
+    const parts: string[] = ["## 技能模块\n"];
 
     for (const skill of skills) {
       parts.push(`### ${skill.name}\n`);
@@ -125,9 +141,8 @@ export class SkillManager {
       }
     }
 
-    return parts.join('');
+    return parts.join("");
   }
-
   async createSkill(skill: Partial<MarkdownSkill> & { id: string; name: string }, isPublic: boolean, agentId?: string): Promise<MarkdownSkill> {
     const skillDir = isPublic
       ? join(this.config.publicDir, skill.id)

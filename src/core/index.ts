@@ -35,3 +35,15 @@ export * from './heartbeat/index.js';
 
 // 监控系统
 export * from './monitoring/index.js';
+// 工具集系统
+export * from './toolsets.js';
+
+// 技能条件激活
+export {
+  isSkillConditionsAllowed,
+  parseSkillConditions,
+  validateSkillConditions,
+  detectPlatform,
+  detectEnvironment,
+  type SkillActivationConditions,
+} from './skills/skill-conditions.js';
