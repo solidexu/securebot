@@ -213,10 +213,13 @@ export const InputBox: React.FC<Props> = ({
     }
 
     // 正常模式（非消息查看器）
+    // 使用 inputRef.current 避免闭包陈旧值导致叠字
+    const currentInput = inputRef.current;
+
     if (key.return) {
-      if (input.trim()) {
-        onSubmit?.(input.trim());
-        addToHistory(input.trim());
+      if (currentInput.trim()) {
+        onSubmit?.(currentInput.trim());
+        addToHistory(currentInput.trim());
         setInput('');
         setCompletions([]);
         // 发送消息后自动回到最新
@@ -236,7 +239,7 @@ export const InputBox: React.FC<Props> = ({
       closeMessageViewer();
     } else if (key.upArrow) {
       // 输入为空时，上箭头用于向上微调滚动（底部锚定：↑=看旧内容）
-      if (input.length === 0) {
+      if (currentInput.length === 0) {
         if (focusPanel === 'chat') {
           const totalLines = calcTotalLines(messages);
           const maxScroll = Math.max(0, totalLines - CHAT_WINDOW_HEIGHT);
@@ -263,7 +266,7 @@ export const InputBox: React.FC<Props> = ({
       }
     } else if (key.downArrow) {
       // 输入为空时，下箭头用于向下微调滚动（底部锚定：↓=看新内容）
-      if (input.length === 0) {
+      if (currentInput.length === 0) {
         if (focusPanel === 'chat') {
           const totalLines = calcTotalLines(messages);
           const maxScroll = Math.max(0, totalLines - CHAT_WINDOW_HEIGHT);
@@ -326,8 +329,8 @@ export const InputBox: React.FC<Props> = ({
       }
     } else if (key.tab) {
       // @agent 切换: 直接补全并立即切换
-      if (input.startsWith('@')) {
-        const matches = getAgentMatches(input, availableAgents);
+      if (currentInput.startsWith('@')) {
+        const matches = getAgentMatches(currentInput, availableAgents);
         if (matches.length === 1) {
           onSubmit?.(matches[0]!);
           addToHistory(matches[0]!);
@@ -337,7 +340,7 @@ export const InputBox: React.FC<Props> = ({
         }
         if (matches.length > 1) {
           setCompletions(matches);
-          const next = matches[(completions.indexOf(input) + 1) % matches.length];
+          const next = matches[(completions.indexOf(currentInput) + 1) % matches.length];
           if (next) setInput(next);
           return;
         }
@@ -348,7 +351,7 @@ export const InputBox: React.FC<Props> = ({
         setInput(completions[0]!);
         setCompletions([]);
       } else {
-        const matches = getCompletions(input, commands, availableAgents);
+        const matches = getCompletions(currentInput, commands, availableAgents);
         if (matches.length === 1) {
           setInput(matches[0]!);
         } else if (matches.length > 1) {
@@ -366,7 +369,7 @@ export const InputBox: React.FC<Props> = ({
         (key.ctrl && char === 'z');
 
       if (!isControlKey) {
-        setInput(input + char);
+        setInput(prev => prev + char);
         setCompletions([]);
       }
     }
