@@ -102,6 +102,7 @@ const AppContent: React.FC<AppProps> = ({
       setTaskStatus,
       addLog,
       setIsStreaming,
+      isStreaming,
       setSkills,
       startCodeWriter,
       startCodeEditor,
