@@ -44,7 +44,7 @@ export const TOOLSETS: Record<string, ToolsetDefinition> = {
   // 记忆系统
   'memory': {
     description: '长期记忆管理',
-    tools: ['remember', 'recall', 'memory_search'],
+    tools: ['remember', 'recall', 'add_fact', 'get_facts', 'delete_fact', 'clean_facts', 'set_user_info', 'get_user_info', 'memory_stats'],
     includes: [],
   },
   
