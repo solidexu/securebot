@@ -90,3 +90,4 @@ export { ragTools };
 export { memoryTools };
 export { skillTools };
 export { progressiveSkillTools };
+export { generateToolSchema, generateToolSchemas } from "./schema.js";
