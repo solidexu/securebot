@@ -9,6 +9,7 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { parseSkillConditions } from "./skill-conditions.js";
 import type {
   MarkdownSkill,
   WorkflowStep,
@@ -59,6 +60,7 @@ export function parseSkillFile(skillFile: string, skillDirName?: string): Markdo
       keywords: frontMatter.keywords || [],
       tools: frontMatter.tools,
       trigger: frontMatter.trigger,
+      conditions: parseSkillConditions(frontMatter),
 
       overview: sections.get('Overview') || sections.get('概述'),
       whenToUse: parseWhenToUse(

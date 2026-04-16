@@ -37,6 +37,7 @@ export interface MarkdownSkill {
   /** 信任等级 */
   trustLevel?: TrustLevel;
   isPublic?: boolean; // 添加isPublic字段
+  conditions?: SkillActivationConditions; // 激活条件
 }
 
 /**
@@ -236,4 +237,36 @@ export interface SkillMatchResult {
   skill: LegacySkill | MarkdownSkill;
   score: number;
   method: 'keyword' | 'semantic';
+}
+// ============ 技能激活条件（新增） ============
+
+/**
+ * 技能激活条件
+ * 
+ * 参考 Hermes Agent 的条件激活设计
+ */
+export interface SkillActivationConditions {
+  /** 需要的工具集（正向依赖） */
+  requires?: {
+    toolsets?: string[];
+    tools?: string[];
+  };
+  
+  /** Fallback 工具集（反向依赖） */
+  fallbackFor?: {
+    toolsets?: string[];
+    tools?: string[];
+  };
+  
+  /** 平台限制 */
+  platforms?: ('macos' | 'linux' | 'windows')[];
+  
+  /** 环境限制 */
+  environments?: ('production' | 'development' | 'testing')[];
+}
+
+// 扩展 SkillMetadata
+export interface SkillMetadataWithConditions extends SkillMetadata {
+  /** 激活条件 */
+  conditions?: SkillActivationConditions;
 }
