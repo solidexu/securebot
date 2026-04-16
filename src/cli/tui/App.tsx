@@ -137,13 +137,26 @@ const AppContent: React.FC<AppProps> = ({
   }, [defaultAgent]);  // 只依赖 defaultAgent，其他是稳定的 state setter
 
   useInput((char, key) => {
+    if (key.escape && isStreaming) {
+      // Esc: 打断当前正在执行的任务
+      const wasRunning = abortCurrentExecution();
+      if (wasRunning) {
+        addMessage({
+          sender: 'System',
+          content: '\n[Esc] 正在停止执行...',
+          type: 'warn',
+        });
+        addLog('用户按下 Esc，正在中断执行', 'warn');
+        return;
+      }
+    }
     if (key.ctrl && char === 'c') {
       // 先尝试中断正在执行的任务
       const wasRunning = abortCurrentExecution();
       if (wasRunning) {
         addMessage({
           sender: 'System',
-          content: '\n[CtrC] 正在停止执行...',
+          content: '\n[Ctrl+C] 正在停止执行...',
           type: 'warn',
         });
         addLog('用户按下 Ctrl+C，正在中断执行', 'warn');
