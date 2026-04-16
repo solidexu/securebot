@@ -10,6 +10,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { parseSkillConditions } from "./skill-conditions.js";
+import * as yaml from "js-yaml";
 import type {
   MarkdownSkill,
   WorkflowStep,
@@ -99,7 +100,17 @@ export function parseSkillFile(skillFile: string, skillDirName?: string): Markdo
  * - key: [array]
  * - 嵌套对象
  */
-function parseYamlFrontMatter(yaml: string): Record<string, any> {
+function parseYamlFrontMatter(yamlContent: string): Record<string, any> {
+  try {
+    return yaml.load(yamlContent) as Record<string, any>;
+  } catch (e) {
+    console.warn("Failed to parse YAML:", e);
+    return {};
+  }
+}
+
+// Old implementation (fallback)
+function _parseYamlFrontMatterOld(yaml: string): Record<string, any> {
   const result: Record<string, any> = {};
   const lines = yaml.split('\n');
 
