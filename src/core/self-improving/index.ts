@@ -174,3 +174,25 @@ export {
   type CategoryTreeNode,
   type TaxonomyConfig,
 } from './experience-taxonomy.js';
+// 技能创建提醒（周期性 Nudge）
+export {
+  SkillNudgeManager,
+  getSkillNudgeManager,
+  resetSkillNudgeManager,
+  DEFAULT_NUDGE_CONFIG,
+  DEFAULT_NUDGE_TEMPLATE,
+  ERROR_FIX_NUDGE_TEMPLATE,
+  isSkillCreationTool,
+  checkAndGenerateNudge,
+  type SkillNudgeConfig,
+} from './skill-nudge.js';
+
+// Nudge 集成工具
+export {
+  setupNudgeIntegration,
+  generateNudgeAfterResponse,
+  injectNudgeToPrompt,
+  injectNudgeToUserMessage,
+  manualTriggerNudge,
+  updateNudgeConfigFromSettings,
+} from './nudge-integration.js';
