@@ -129,3 +129,45 @@ memory_lookup({ memory_id: "mem_abc1" })
 **影响**：
 - 相同内容会生成不同 ID（保留历史）
 - cleanFactsTool 仍使用内容去重（保留行为）
+
+---
+
+## Phase 3: Hook 生命周期捕获（当前）
+
+**目标**：自动捕获 session 关键事件，无需手动 remember
+
+### 任务清单
+
+- [x] 3.1 设计 Session Hook 接口
+- [x] 3.2 实现 SessionStart Hook（注入上下文）
+- [x] 3.3 实现 UserPrompt Hook（记录用户输入）
+- [x] 3.4 实现 Stop Hook（生成 session summary）
+- [x] 3.5 实现 End Hook（标记完成 + RAG 同步）
+- [x] 3.6 测试 + 集成
+
+### Hook 设计
+
+```typescript
+interface SessionHook {
+  name: string;
+  trigger: 'start' | 'prompt' | 'stop' | 'end';
+  execute(context: HookContext): Promise<void>;
+}
+
+interface HookContext {
+  agentId: string;
+  sessionId: string;
+  prompt?: string;        // UserPrompt Hook
+  response?: string;      // Stop Hook
+  toolsUsed?: string[];   // Stop Hook
+}
+```
+
+### Hook 触发点
+
+| Hook | 触发时机 | 功能 |
+|------|---------|------|
+| SessionStart | Session 创建时 | 注入历史上下文 |
+| UserPrompt | 用户输入时 | 记录 prompt 到 daily memory |
+| Stop | 响应完成时 | 生成 summary |
+| End | Session 结束时 | 标记完成，触发 RAG 同步 |
