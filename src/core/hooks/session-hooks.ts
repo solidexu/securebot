@@ -1,3 +1,4 @@
+import { reportHookError } from './error-reporter.js';
 /**
  * Session Hook 实现
  * 
@@ -30,6 +31,7 @@ export const sessionStartHook: SessionHook = {
         console.log(`[Hook:start] Injected context for agent ${context.agentId} (${summary.length} chars)`);
       }
     } catch (error) {
+      reportHookError('session-start', 'start', error, context);
       console.error('[Hook:start] Failed to inject context:', error);
     }
   },
@@ -63,6 +65,7 @@ export const userPromptHook: SessionHook = {
       
       console.log(`[Hook:prompt] Recorded prompt for session ${context.sessionId}`);
     } catch (error) {
+      reportHookError('user-prompt', 'prompt', error, context);
       console.error('[Hook:prompt] Failed to record prompt:', error);
     }
   },
@@ -106,6 +109,7 @@ export const stopHook: SessionHook = {
         console.log(`[Hook:stop] Generated summary for session ${context.sessionId}`);
       }
     } catch (error) {
+      reportHookError('response-stop', 'stop', error, context);
       console.error('[Hook:stop] Failed to generate summary:', error);
     }
   },
@@ -144,6 +148,7 @@ export const sessionEndHook: SessionHook = {
       // 触发 RAG 同步（如果配置启用）
       // memoryManager.syncToRAG() 会自动在 remember 时触发（重要性 >= 4）
     } catch (error) {
+      reportHookError('session-end', 'end', error, context);
       console.error('[Hook:end] Failed to mark session complete:', error);
     }
   },

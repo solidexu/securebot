@@ -18,6 +18,20 @@ const PUBLIC_DIR = path.join(process.cwd(), 'public');
 
 // 中间件
 app.use(express.json());
+
+// API Key 认证（可选）
+const API_KEY = process.env.MEMORY_VIEWER_API_KEY;
+if (API_KEY) {
+  app.use('/api', (req, res, next) => {
+    const key = req.headers['x-api-key'] || req.query.apiKey;
+    if (key !== API_KEY) {
+      return res.status(401).json({ success: false, error: 'Unauthorized' });
+    }
+    next();
+  });
+  console.log('[Viewer] API Key authentication enabled');
+}
+
 app.use(express.static(PUBLIC_DIR));
 
 // ============ API 端点 ============

@@ -597,7 +597,7 @@ export class MemoryManager {
     const memory = await this.getDailyMemory(today, agentId);
 
     const entry: MemoryEntry = {
-      id: `mem_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+      id: `mem_${Buffer.from(Date.now().toString()).toString("base64").slice(0,8)}_${process.pid}`,
       timestamp: new Date().toISOString(),
       type,
       content,
@@ -1107,7 +1107,7 @@ ${entry.content}
    * 生成事实ID
    */
   private generateFactId(): string {
-    return `fact_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    return `fact_${Date.now()}_${process.pid}`;
   }
 
   /**
@@ -1460,15 +1460,24 @@ private normalizeFactContent(content: string): string {
     days?: number;
     limit?: number;
   }): Promise<Array<{ id: string; summary: string; type: string; timestamp: string; confidence?: number }>> {
+    // 检查缓存
+    const cacheKey = 'compact:' + query + ':' + (options?.limit || 10) + ':' + (options?.type || '');
+    const cached = this.searchCache.get(cacheKey);
+    if (cached) return cached as any[];
+    
     const entries = await this.search(query, options);
     const limit = options?.limit ?? 10;
-    return entries.slice(0, limit).map(entry => ({
+    const results = entries.slice(0, limit).map(entry => ({
       id: entry.id ?? 'mem_' + entry.timestamp.slice(0, 10).replace(/-/g, '') + '_' + entry.content.length,
       summary: entry.content.slice(0, 50) + (entry.content.length > 50 ? '...' : ''),
       type: entry.type,
       timestamp: entry.timestamp,
       confidence: entry.confidence,
     }));
+    
+    // 缓存结果
+    this.searchCache.set(cacheKey, results);
+    return results;
   }
 
   /**
