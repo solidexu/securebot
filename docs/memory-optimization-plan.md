@@ -171,3 +171,37 @@ interface HookContext {
 | UserPrompt | 用户输入时 | 记录 prompt 到 daily memory |
 | Stop | 响应完成时 | 生成 summary |
 | End | Session 结束时 | 标记完成，触发 RAG 同步 |
+
+---
+
+## Phase 4: Web Viewer UI（当前）
+
+**目标**：实时记忆流可视化，方便查看和溯源
+
+### 任务清单
+
+- [x] 4.1 Express + SSE 服务基础架构
+- [x] 4.2 记忆流 API 端点设计
+- [x] 4.3 React Viewer UI 基础组件
+- [x] 4.4 记忆列表 + 搜索界面
+- [x] 4.5 详情查看 + 时间线展示
+- [x] 4.6 测试 + 集成
+
+### 技术栈
+
+| 层 | 技术 |
+|---|------|
+| **后端** | Express.js + Server-Sent Events |
+| **前端** | React + TypeScript + Tailwind |
+| **构建** | esbuild (单文件 bundle) |
+| **端口** | 37777 (可配置) |
+
+### API 端点
+
+```
+GET  /api/memory/stream     SSE 实时记忆流
+GET  /api/memory/list       记忆列表（分页）
+GET  /api/memory/search     搜索记忆
+GET  /api/memory/:id        单条详情
+GET  /                     Viewer UI
+```

@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SecureBot Memory Viewer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .memory-item { transition: all 0.2s ease; }
+    .memory-item:hover { transform: translateY(-2px); }
+    .timeline-item { border-left: 2px solid #e5e7eb; padding-left: 12px; }
+    .timeline-center { border-left: 2px solid #3b82f6; background: #eff6ff; }
+    .pulse { animation: pulse 2s infinite; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <div id="app" class="container mx-auto px-4 py-8 max-w-4xl">
+    <!-- Header -->
+    <header class="mb-8">
+      <div class="flex items-center justify-between">
+        <div>
+          <h1 class="text-2xl font-bold text-gray-800">🧠 SecureBot Memory</h1>
+          <p class="text-gray-500 text-sm mt-1">实时记忆流查看器</p>
+        </div>
+        <div id="stats" class="text-right text-sm text-gray-600">
+          <span class="pulse">●</span> 连接中...
+        </div>
+      </div>
+    </header>
+
+    <!-- Search -->
+    <div class="mb-6">
+      <div class="flex gap-2">
+        <input 
+          type="text" 
+          id="searchInput" 
+          placeholder="搜索记忆..." 
+          class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        >
+        <button 
+          onclick="search()" 
+          class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+        >
+          搜索
+        </button>
+        <button 
+          onclick="loadList()" 
+          class="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600"
+        >
+          刷新
+        </button>
+      </div>
+    </div>
+
+    <!-- Memory List -->
+    <div id="memoryList" class="space-y-3">
+      <div class="text-center text-gray-500 py-8">加载中...</div>
+    </div>
+
+    <!-- Detail Modal -->
+    <div id="detailModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50">
+      <div class="bg-white rounded-xl max-w-2xl w-full mx-4 p-6 shadow-xl">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-lg font-bold text-gray-800">记忆详情</h2>
+          <button onclick="closeModal()" class="text-gray-500 hover:text-gray-700">✕</button>
+        </div>
+        <div id="detailContent" class="space-y-4">
+          <!-- 内容由 JS 填充 -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = window.location.origin;
+    let memories = [];
+
+    // 加载统计
+    async function loadStats() {
+      try {
+        const res = await fetch(`${API_BASE}/api/memory/stats`);
+        const data = await res.json();
+        if (data.success) {
+          document.getElementById('stats').innerHTML = `
+            <span class="text-green-500 pulse">●</span> 
+            ${data.data.totalEntries} 条记忆 | 
+            ${data.data.factsCount} 条事实
+          `;
+        }
+      } catch (e) {
+        document.getElementById('stats').innerHTML = '<span class="text-red-500">●</span> 连接失败';
+      }
+    }
+
+    // 加载记忆列表
+    async function loadList() {
+      try {
+        const res = await fetch(`${API_BASE}/api/memory/list?limit=50`);
+        const data = await res.json();
+        if (data.success) {
+          memories = data.data;
+          renderList(memories);
+        }
+      } catch (e) {
+        document.getElementById('memoryList').innerHTML = 
+          '<div class="text-center text-red-500 py-8">加载失败</div>';
+      }
+    }
+
+    // 搜索
+    async function search() {
+      const query = document.getElementById('searchInput').value;
+      if (!query) return loadList();
+      
+      try {
+        const res = await fetch(`${API_BASE}/api/memory/search?q=${encodeURIComponent(query)}&mode=compact`);
+        const data = await res.json();
+        if (data.success) {
+          renderList(data.data.map(r => ({
+            id: r.id,
+            type: r.type,
+            content: r.summary,
+            timestamp: r.timestamp,
+            confidence: r.confidence,
+          })));
+        }
+      } catch (e) {
+        console.error('Search failed:', e);
+      }
+    }
+
+    // 渲染列表
+    function renderList(items) {
+      if (items.length === 0) {
+        document.getElementById('memoryList').innerHTML = 
+          '<div class="text-center text-gray-500 py-8">暂无记忆</div>';
+        return;
+      }
+
+      const html = items.map(item => `
+        <div 
+          class="memory-item bg-white rounded-lg p-4 shadow cursor-pointer hover:shadow-md"
+          onclick="showDetail('${item.id}')"
+        >
+          <div class="flex justify-between items-start">
+            <div class="flex-1">
+              <div class="flex items-center gap-2 mb-1">
+                <span class="text-xs px-2 py-1 rounded ${getTypeColor(item.type)}">${item.type}</span>
+                <span class="text-xs text-gray-500">#${item.id?.slice(0,8) || '?'}</span>
+              </div>
+              <div class="text-gray-800">${escapeHtml(item.content)}</div>
+            </div>
+            <div class="text-xs text-gray-500 text-right ml-4">
+              ${formatDate(item.timestamp)}
+              ${item.confidence ? `<br>${Math.round(item.confidence * 100)}%` : ''}
+            </div>
+          </div>
+        </div>
+      `).join('');
+
+      document.getElementById('memoryList').innerHTML = html;
+    }
+
+    // 显示详情
+    async function showDetail(id) {
+      try {
+        const res = await fetch(`${API_BASE}/api/memory/${id}`);
+        const data = await res.json();
+        if (data.success) {
+          const { entry, timeline } = data.data;
+          
+          let html = `
+            <div class="bg-blue-50 rounded-lg p-4 mb-4">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-xs px-2 py-1 rounded ${getTypeColor(entry.type)}">${entry.type}</span>
+                <span class="text-xs text-gray-500">#${entry.id?.slice(0,8)}</span>
+                <span class="text-xs text-gray-500">${formatDate(entry.timestamp)}</span>
+              </div>
+              <div class="text-gray-800 text-lg">${escapeHtml(entry.content)}</div>
+              <div class="mt-2 text-xs text-gray-600">
+                重要性: ${entry.importance} | 
+                ${entry.confidence ? `置信度: ${Math.round(entry.confidence * 100)}%` : ''}
+              </div>
+            </div>
+          `;
+          
+          if (timeline.before.length > 0 || timeline.after.length > 0) {
+            html += '<div class="mt-4"><h3 class="text-sm font-semibold text-gray-700 mb-2">时间线</h3>';
+            
+            timeline.before.forEach(e => {
+              html += `
+                <div class="timeline-item py-2 text-sm text-gray-600">
+                  <span class="text-gray-500">#${e.id?.slice(0,4)}</span>
+                  ${escapeHtml(e.content)}
+                </div>
+              `;
+            });
+            
+            html += `
+              <div class="timeline-center py-2 px-3 rounded text-sm font-medium">
+                ⭐ ${escapeHtml(entry.content.slice(0,50))}
+              </div>
+            `;
+            
+            timeline.after.forEach(e => {
+              html += `
+                <div class="timeline-item py-2 text-sm text-gray-600">
+                  <span class="text-gray-500">#${e.id?.slice(0,4)}</span>
+                  ${escapeHtml(e.content)}
+                </div>
+              `;
+            });
+            
+            html += '</div>';
+          }
+          
+          document.getElementById('detailContent').innerHTML = html;
+          document.getElementById('detailModal').classList.remove('hidden');
+          document.getElementById('detailModal').classList.add('flex');
+        }
+      } catch (e) {
+        console.error('Failed to load detail:', e);
+      }
+    }
+
+    // 关闭 Modal
+    function closeModal() {
+      document.getElementById('detailModal').classList.add('hidden');
+      document.getElementById('detailModal').classList.remove('flex');
+    }
+
+    // 辅助函数
+    function getTypeColor(type) {
+      const colors = {
+        'knowledge': 'bg-blue-100 text-blue-700',
+        'preference': 'bg-green-100 text-green-700',
+        'task': 'bg-yellow-100 text-yellow-700',
+        'event': 'bg-purple-100 text-purple-700',
+        'conversation': 'bg-gray-100 text-gray-700',
+      };
+      return colors[type] || 'bg-gray-100 text-gray-700';
+    }
+
+    function formatDate(timestamp) {
+      if (!timestamp) return '';
+      const date = new Date(timestamp);
+      return date.toLocaleDateString('zh-CN') + ' ' + date.toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'});
+    }
+
+    function escapeHtml(text) {
+      if (!text) return '';
+      return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // 初始化
+    loadStats();
+    loadList();
+
+    // 定期刷新
+    setInterval(loadStats, 60000);
+
+    // 搜索框回车
+    document.getElementById('searchInput').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') search();
+    });
+  </script>
+</body>
+</html>
