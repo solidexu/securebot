@@ -74,7 +74,7 @@ export const rememberTool: Tool = {
 
 export const recallTool: Tool = {
   name: 'recall',
-  description: '搜索记忆中存储的信息。用于查找用户偏好、历史任务、关键事实等。',
+  description: '搜索记忆。mode=compact 返回 ID+摘要（节省tokens），mode=full 返回完整内容。建议先用 compact 定位，再用 memory_get 获取详情。',
   parameters: {
     type: 'object',
     properties: {
@@ -91,53 +91,89 @@ export const recallTool: Tool = {
         type: 'number',
         description: '搜索最近 N 天的记忆',
       },
+      mode: {
+        type: 'string',
+        enum: ['compact', 'full'],
+        description: '返回模式：compact=ID+摘要（推荐），full=完整内容',
+      },
+      limit: {
+        type: 'number',
+        description: '返回数量（compact默认10）',
+      },
     },
     required: ['query'],
   },
 
   async execute(params, context: ToolContext): Promise<ToolResult> {
-    const { query, type, days } = params as {
+    const { query, type, days, mode = 'compact', limit = 10 } = params as {
       query: string;
       type?: 'knowledge' | 'preference' | 'task' | 'event' | 'conversation';
       days?: number;
+      mode?: 'compact' | 'full';
+      limit?: number;
     };
 
     try {
       const memoryManager = getMemoryManager();
       await memoryManager.initialize();
       
-      const entries = await memoryManager.search(query, {
-        agentId: context.agent.id,
-        type,
-        days,
-      });
+      if (mode === 'compact') {
+        // 第一层：紧凑搜索
+        const results = await memoryManager.searchCompact(query, {
+          agentId: context.agent.id,
+          type,
+          days,
+          limit,
+        });
 
-      if (entries.length === 0) {
+        if (results.length === 0) {
+          return { success: true, content: '未找到相关记忆。' };
+        }
+
+        const lines: string[] = [
+          '找到 ' + results.length + ' 条相关记忆（紧凑模式）',
+          '提示: 用 memory_get 获取完整内容，用 memory_timeline 查看上下文',
+        ];
+        
+        results.forEach((r, i) => {
+          const date = new Date(r.timestamp).toLocaleDateString('zh-CN');
+          // Citation 格式: [#id] [date] [type] summary
+          lines.push((i + 1) + '. [#' + r.id.slice(0,8) + '] [' + date + '] [' + r.type + '] ' + r.summary);
+        });
+
         return {
           success: true,
-          content: '未找到相关记忆。',
+          content: lines.join('\n'),
+          metadata: { count: results.length, mode: 'compact' },
+        };
+      } else {
+        // full 模式
+        const entries = await memoryManager.search(query, {
+          agentId: context.agent.id,
+          type,
+          days,
+        });
+
+        if (entries.length === 0) {
+          return { success: true, content: '未找到相关记忆。' };
+        }
+
+        const lines: string[] = ['找到 ' + entries.length + ' 条相关记忆（完整模式）:'];
+        
+        entries.slice(0, limit).forEach((e, i) => {
+          const date = new Date(e.timestamp).toLocaleDateString('zh-CN');
+          lines.push((i + 1) + '. [#' + (e.id?.slice(0,8) || '?') + '] [' + date + '] ' + e.content);
+        });
+
+        return {
+          success: true,
+          content: lines.join('\n'),
+          metadata: { count: entries.length, mode: 'full' },
         };
       }
-
-      const content = entries
-        .slice(0, 10)
-        .map((e, i) => {
-          const date = new Date(e.timestamp).toLocaleDateString('zh-CN');
-          return `${i + 1}. [${date}] ${e.content}`;
-        })
-        .join('\n');
-
-      return {
-        success: true,
-        content: `找到 ${entries.length} 条相关记忆:\n${content}`,
-        metadata: { count: entries.length, query },
-      };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return {
-        success: false,
-        error: `记忆搜索失败: ${message}`,
-      };
+      return { success: false, error: '记忆搜索失败: ' + message };
     }
   },
 };
@@ -831,6 +867,84 @@ export const memoryTimelineTool: Tool = {
   },
 };
 
+
+
+// ============ 单条溯源工具 ============
+
+export const memoryLookupTool: Tool = {
+  name: 'memory_lookup',
+  description: '根据 ID 查单条记忆的完整详情和来源信息。用于溯源验证。',
+  parameters: {
+    type: 'object',
+    properties: {
+      memory_id: {
+        type: 'string',
+        description: '记忆 ID（从 recall compact 结果获取）',
+      },
+    },
+    required: ['memory_id'],
+  },
+
+  async execute(params, context: ToolContext): Promise<ToolResult> {
+    const { memory_id } = params as { memory_id: string };
+
+    try {
+      const memoryManager = getMemoryManager();
+      await memoryManager.initialize();
+      
+      const entries = await memoryManager.getByIds([memory_id], {
+        agentId: context.agent.id,
+      });
+
+      if (entries.length === 0) {
+        return { success: false, error: '未找到记忆: ' + memory_id };
+      }
+
+      const entry = entries[0]!;
+      const date = new Date(entry.timestamp).toLocaleDateString('zh-CN');
+      const time = new Date(entry.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+
+      const lines: string[] = [
+        '### 记忆溯源 [#' + (entry.id?.slice(0,8) || memory_id.slice(0,8)) + ']',
+        '',
+        '**基本信息**',
+        '- 创建时间: ' + date + ' ' + time,
+        '- 类型: ' + entry.type,
+        '- 重要性: ' + entry.importance,
+      ];
+
+      if (entry.confidence) {
+        lines.push('- 置信度: ' + (entry.confidence * 100).toFixed(0) + '%');
+      }
+      if (entry.tags?.length) {
+        lines.push('- 标签: ' + entry.tags.join(', '));
+      }
+      if (entry.agentId) {
+        lines.push('- 来源 Agent: ' + entry.agentId);
+      }
+
+      lines.push('', '**完整内容**', entry.content);
+
+      // 添加溯源提示
+      lines.push('', '---');
+      lines.push('提示: 用 memory_timeline 查看此记忆的时间线上下文');
+
+      return {
+        success: true,
+        content: lines.join('\n'),
+        metadata: {
+          memoryId: entry.id,
+          type: entry.type,
+          importance: entry.importance,
+          timestamp: entry.timestamp,
+        },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: '溯源失败: ' + message };
+    }
+  },
+};
 export const memoryGetTool: Tool = {
   name: 'memory_get',
   description: '根据 ID 批量获取完整记忆内容。用于 Progressive Disclosure 第三层检索。',
@@ -892,6 +1006,7 @@ export const memoryGetTool: Tool = {
 export const memoryTools = [
   memoryTimelineTool,
   memoryGetTool,
+  memoryLookupTool,
   rememberTool,
   recallTool,
   addFactTool,

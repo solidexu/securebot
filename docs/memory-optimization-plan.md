@@ -94,3 +94,38 @@ interface MemoryDetail {
 - claude-mem: https://github.com/thedotmack/claude-mem
 - claude-mem 架构: https://docs.claude-mem.ai/architecture/overview
 - securebot 记忆: docs/MEMORY.md
+
+---
+
+## Phase 2: Citations + ID 溯源（当前）
+
+**目标**：每条记忆可引用，便于验证和跨 session 关联
+
+### 任务清单
+
+- [x] 2.1 搜索结果带 Citation 格式 `[Source: #abc123]`
+- [x] 2.2 新增 memory_lookup 工具（单条溯源）
+- [ ] 2.3 去重逻辑调整（ID 作为唯一标识）
+- [ ] 2.4 测试 + 文档更新
+
+### Citation 格式设计
+
+```
+搜索结果输出格式：
+1. [#mem_abc1] [2026-04-17] [knowledge] 我是Python开发者...
+
+溯源调用：
+memory_lookup({ memory_id: "mem_abc1" })
+返回：完整内容 + 来源 + 创建时间 + 相关标签
+```
+
+### 去重逻辑调整
+
+**已完成**：
+- MemoryEntry.id 作为唯一标识
+- remember() 方法自动生成 ID
+- getByIds() 使用 ID 匹配而非内容匹配
+
+**影响**：
+- 相同内容会生成不同 ID（保留历史）
+- cleanFactsTool 仍使用内容去重（保留行为）
