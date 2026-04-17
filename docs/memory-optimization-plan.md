@@ -105,8 +105,8 @@ interface MemoryDetail {
 
 - [x] 2.1 搜索结果带 Citation 格式 `[Source: #abc123]`
 - [x] 2.2 新增 memory_lookup 工具（单条溯源）
-- [ ] 2.3 去重逻辑调整（ID 作为唯一标识）
-- [ ] 2.4 测试 + 文档更新
+- [x] 2.3 去重逻辑调整（ID 作为唯一标识）
+- [x] 2.4 测试 + 文档更新
 
 ### Citation 格式设计
 

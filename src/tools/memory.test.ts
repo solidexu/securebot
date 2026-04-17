@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { addFactTool, getFactsTool, deleteFactTool } from './memory.js';
+import { addFactTool, getFactsTool, deleteFactTool, recallTool, memoryLookupTool } from './memory.js';
 import { reconfigureMemoryManager } from '../core/memory.js';
 import type { Agent, Session } from '../core/types.js';
 import { mkdirSync, rmSync } from 'node:fs';
@@ -247,6 +247,28 @@ describe('Memory Tools', () => {
         mockContext
       );
 
+      expect(result.success).toBe(false);
+    });
+  });
+});
+describe('Progressive Disclosure Tools', () => {
+  describe('recallTool mode', () => {
+    it('should return compact results', async () => {
+      await addFactTool.execute({ content: '我是Python开发者' }, mockContext);
+      const result = await recallTool.execute({ query: 'Python', mode: 'compact' }, mockContext);
+      expect(result.success).toBe(true);
+    });
+
+    it('should return full results', async () => {
+      await addFactTool.execute({ content: '我是Go语言专家' }, mockContext);
+      const result = await recallTool.execute({ query: 'Go', mode: 'full' }, mockContext);
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('memoryLookupTool', () => {
+    it('should fail for non-existent ID', async () => {
+      const result = await memoryLookupTool.execute({ memory_id: 'nonexistent' }, mockContext);
       expect(result.success).toBe(false);
     });
   });
