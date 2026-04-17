@@ -59,6 +59,8 @@ export interface RAGSyncHandler {
  * 记忆条目
  */
 export interface MemoryEntry {
+  /** 记忆 ID（Progressive Disclosure） */
+  id?: string;
   /** 时间戳 */
   timestamp: string;
   /** 类型 */
@@ -595,6 +597,7 @@ export class MemoryManager {
     const memory = await this.getDailyMemory(today, agentId);
 
     const entry: MemoryEntry = {
+      id: `mem_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
       timestamp: new Date().toISOString(),
       type,
       content,
@@ -1445,6 +1448,70 @@ private normalizeFactContent(content: string): string {
     
     return results;
   }
+
+  // ============ Progressive Disclosure 方法 ============
+
+  /**
+   * 紧凑搜索（第一层）
+   */
+  async searchCompact(query: string, options?: {
+    agentId?: string;
+    type?: MemoryEntry['type'];
+    days?: number;
+    limit?: number;
+  }): Promise<Array<{ id: string; summary: string; type: string; timestamp: string; confidence?: number }>> {
+    const entries = await this.search(query, options);
+    const limit = options?.limit ?? 10;
+    return entries.slice(0, limit).map(entry => ({
+      id: entry.id ?? 'mem_' + entry.timestamp.slice(0, 10).replace(/-/g, '') + '_' + entry.content.length,
+      summary: entry.content.slice(0, 50) + (entry.content.length > 50 ? '...' : ''),
+      type: entry.type,
+      timestamp: entry.timestamp,
+      confidence: entry.confidence,
+    }));
+  }
+
+  /**
+   * 获取时间线（第二层）
+   */
+  async getTimeline(memoryId: string, options?: {
+    agentId?: string;
+    contextSize?: number;
+  }): Promise<{ center: MemoryEntry | null; before: MemoryEntry[]; after: MemoryEntry[] }> {
+    const contextSize = options?.contextSize ?? 5;
+    const entries = await this.getWorkingMemory(options?.agentId);
+    const sorted = [...entries].sort((a, b) => 
+      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+    const centerIndex = sorted.findIndex(entry => 
+      entry.id === memoryId || 
+      (entry.id && (entry.id.startsWith(memoryId) || memoryId.includes(entry.id.slice(0, 8))))
+    );
+    if (centerIndex === -1) return { center: null, before: [], after: [] };
+    const center = sorted[centerIndex]!;
+    const before = sorted.slice(Math.max(0, centerIndex - contextSize), centerIndex);
+    const after = sorted.slice(centerIndex + 1, centerIndex + 1 + contextSize);
+    return { center, before, after };
+  }
+
+  /**
+   * 根据 ID 批量获取完整内容（第三层）
+   */
+  async getByIds(memoryIds: string[], options?: {
+    agentId?: string;
+  }): Promise<MemoryEntry[]> {
+    const entries = await this.getWorkingMemory(options?.agentId);
+    return entries.filter(entry => {
+      if (!entry.id) return false;
+      const entryId = entry.id;
+      return memoryIds.some(id => 
+        entryId === id || 
+        entryId.startsWith(id) ||
+        id.includes(entryId.slice(0, 8))
+      );
+    });
+  }
+
 
   /**
    * 获取上下文摘要（精确token计数）

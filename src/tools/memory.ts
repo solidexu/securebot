@@ -760,7 +760,138 @@ export const memoryStatsTool: Tool = {
 
 // ============ 导出 ============
 
+
+// ============ Progressive Disclosure 工具 ============
+
+export const memoryTimelineTool: Tool = {
+  name: 'memory_timeline',
+  description: '获取指定记忆的时间线上下文。返回目标记忆前后各5条相关记录。',
+  parameters: {
+    type: 'object',
+    properties: {
+      memory_id: {
+        type: 'string',
+        description: '记忆 ID（从 recall compact 结果获取）',
+      },
+      context_size: {
+        type: 'number',
+        description: '上下文条数（默认5）',
+      },
+    },
+    required: ['memory_id'],
+  },
+
+  async execute(params, context: ToolContext): Promise<ToolResult> {
+    const { memory_id, context_size = 5 } = params as { memory_id: string; context_size?: number };
+
+    try {
+      const memoryManager = getMemoryManager();
+      await memoryManager.initialize();
+      
+      const timeline = await memoryManager.getTimeline(memory_id, {
+        agentId: context.agent.id,
+        contextSize: context_size,
+      });
+
+      if (!timeline.center) {
+        return { success: false, error: '未找到记忆: ' + memory_id };
+      }
+
+      const lines: string[] = ['### 记忆时间线'];
+      
+      if (timeline.before.length > 0) {
+        lines.push('\n**前置上下文**');
+        timeline.before.forEach((e, i) => {
+          const date = new Date(e.timestamp).toLocaleDateString('zh-CN');
+          lines.push((i + 1) + '. [' + (e.id?.slice(0,8) || '?') + '] [' + date + '] ' + e.content.slice(0,50));
+        });
+      }
+      
+      lines.push('\n**目标记忆**');
+      const centerDate = new Date(timeline.center.timestamp).toLocaleDateString('zh-CN');
+      lines.push('⭐ [' + (timeline.center.id?.slice(0,8) || '?') + '] [' + centerDate + '] ' + timeline.center.content.slice(0,100));
+      
+      if (timeline.after.length > 0) {
+        lines.push('\n**后置上下文**');
+        timeline.after.forEach((e, i) => {
+          const date = new Date(e.timestamp).toLocaleDateString('zh-CN');
+          lines.push((i + 1) + '. [' + (e.id?.slice(0,8) || '?') + '] [' + date + '] ' + e.content.slice(0,50));
+        });
+      }
+
+      return {
+        success: true,
+        content: lines.join('\n'),
+        metadata: { memoryId: memory_id, beforeCount: timeline.before.length, afterCount: timeline.after.length },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: '获取时间线失败: ' + message };
+    }
+  },
+};
+
+export const memoryGetTool: Tool = {
+  name: 'memory_get',
+  description: '根据 ID 批量获取完整记忆内容。用于 Progressive Disclosure 第三层检索。',
+  parameters: {
+    type: 'object',
+    properties: {
+      memory_ids: {
+        type: 'string',
+        description: '记忆 ID 列表，用逗号分隔',
+      },
+    },
+    required: ['memory_ids'],
+  },
+
+  async execute(params, context: ToolContext): Promise<ToolResult> {
+    const { memory_ids } = params as { memory_ids: string };
+    
+    const ids = memory_ids.split(',').map(id => id.trim()).filter(Boolean);
+    
+    if (ids.length === 0) {
+      return { success: false, error: '请提供至少一个记忆 ID' };
+    }
+
+    try {
+      const memoryManager = getMemoryManager();
+      await memoryManager.initialize();
+      
+      const entries = await memoryManager.getByIds(ids, { agentId: context.agent.id });
+
+      if (entries.length === 0) {
+        return { success: false, error: '未找到任何记忆: ' + ids.join(', ') };
+      }
+
+      const lines: string[] = ['### 记忆详情 (' + entries.length + '条)'];
+      
+      entries.forEach((e, i) => {
+        const date = new Date(e.timestamp).toLocaleDateString('zh-CN');
+        const time = new Date(e.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+        lines.push('\n**' + (i + 1) + '. [' + (e.id?.slice(0,8) || '?') + '] [' + date + ' ' + time + ']**');
+        lines.push('类型: ' + e.type);
+        lines.push('重要性: ' + e.importance);
+        if (e.confidence) lines.push('置信度: ' + (e.confidence * 100).toFixed(0) + '%');
+        if (e.tags?.length) lines.push('标签: ' + e.tags.join(', '));
+        lines.push('\n' + e.content);
+      });
+
+      return {
+        success: true,
+        content: lines.join('\n'),
+        metadata: { requestedIds: ids, foundCount: entries.length },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: '获取记忆详情失败: ' + message };
+    }
+  },
+};
+
 export const memoryTools = [
+  memoryTimelineTool,
+  memoryGetTool,
   rememberTool,
   recallTool,
   addFactTool,
