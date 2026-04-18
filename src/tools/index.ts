@@ -63,10 +63,45 @@ export function getToolNames(): string[] {
  */
 export function getAvailableTools(agent: Agent, globalPolicy: ToolPolicy): Tool[] {
   const policy = getAgentToolPolicy(agent, globalPolicy);
-  
-  return getAllTools().filter(tool => 
+
+  return getAllTools().filter(tool =>
     isToolAllowed(tool.name, policy)
   );
+}
+
+/**
+ * 获取 Agent 可用的工具名称列表
+ */
+export function getAvailableToolNames(agent: Agent, globalPolicy: ToolPolicy): string[] {
+  const tools = getAvailableTools(agent, globalPolicy);
+  return tools.map(tool => tool.name);
+}
+
+/**
+ * 执行工具调用
+ */
+export async function executeTool(
+  name: string,
+  args: Record<string, unknown>,
+  context: ToolContext
+): Promise<ToolResult> {
+  const tool = getTool(name);
+
+  if (!tool) {
+    return {
+      success: false,
+      error: `Tool "${name}" not found`
+    };
+  }
+
+  try {
+    return await tool.execute(args, context);
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
 }
 
 // ============ 默认注册 ============
