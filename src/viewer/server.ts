@@ -48,7 +48,7 @@ if (!NO_AUTH) {
       if (key !== API_KEY) {
         return res.status(401).json({ success: false, error: 'Unauthorized' });
       }
-      next();;
+      next();
     });
     console.log('[Viewer] ✅ API Key authentication enabled');
   }
