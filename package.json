@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^0.10.1",
+    "@inkjs/ui": "^2.0.0",
     "@types/chokidar": "^1.7.5",
     "@types/express": "^5.0.6",
     "adm-zip": "^0.5.16",
@@ -57,11 +58,11 @@
     "@types/node": "^22.13.0",
     "@types/react": "^19.2.14",
     "@types/uuid": "^10.0.0",
-    "oxlint": "^0.16.0",
+    "oxlint": "^0.16.12",
     "tsdown": "^0.11.0",
     "tsx": "^4.19.0",
     "typescript": "^5.8.0",
-    "vitest": "^3.0.0"
+    "vitest": "^3.2.4"
   },
   "engines": {
     "node": ">=20.0.0"

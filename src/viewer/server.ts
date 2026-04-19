@@ -19,17 +19,42 @@ const PUBLIC_DIR = path.join(process.cwd(), 'public');
 // 中间件
 app.use(express.json());
 
-// API Key 认证（可选）
+// API Key 认证（默认启用，可通过 MEMORY_VIEWER_NO_AUTH=1 禁用）
 const API_KEY = process.env.MEMORY_VIEWER_API_KEY;
-if (API_KEY) {
-  app.use('/api', (req, res, next) => {
-    const key = req.headers['x-api-key'] || req.query.apiKey;
-    if (key !== API_KEY) {
-      return res.status(401).json({ success: false, error: 'Unauthorized' });
-    }
-    next();
-  });
-  console.log('[Viewer] API Key authentication enabled');
+const NO_AUTH = process.env.MEMORY_VIEWER_NO_AUTH === '1' || process.env.MEMORY_VIEWER_NO_AUTH === 'true';
+
+if (!NO_AUTH) {
+  // 默认启用认证
+  if (!API_KEY) {
+    // 未设置 API_KEY 时生成临时密钥并警告
+    const tempKey = `temp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    console.warn('\x1b[33m%s\x1b[0m', `[Viewer] ⚠️  WARNING: MEMORY_VIEWER_API_KEY not set!`);
+    console.warn('\x1b[33m%s\x1b[0m', `[Viewer] ⚠️  Using temporary key: ${tempKey}`);
+    console.warn('\x1b[33m%s\x1b[0m', `[Viewer] ⚠️  Set MEMORY_VIEWER_API_KEY for production!`);
+    console.warn('\x1b[33m%s\x1b[0m', `[Viewer] ⚠️  Or set MEMORY_VIEWER_NO_AUTH=1 to disable auth (NOT recommended)`);
+    
+    // 使用临时密钥
+    app.use('/api', (req, res, next) => {
+      const key = req.headers['x-api-key'] || req.query.apiKey;
+      if (key !== tempKey) {
+        return res.status(401).json({ success: false, error: 'Unauthorized', hint: 'Check console for temporary API key' });
+      }
+      next();
+    });
+  } else {
+    // 使用配置的 API_KEY
+    app.use('/api', (req, res, next) => {
+      const key = req.headers['x-api-key'] || req.query.apiKey;
+      if (key !== API_KEY) {
+        return res.status(401).json({ success: false, error: 'Unauthorized' });
+      }
+      next();;
+    });
+    console.log('[Viewer] ✅ API Key authentication enabled');
+  }
+} else {
+  console.warn('\x1b[31m%s\x1b[0m', `[Viewer] ⚠️  WARNING: Authentication DISABLED (MEMORY_VIEWER_NO_AUTH=1)`);
+  console.warn('\x1b[31m%s\x1b[0m', `[Viewer] ⚠️  NOT recommended for production environments!`);
 }
 
 app.use(express.static(PUBLIC_DIR));
