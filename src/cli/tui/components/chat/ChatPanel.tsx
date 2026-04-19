@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
+import { Spinner } from '@inkjs/ui';
 import { useApp } from '../../context/index.js';
 import { MessageList } from './MessageList.js';
 import { theme } from '../../styles/theme.js';
@@ -69,8 +70,4 @@ export const ChatPanel: React.FC = () => {
     </Box>
   );
 };
-
-// 内联 Spinner 避免额外导入问题
-const Spinner: React.FC<{ type?: string }> = () => (
-  <Text color="yellow">{'\u25a0'}</Text>
 );
