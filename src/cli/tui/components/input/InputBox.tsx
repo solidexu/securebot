@@ -30,7 +30,9 @@ export const InputBox: React.FC<Props> = ({
 }) => {
   const [input, setInput] = useState('');
   const [completions, setCompletions] = useState<string[]>([]);
+  const [pendingMessage, setPendingMessage] = useState<string | null>(null);
   const inputRef = useRef(input);
+  const prevStreamingRef = useRef(false);
   const {
     currentAgent,
     addToHistory,
@@ -60,11 +62,24 @@ export const InputBox: React.FC<Props> = ({
     inputRef.current = input;
   }, [input]);
 
+  // 监听 stream 结束，自动发送排队中的消息
+  useEffect(() => {
+    if (prevStreamingRef.current && !isStreaming && pendingMessage) {
+      // stream 刚结束，发送排队的消息
+      onSubmit?.(pendingMessage);
+      addToHistory(pendingMessage);
+      setPendingMessage(null);
+      setInput('');
+      setCompletions([]);
+      if (chatScrollOffset > 0) setChatScroll(0);
+    }
+    prevStreamingRef.current = isStreaming;
+  }, [isStreaming, pendingMessage]);
+
   // 注册滚轮事件回调（在 render 之后设置全局回调）
+  // 注意：stream 时允许滚动
   useEffect(() => {
     const wheelCallback = (deltaY: number) => {
-      if (isStreaming) return;
-
       // deltaY: 负数=向上滚动(新内容), 正数=向下滚动(旧内容)
       // 消息查看器打开时：在消息内容中滚动
       if (messageViewerOpen) {
@@ -155,9 +170,18 @@ export const InputBox: React.FC<Props> = ({
     selectMessage(allMsgIds[nextIdx]!);
   };
 
-  useInput((char, key) => {
-    if (isStreaming) return;
+  // 执行滚动操作（chat panel）
+  const doChatScroll = (direction: 'up' | 'down', step: number) => {
+    const totalLines = calcTotalLines(messages);
+    const maxScroll = Math.max(0, totalLines - CHAT_WINDOW_HEIGHT);
+    if (direction === 'up' && chatScrollOffset < maxScroll) {
+      setChatScroll(Math.min(chatScrollOffset + step, maxScroll));
+    } else if (direction === 'down' && chatScrollOffset > 0) {
+      setChatScroll(Math.max(chatScrollOffset - step, 0));
+    }
+  };
 
+  useInput((char, key) => {
     // 消息查看器打开时的特殊处理
     if (messageViewerOpen) {
       if (key.escape) {
@@ -170,7 +194,6 @@ export const InputBox: React.FC<Props> = ({
         return;
       }
       if (key.pageUp) {
-        // PgUp: 在消息内容中向上滚动
         const selectedMsg = messages.find(m => m.id === selectedMessageId);
         if (selectedMsg) {
           const maxScroll = Math.max(0, selectedMsg.content.split('\n').length - 12);
@@ -179,7 +202,6 @@ export const InputBox: React.FC<Props> = ({
         return;
       }
       if (key.pageDown) {
-        // PgDn: 在消息内容中向下滚动
         const selectedMsg = messages.find(m => m.id === selectedMessageId);
         if (selectedMsg) {
           const maxScroll = Math.max(0, selectedMsg.content.split('\n').length - 12);
@@ -188,7 +210,6 @@ export const InputBox: React.FC<Props> = ({
         return;
       }
       if (key.upArrow) {
-        // 微调滚动
         const selectedMsg = messages.find(m => m.id === selectedMessageId);
         if (selectedMsg) {
           const maxScroll = Math.max(0, selectedMsg.content.split('\n').length - 12);
@@ -197,7 +218,6 @@ export const InputBox: React.FC<Props> = ({
         return;
       }
       if (key.downArrow) {
-        // 微调滚动
         const selectedMsg = messages.find(m => m.id === selectedMessageId);
         if (selectedMsg) {
           const maxScroll = Math.max(0, selectedMsg.content.split('\n').length - 12);
@@ -212,7 +232,50 @@ export const InputBox: React.FC<Props> = ({
       return;
     }
 
-    // 正常模式（非消息查看器）
+    // Stream 模式：允许输入和滚动，但 Enter 排队发送
+    if (isStreaming) {
+      if (key.escape) {
+        // Esc 在 stream 时不做特殊处理（App.tsx 的 useInput 会处理）
+        return;
+      }
+      if (key.return) {
+        // Enter 在 stream 时：排队发送（如果有输入内容）
+        const currentInput = inputRef.current.trim();
+        if (currentInput) {
+          setPendingMessage(currentInput);
+          setInput('');
+          setCompletions([]);
+        }
+        return;
+      }
+      // Stream 时允许上下箭头和 PgUp/PgDn 滚动
+      if (focusPanel === 'chat' && (inputRef.current.length === 0)) {
+        if (key.upArrow) {
+          doChatScroll('up', SCROLL_FINE_STEP);
+          return;
+        }
+        if (key.downArrow) {
+          doChatScroll('down', SCROLL_FINE_STEP);
+          return;
+        }
+      }
+      if (key.pageUp && focusPanel === 'chat') {
+        doChatScroll('up', SCROLL_STEP);
+        return;
+      }
+      if (key.pageDown && focusPanel === 'chat') {
+        doChatScroll('down', SCROLL_STEP);
+        return;
+      }
+      // 允许正常输入
+      if (char && !(key.ctrl && char === 'c') && !(key.ctrl && char === 'd') && !(key.ctrl && char === 'z')) {
+        setInput(prev => prev + char);
+        setCompletions([]);
+      }
+      return;
+    }
+
+    // 正常模式（非消息查看器，非 stream）
     // 使用 inputRef.current 避免闭包陈旧值导致叠字
     const currentInput = inputRef.current;
 
@@ -241,12 +304,7 @@ export const InputBox: React.FC<Props> = ({
       // 输入为空时，上箭头用于向上微调滚动（底部锚定：↑=看旧内容）
       if (currentInput.length === 0) {
         if (focusPanel === 'chat') {
-          const totalLines = calcTotalLines(messages);
-          const maxScroll = Math.max(0, totalLines - CHAT_WINDOW_HEIGHT);
-          // ↑ 向上滚动 = 看旧内容 = 增加 offset
-          if (chatScrollOffset < maxScroll) {
-            setChatScroll(Math.min(chatScrollOffset + SCROLL_FINE_STEP, maxScroll));
-          }
+          doChatScroll('up', SCROLL_FINE_STEP);
         } else if (focusPanel === 'skill') {
           const maxScroll = Math.max(0, skills.length - 6);
           if (skillScrollOffset > 0) {
@@ -268,12 +326,7 @@ export const InputBox: React.FC<Props> = ({
       // 输入为空时，下箭头用于向下微调滚动（底部锚定：↓=看新内容）
       if (currentInput.length === 0) {
         if (focusPanel === 'chat') {
-          const totalLines = calcTotalLines(messages);
-          const maxScroll = Math.max(0, totalLines - CHAT_WINDOW_HEIGHT);
-          // ↓ 向下滚动 = 看新内容 = 减少 offset
-          if (chatScrollOffset > 0) {
-            setChatScroll(Math.max(chatScrollOffset - SCROLL_FINE_STEP, 0));
-          }
+          doChatScroll('down', SCROLL_FINE_STEP);
         } else if (focusPanel === 'skill') {
           const maxScroll = Math.max(0, skills.length - 6);
           if (skillScrollOffset < maxScroll) {
@@ -292,13 +345,8 @@ export const InputBox: React.FC<Props> = ({
         setCompletions([]);
       }
     } else if (key.pageUp) {
-      // 根据当前焦点面板向上翻页（底部锚定：PgUp=看旧内容）
       if (focusPanel === 'chat') {
-        const totalLines = calcTotalLines(messages);
-        const maxScroll = Math.max(0, totalLines - CHAT_WINDOW_HEIGHT);
-        if (chatScrollOffset < maxScroll) {
-          setChatScroll(Math.min(chatScrollOffset + SCROLL_STEP, maxScroll));
-        }
+        doChatScroll('up', SCROLL_STEP);
       } else if (focusPanel === 'skill') {
         if (skillScrollOffset > 0) {
           setSkillScroll(Math.max(skillScrollOffset - SCROLL_STEP, 0));
@@ -309,13 +357,8 @@ export const InputBox: React.FC<Props> = ({
         }
       }
     } else if (key.pageDown) {
-      // 根据当前焦点面板向下翻页（底部锚定：PgDn=看新内容）
       if (focusPanel === 'chat') {
-        const totalLines = calcTotalLines(messages);
-        const maxScroll = Math.max(0, totalLines - CHAT_WINDOW_HEIGHT);
-        if (chatScrollOffset > 0) {
-          setChatScroll(Math.max(chatScrollOffset - SCROLL_STEP, 0));
-        }
+        doChatScroll('down', SCROLL_STEP);
       } else if (focusPanel === 'skill') {
         const maxScroll = Math.max(0, skills.length - 6);
         if (skillScrollOffset < maxScroll) {
@@ -373,26 +416,33 @@ export const InputBox: React.FC<Props> = ({
         setCompletions([]);
       }
     }
-  }, { isActive: !isStreaming });
+  }, { isActive: true });
 
+  // 提示文本根据状态变化
   const focusLabel = focusPanel === 'chat' ? 'Chat' : focusPanel === 'agent' ? 'Agents' : 'Skills';
   const viewerHint = messageViewerOpen
     ? 'Enter=next msg | Wheel/PgUp/PgDn scroll | Esc close'
     : 'Enter=view full | Wheel/PgUp/PgDn scroll | Tab=switch';
+  const streamHint = isStreaming
+    ? (pendingMessage ? '⏳ queued | scroll ↑↓ | Esc stop' : '⏳ typing | Enter queue | scroll ↑↓ | Esc stop')
+    : '';
 
   return (
     <Box flexDirection="column">
       {/* 输入行 */}
       <Box paddingLeft={1} paddingRight={1}>
-        <Text bold color="green">
+        <Text bold color={isStreaming ? 'yellow' : 'green'}>
           {'['}{currentAgent}{']>'}{' '}
         </Text>
         <Text>{input}</Text>
-        <Text color="white" backgroundColor="green">{' '}</Text>
+        {pendingMessage && (
+          <Text color="cyan" dimColor> [queued: {pendingMessage.slice(0, 20)}{pendingMessage.length > 20 ? '...' : ''}]</Text>
+        )}
+        <Text color="white" backgroundColor={isStreaming ? 'yellow' : 'green'}>{' '}</Text>
       </Box>
 
       {/* 焦点提示 + 补全提示 */}
-      {(completions.length > 0 || focusPanel !== 'chat' || messageViewerOpen) && (
+      {(completions.length > 0 || focusPanel !== 'chat' || messageViewerOpen || isStreaming) && (
         <Box paddingLeft={2}>
           {completions.length > 0 ? (
             <Text color="cyan" dimColor>
@@ -400,6 +450,8 @@ export const InputBox: React.FC<Props> = ({
                 c + (i < Math.min(completions.length, 5) - 1 ? ' | ' : '')
               ))}
             </Text>
+          ) : isStreaming ? (
+            <Text color="yellow" dimColor>{streamHint}</Text>
           ) : (
             <Text color="gray" dimColor>
               {messageViewerOpen ? viewerHint : `focus: ${focusLabel} | ${viewerHint}`}
