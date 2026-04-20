@@ -159,10 +159,10 @@ function hasSubstantialProgress(result: ModelResult, lastRoundHadToolCall = fals
   
   // 3. 输出文件内容标记 = 实质进展
   // 例如: "main.py:" 或 "**main.py**:"
-  if (/^[a-zA-Z0-9_\-]+\.(ts|js|py|go|java|md|json|yaml|yml|sh)[：:\n]/m.test(content)) {
+  if (/^[a-zA-Z0-9_-]+\.(ts|js|py|go|java|md|json|yaml|yml|sh)[：:\n]/m.test(content)) {
     return true;
   }
-  if (/\*\*[a-zA-Z0-9_\-]+\.(ts|js|py|go|java|md|json)\*\*[：:\n]/m.test(content)) {
+  if (/\*\*[a-zA-Z0-9_-]+\.(ts|js|py|go|java|md|json)\*\*[：:\n]/m.test(content)) {
     return true;
   }
   
@@ -411,7 +411,7 @@ const QUESTION_DETECTION_CONFIG = {
     /^\*\*.+\*\*\s*[-—]/,
     // 代码或文件内容标记
     /^```/,
-    /^[a-zA-Z0-9_\-]+\.(ts|js|py|go|java|md|json)[：:]/,
+    /^[a-zA-Z0-9_-]+\.(ts|js|py|go|java|md|json)[：:]/,
     // 进度/状态报告
     /^(✅|✓|✔|⬜|🔄|❌)\s/,
     /^步骤\s*\d/,
@@ -428,7 +428,7 @@ const QUESTION_DETECTION_CONFIG = {
   explicitQuestionPatterns: [
     // 中文（必须以问号结尾）
     /[吗？|？]$/,
-    /\？$/,
+    /？$/,
     // 选择性问题
     /请选择.*[？?]?$/,
     /需要.*[吗？]$/,
@@ -500,7 +500,7 @@ function isAskingUserQuestion(
   }
   
   // 3. ★ 检查是否包含列表式问题（如 "- 继续开发新功能？"）
-  const listQuestionPattern = /^[\-\*•]\s*.+[？?]$/m;
+  const listQuestionPattern = /^[-*•]\s*.+[？?]$/m;
   if (listQuestionPattern.test(trimmedContent)) {
     return true;
   }
@@ -511,7 +511,7 @@ function isAskingUserQuestion(
     const trimmedSentence = sentence.trim();
     
     // 以问号结尾
-    if (/\？|\?$/.test(trimmedSentence)) {
+    if (/？|\?$/.test(trimmedSentence)) {
       // 包含问题词
       const questionWords = ['吗', '呢', '么', '哪', '什', '怎', '多', '几', '谁', '何', '想', '需要'];
       const hasQuestionWord = questionWords.some(w => trimmedSentence.includes(w));

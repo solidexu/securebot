@@ -56,10 +56,11 @@ export const ChatPanel: React.FC = () => {
           <Text color="yellow"> (scroll:{chatScrollOffset})</Text>
         )}
         {isStreaming && (
-          <Text color="yellow">
-            {' '}
-            <Spinner type="dots" /> stream
-          </Text>
+          <Box>
+            <Text color="yellow"> </Text>
+            <Spinner type="dots" />
+            <Text color="yellow"> stream</Text>
+          </Box>
         )}
       </Box>
 

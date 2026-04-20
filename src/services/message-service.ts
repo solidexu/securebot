@@ -55,7 +55,7 @@ class MessageServiceImpl implements MessageService {
         break;
       default:
         // 纯文本，转义 Markdown 特殊字符
-        formatted = content.replace(/([*_`\[\]])/g, '\\$1');
+        formatted = content.replace(/([*_`[\]])/g, '\\$1');
     }
 
     return {

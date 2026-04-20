@@ -352,7 +352,7 @@ export class IntentRecognizer {
     const entities: Record<string, string> = {};
 
     // 提取文件路径
-    const filePathMatch = message.match(/(?:^|\s)([\/.][\w\/.-]+\.\w+)/);
+    const filePathMatch = message.match(/(?:^|\s)([/.][\w/.-]+\.\w+)/);
     if (filePathMatch) {
       entities.filePath = filePathMatch[1]!;
     }
