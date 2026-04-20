@@ -13,9 +13,6 @@ export interface UseMouseOptions {
 }
 
 // ============ 全局状态 ============
-let originalEmit: typeof process.stdin.emit | null = null;
-let wrapperActive = false;
-const handlers: Set<(data: MouseData) => void> = new Set();
 
 /** 滚轮回调（由 InputBox 注册） */
 export function setWheelCallback(cb: ((deltaY: number) => void) | null): void {
@@ -25,7 +22,7 @@ let globalWheelCallback: ((deltaY: number) => void) | null = null;
 
 /** 检查鼠标支持是否已启用 */
 export function isMouseEnabled(): boolean {
-  return wrapperActive;
+  return mouseHandlers.size > 0;
 }
 
 // 滚轮速度检测
@@ -34,63 +31,89 @@ const FAST_SCROLL_THRESHOLD_MS = 50;
 const SLOW_SCROLL_LINES = 1;
 const FAST_SCROLL_LINES = 5;
 
-function handleEmit(event: string | symbol, ...args: unknown[]): boolean {
-  if (event === 'data' && wrapperActive) {
-    const data = args[0] as Buffer | string;
-    const str = typeof data === 'string' ? data : data.toString();
+// 鼠标事件处理器
+const mouseHandlers = new Set<(data: MouseData) => void>();
 
-    // 完整 SGR 鼠标序列: \x1b[<button;x;yM 或 \x1b[<button;x;ym
-    const sgrRe = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/;
-    const match = sgrRe.exec(str);
+// SGR 缓冲区
+let sgrBuffer = '';
+let collectingMouse = false;
+let collectTimer: ReturnType<typeof setTimeout> | null = null;
+const COLLECT_TIMEOUT_MS = 200;
 
-    if (match) {
-      const button = parseInt(match[1]!, 10);
-      const x = parseInt(match[2]!, 10);
-      const y = parseInt(match[3]!, 10);
-      const press = match[4] === 'M';
+function abortCollect() {
+  collectingMouse = false;
+  sgrBuffer = '';
+  if (collectTimer) { clearTimeout(collectTimer); collectTimer = null; }
+}
 
-      const mouseData: MouseData = { button, x, y, press };
-
-      // 通知所有组件处理器（如 ChatPanel 的点击）
-      for (const handler of handlers) {
-        handler(mouseData);
-      }
-
-      // 滚轮事件 — 调用全局滚轮回调（不传给 Ink！）
-      if (button === 64 || button === 65) {
-        const now = Date.now();
-        const timeDelta = now - lastWheelTime;
-        const isFastScroll = lastWheelTime > 0 && timeDelta < FAST_SCROLL_THRESHOLD_MS;
-        const scrollLines = isFastScroll ? FAST_SCROLL_LINES : SLOW_SCROLL_LINES;
-        lastWheelTime = now;
-
-        if (button === 64) {
-          globalWheelCallback?.(-scrollLines); // 向上
-        } else if (button === 65) {
-          globalWheelCallback?.(scrollLines);  // 向下
-        }
-      }
-
-      // ★ 所有 SGR 鼠标事件完全消耗，不传给 Ink（防止乱码）
-      return true;
-    }
-
-    // 不完整的 SGR 序列 — 消耗，防止字符泄漏到输入框
-    if (/\x1b\[<\d*[;]?\d*[;]?\d*[Mm]?/.test(str)) {
-      return true;
+/** 处理数据块，提取并处理 SGR 鼠标序列 */
+function processChunk(str: string) {
+  if (collectingMouse) {
+    sgrBuffer += str;
+  } else {
+    const idx = str.indexOf('\x1b[<');
+    if (idx >= 0) {
+      sgrBuffer = str.slice(idx);
+      collectingMouse = true;
+      collectTimer = setTimeout(abortCollect, COLLECT_TIMEOUT_MS);
+    } else {
+      return; // 无鼠标数据
     }
   }
 
-  return originalEmit!.call(process.stdin, event, ...args);
+  // 匹配完整 SGR: \x1b[<button;x;yM 或 \x1b[<button;x;ym
+  const sgrRe = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/;
+  const match = sgrRe.exec(sgrBuffer);
+
+  if (match) {
+    const button = parseInt(match[1]!, 10);
+    const x = parseInt(match[2]!, 10);
+    const y = parseInt(match[3]!, 10);
+    const press = match[4] === 'M';
+
+    const consumedEnd = match.index + match[0].length;
+    const remaining = sgrBuffer.slice(consumedEnd);
+    abortCollect();
+
+    const mouseData: MouseData = { button, x, y, press };
+    for (const handler of mouseHandlers) {
+      handler(mouseData);
+    }
+
+    // 滚轮
+    if (button === 64 || button === 65) {
+      const now = Date.now();
+      const timeDelta = now - lastWheelTime;
+      const isFastScroll = lastWheelTime > 0 && timeDelta < FAST_SCROLL_THRESHOLD_MS;
+      const scrollLines = isFastScroll ? FAST_SCROLL_LINES : SLOW_SCROLL_LINES;
+      lastWheelTime = now;
+      if (button === 64) globalWheelCallback?.(-scrollLines);
+      else if (button === 65) globalWheelCallback?.(scrollLines);
+    }
+
+    // 递归处理剩余
+    if (remaining && remaining.includes('\x1b[<')) {
+      processChunk(remaining);
+    }
+    return;
+  }
+
+  // 不完整序列，继续收集
+  if (sgrBuffer.length > 50) abortCollect();
 }
+
+// 保存原始 push 方法
+let originalPush: typeof process.stdin.push | null = null;
 
 /**
  * 终端鼠标支持 Hook
  *
- * 拦截 process.stdin.emit 过滤 SGR 鼠标序列：
- * - 滚轮事件: 通过 setWheelCallback 回调通知 InputBox
- * - 点击事件: 通过 onMouseEvent 回调通知组件
- * - 所有鼠标事件完全消耗，不泄漏到 Ink
+ * ★ 拦截 process.stdin.push() —— 数据进入流的唯一入口
+ *
+ * 数据流: 终端输入 → push(chunk) → buffer → read() → emit('data', chunk)
+ *
+ * 拦截 push() 可以在数据进入缓冲区之前过滤 SGR 序列，
+ * 确保 Ink 的 keypress 解析器永远不会看到鼠标事件数据。
  */
 export function useMouse(options: UseMouseOptions = {}) {
   const { onMouseEvent, isActive = true } = options;
@@ -103,21 +126,51 @@ export function useMouse(options: UseMouseOptions = {}) {
 
   useEffect(() => {
     if (!isActive) return;
-    if (!originalEmit) {
-      originalEmit = process.stdin.emit.bind(process.stdin);
-      process.stdin.emit = handleEmit;
+
+    mouseHandlers.add(handlerRef);
+
+    if (mouseHandlers.size === 1) {
+      // 第一个处理器：拦截 push()
+      if (!originalPush) {
+        originalPush = process.stdin.push.bind(process.stdin);
+
+        process.stdin.push = function (this: typeof process.stdin, chunk: Buffer | string | null): boolean {
+          if (!chunk) return originalPush!.call(process.stdin, chunk);
+
+          const str = typeof chunk === 'string' ? chunk : chunk.toString();
+
+          // 检测 SGR 鼠标序列
+          const mouseIdx = str.indexOf('\x1b[<');
+          if (mouseIdx >= 0) {
+            // 有鼠标序列
+            if (mouseIdx > 0) {
+              // 前面有非鼠标数据，正常 push
+              const prefix = str.slice(0, mouseIdx);
+              originalPush!.call(process.stdin, prefix);
+            }
+            // 处理鼠标序列（消耗掉，不 push 给 Ink）
+            const mousePart = str.slice(mouseIdx);
+            processChunk(mousePart);
+            return true;
+          }
+
+          // 无鼠标数据，正常 push
+          return originalPush!.call(process.stdin, chunk);
+        };
+      }
+
+      // 启用 SGR 鼠标模式
+      process.stdout.write('\x1b[?1006h\x1b[?1000h');
     }
 
-    wrapperActive = true;
-    handlers.add(handlerRef);
-
-    // 启用 SGR 鼠标模式
-    process.stdout.write('\x1b[?1006h\x1b[?1000h');
-
     return () => {
-      handlers.delete(handlerRef);
-      if (handlers.size === 0) {
-        wrapperActive = false;
+      mouseHandlers.delete(handlerRef);
+      if (mouseHandlers.size === 0) {
+        if (originalPush) {
+          process.stdin.push = originalPush;
+        }
+        process.stdout.write('\x1b[?1000l\x1b[?1006l');
+        abortCollect();
       }
     };
   }, [isActive, handlerRef]);
