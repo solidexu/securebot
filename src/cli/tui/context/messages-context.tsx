@@ -27,6 +27,8 @@ interface MessagesContextValue extends MessagesState {
   selectMessage: (id: string | null) => void;
   /** 设置消息查看器状态 */
   setMessageViewerOpen: (open: boolean) => void;
+  /** 关闭消息查看器 */
+  closeMessageViewer: () => void;
   /** 设置消息滚动偏移 */
   setMessageScrollOffset: (offset: number) => void;
 }
@@ -73,6 +75,12 @@ export const MessagesProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, []);
 
+  const closeMessageViewer = useCallback(() => {
+    setMessageViewerOpen(false);
+    setSelectedMessageId(null);
+    setMessageScrollOffset(0);
+  }, []);
+
   const value: MessagesContextValue = {
     messages,
     selectedMessageId,
@@ -83,6 +91,7 @@ export const MessagesProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     clearMessages,
     selectMessage,
     setMessageViewerOpen,
+    closeMessageViewer,
     setMessageScrollOffset,
   };
 

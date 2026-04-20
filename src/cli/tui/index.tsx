@@ -30,6 +30,32 @@ export interface TuiOptions {
 /** 最大工具调用轮次 */
 const MAX_TOOL_ROUNDS = 100;
 
+/** 获取工具图标 */
+function getToolIcon(toolName: string): string {
+  const icons: Record<string, string> = {
+    exec: '\u{1f9ed}',
+    read: '\u{1f4d4}',
+    write: '\u{1f4dd}',
+    edit: '\u{270e}',
+    ls: '\u{1f4c1}',
+    cat: '\u{1f4d6}',
+    file_read: '\u{1f4d4}',
+    file_write: '\u{1f4dd}',
+    search: '\u{1f50d}',
+    find: '\u{1f50d}',
+    git: '\u{1f334}',
+    diff: '\u{1f4dd}',
+    run: '\u{25b6}',
+    compile: '\u{1f528}',
+    test: '\u{2705}',
+    summarize: '\u{1f4dd}',
+    finish: '\u{2705}',
+    end_conversation: '\u{1f6aa}',
+    terminate_task: '\u{1f6aa}',
+  };
+  return icons[toolName] || '\u{1f9fe}';
+}
+
 /** 当前执行的中断控制器（Ctrl+C 可触发） */
 let currentAbortController: AbortController | null = null;
 
@@ -315,12 +341,13 @@ function createMessageHandler(options: TuiOptions) {
           }
         };
 
-        // 调用模型
+        // 调用模型（传递 abortSignal 支持取消）
         const result: ChatResult = await modelAdapter.chatWithStream({
           model: config.model.model,
           messages,
           tools: availableTools.length > 0 ? availableTools : undefined,
           onStream,
+          signal: abortSignal,
         });
 
         // 判断是否有文本内容（排除纯工具调用无文本的情况）
@@ -383,13 +410,24 @@ function createMessageHandler(options: TuiOptions) {
                 }) || '';
                 await startCodeEditor?.(filePath, oldContent, tc.arguments.content);
               }
-            } else {
-              // 其他工具：正常显示参数
+            } else if (tc.name === 'exec') {
+              // exec 工具：特殊美观显示
+              const execCommand = tc.arguments.command as string;
+              const execCwd = tc.arguments.cwd as string | undefined;
               toolMsgId = addMessage?.({
                 sender: 'Tool',
-                content: `[${tc.name}](${argsStr})`,
+                content: `\u{1f9ed} ${execCommand}`,
                 type: 'tool',
-                meta: { name: tc.name, arguments: tc.arguments },
+                meta: { name: tc.name, arguments: tc.arguments, command: execCommand, cwd: execCwd },
+              }) || '';
+            } else {
+              // 其他工具：沙箱风格显示
+              const toolIcon = getToolIcon(tc.name);
+              toolMsgId = addMessage?.({
+                sender: 'Tool',
+                content: `${toolIcon} ${tc.name}`,
+                type: 'tool',
+                meta: { name: tc.name, arguments: tc.arguments, toolArgs: argsStr },
               }) || '';
             }
 
@@ -407,13 +445,12 @@ function createMessageHandler(options: TuiOptions) {
               const execCwd = tc.arguments.cwd as string | undefined;
               startShellOutput?.(execCommand, execCwd);
               
-              // 动态导入 exec 工具，使用流式回调
-              const { execTool, StreamCallbacks } = await import('../../tools/exec.js');
-              const streamCallbacks: StreamCallbacks = {
-                onStdout: (data) => {
+              // 添加流式回调用于实时输出
+              const streamCallbacks = {
+                onStdout: (data: string) => {
                   addShellOutput?.('stdout', data);
                 },
-                onStderr: (data) => {
+                onStderr: (data: string) => {
                   addShellOutput?.('stderr', data);
                 },
               };
@@ -428,7 +465,7 @@ function createMessageHandler(options: TuiOptions) {
               });
               
               // 完成 Shell 输出
-              finishShellOutput?.(toolResult.metadata?.exitCode ?? null);
+              finishShellOutput?.(toolResult.metadata ? (toolResult.metadata as Record<string, unknown>).exitCode as number | null ?? null : null);
             } else {
               // 其他工具：正常执行
               toolResult = await executeTool(tc.name, tc.arguments, {
@@ -451,12 +488,21 @@ function createMessageHandler(options: TuiOptions) {
               resultContent.slice(0, 200) + (resultContent.length > 200 ? '...' : '');
 
             // write/edit 工具：不把文件内容文本化输出到聊天（CodeEditor 面板已展示）
+            // exec 工具：美观的沙箱风格显示
             // 其他工具：正常显示结果摘要
             if (tc.name === 'write' || tc.name === 'edit') {
               const status = toolResult.success ? '\u2713 done' : `\u2717 ${toolResult.error || 'FAIL'}`;
               updateMessage?.(toolMsgId, `[${tc.name}] ${filePath} ${status}`);
+            } else if (tc.name === 'exec') {
+              const status = toolResult.success ? '\u2713' : '\u2717';
+              const execCommand = tc.arguments.command as string;
+              const execCwd = tc.arguments.cwd as string | undefined;
+              updateMessage?.(toolMsgId, `\u{1f9ed} ${execCommand}\n  \u{1f4c1} ${execCwd || process.cwd()}\n  ${status} ${resultPreview}`);
             } else {
-              updateMessage?.(toolMsgId, `[${tc.name}]${argsStr}\n→ ${resultPreview}`);
+              // 其他工具：沙箱风格显示结果
+              const toolIcon = getToolIcon(tc.name);
+              const status = toolResult.success ? '\u2713' : '\u2717';
+              updateMessage?.(toolMsgId, `${toolIcon} ${tc.name}\n  \u{1f4c1} ${agent.workspace || process.cwd()}\n  ${status} ${resultPreview}`);
             }
 
             // 添加工具结果到会话历史

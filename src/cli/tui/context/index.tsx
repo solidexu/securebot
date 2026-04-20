@@ -75,6 +75,7 @@ export const useApp = () => {
     messageScrollOffset: messagesCtx.messageScrollOffset,
     selectMessage: messagesCtx.selectMessage,
     setMessageViewerOpen: messagesCtx.setMessageViewerOpen,
+    closeMessageViewer: messagesCtx.closeMessageViewer,
     setMessageScrollOffset: messagesCtx.setMessageScrollOffset,
 
     // 编辑器
