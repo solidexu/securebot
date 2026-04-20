@@ -20,6 +20,7 @@ import { ragManager } from '../../rag/tools.js';
 import { getSkillDetector, type SkillMatchResult } from '../../core/skills.js';
 import type { StreamCallback, ChatResult } from '../../model/ollama.js';
 import { executeQuickCommand } from './utils/shell-commands.js';
+import { setWheelCallback } from './hooks/useMouse.js';
 
 export interface TuiOptions {
   defaultAgent?: string;
@@ -584,61 +585,18 @@ export async function startTuiRepl(options: TuiOptions = {}): Promise<void> {
   // 切换到备用屏幕缓冲区（alternate screen），使 TUI 完全独立
   process.stdout.write('\x1b[?1049h');  // 进入备用屏幕
 
-  // 启用 SGR 鼠标模式（支持滚轮）
-  process.stdout.write('\x1b[?1006h');
+  // 启用 SGR 鼠标模式（由 useMouse hook 管理）
+  // 注意：不再在这里添加 raw mouseHandler，统一由 useMouse hook 处理
 
-  // 滚轮事件回调（由 InputBox 通过 props.onWheel 设置）
+  // 滚轮事件回调（由 InputBox 通过 setWheelCallback 设置）
   let wheelCallback: ((deltaY: number) => void) | null = null;
-
-  // 滚轮速度检测：记录上次滚轮事件时间戳
-  let lastWheelTime = 0;
-  const FAST_SCROLL_THRESHOLD_MS = 50; // 50ms 内连续滚动 = 快速滚动
-  const SLOW_SCROLL_LINES = 1;   // 慢速滚动：每下 1 行
-  const FAST_SCROLL_LINES = 5;   // 快速滚动：每下 5 行
-
-  // 解析 SGR 滚轮事件: CSI < M <btn> ; <x> ; <y> M
-  // 滚轮: btn=64(up) 或 65(down)
-  let mouseBuffer = '';
-  const mouseHandler = (chunk: Buffer) => {
-    mouseBuffer += chunk.toString();
-    const SGR_WHEEL_UP = 64;   // '@' char code
-    const SGR_WHEEL_DOWN = 65; // 'A' char code
-
-    // SGR 格式: \x1b[<M<btn>;<x>;<y>M
-    // 匹配整个序列直到结尾的 M
-    const sgrMatch = mouseBuffer.match(/\x1b\[<M(\d+)(;\d+;\d+)?M/);
-    if (sgrMatch) {
-      const btnCode = parseInt(sgrMatch[1], 10);
-      // 清除已处理的数据
-      mouseBuffer = mouseBuffer.slice(sgrMatch[0].length);
-
-      // 检测滚轮速度
-      const now = Date.now();
-      const timeDelta = now - lastWheelTime;
-      const isFastScroll = lastWheelTime > 0 && timeDelta < FAST_SCROLL_THRESHOLD_MS;
-      const scrollLines = isFastScroll ? FAST_SCROLL_LINES : SLOW_SCROLL_LINES;
-      lastWheelTime = now;
-
-      if (btnCode === SGR_WHEEL_UP) {
-        wheelCallback?.(-scrollLines); // 负数 = 向上滚动（显示更新的内容）
-      } else if (btnCode === SGR_WHEEL_DOWN) {
-        wheelCallback?.(scrollLines);  // 正数 = 向下滚动（显示更旧的内容）
-      }
-    } else {
-      // 没有完整事件，清除旧数据（防止缓冲区无限增长）
-      if (mouseBuffer.length > 20) {
-        mouseBuffer = '';
-      }
-    }
-  };
 
   // 导出滚轮回调设置函数（供 InputBox 使用）
   (global as any).__tuiWheelCallback = (cb: ((deltaY: number) => void) | null) => {
     wheelCallback = cb;
+    // 同步到 useMouse hook
+    setWheelCallback(cb);
   };
-
-  // 添加原始 stdin 监听（用于捕获滚轮事件，在 Ink 之前处理）
-  process.stdin.on('data', mouseHandler);
 
   const { waitUntilExit, unmount, cleanup } = render(
     <App
@@ -657,7 +615,7 @@ export async function startTuiRepl(options: TuiOptions = {}): Promise<void> {
   process.stdout.write('\x1b[?1049l');  // 恢复主屏幕
   process.stdout.write('\x1b[2J\x1b[H'); // 清屏 + 光标归位（保险）
   process.stdout.write('\x1b[?1006l');   // 禁用 SGR 鼠标模式
-  process.stdin.removeListener('data', mouseHandler);
+  setWheelCallback(null);
   delete (global as any).__tuiWheelCallback;
 
   unmount?.();
