@@ -77,6 +77,9 @@ export const useApp = () => {
     setMessageViewerOpen: messagesCtx.setMessageViewerOpen,
     closeMessageViewer: messagesCtx.closeMessageViewer,
     setMessageScrollOffset: messagesCtx.setMessageScrollOffset,
+    toggleCollapse: messagesCtx.toggleCollapse,
+    collapseAll: messagesCtx.collapseAll,
+    expandAll: messagesCtx.expandAll,
 
     // 编辑器
     codeEditor: editorCtx.codeEditor,

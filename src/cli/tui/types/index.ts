@@ -4,4 +4,3 @@
 
 export * from './colors.js';
 export * from './message.js';
-export * from './index.js';

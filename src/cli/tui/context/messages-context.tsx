@@ -31,6 +31,12 @@ interface MessagesContextValue extends MessagesState {
   closeMessageViewer: () => void;
   /** 设置消息滚动偏移 */
   setMessageScrollOffset: (offset: number) => void;
+  /** 切换消息折叠状态 */
+  toggleCollapse: (id: string) => void;
+  /** 折叠所有消息 */
+  collapseAll: () => void;
+  /** 展开所有消息 */
+  expandAll: () => void;
 }
 
 // ============ Context 创建 ============
@@ -81,6 +87,29 @@ export const MessagesProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setMessageScrollOffset(0);
   }, []);
 
+  const toggleCollapse = useCallback((id: string) => {
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== id) return m;
+        // 正确切换：undefined/true 表示折叠，false 表示展开
+        const isCurrentlyCollapsed = m.collapsed !== false;
+        return { ...m, collapsed: isCurrentlyCollapsed ? false : true };
+      })
+    );
+  }, []);
+
+  const collapseAll = useCallback(() => {
+    setMessages((prev) =>
+      prev.map((m) => ({ ...m, collapsed: true }))
+    );
+  }, []);
+
+  const expandAll = useCallback(() => {
+    setMessages((prev) =>
+      prev.map((m) => ({ ...m, collapsed: false }))
+    );
+  }, []);
+
   const value: MessagesContextValue = {
     messages,
     selectedMessageId,
@@ -93,6 +122,9 @@ export const MessagesProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setMessageViewerOpen,
     closeMessageViewer,
     setMessageScrollOffset,
+    toggleCollapse,
+    collapseAll,
+    expandAll,
   };
 
   return (
@@ -127,6 +159,6 @@ export const useMessageList = () => {
  * 只获取消息操作方法（优化重渲染）
  */
 export const useMessageActions = () => {
-  const { addMessage, updateMessage, clearMessages, selectMessage } = useMessages();
-  return { addMessage, updateMessage, clearMessages, selectMessage };
+  const { addMessage, updateMessage, clearMessages, selectMessage, toggleCollapse, collapseAll, expandAll } = useMessages();
+  return { addMessage, updateMessage, clearMessages, selectMessage, toggleCollapse, collapseAll, expandAll };
 };

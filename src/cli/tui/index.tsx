@@ -397,6 +397,9 @@ function createMessageHandler(options: TuiOptions) {
                   sender: 'Tool',
                   content: `[write] \u270F ${filePath} (${codeLines} lines)`,
                   type: 'tool',
+                  subType: 'tool-result',
+                  collapsed: true,  // 默认折叠
+                  summary: `\u{1f4dd} write: ${filePath} (${codeLines} lines)`,
                   meta: { name: tc.name, path: filePath, lineCount: codeLines },
                 }) || '';
                 await startCodeWriter?.(filePath, tc.arguments.content);
@@ -406,6 +409,9 @@ function createMessageHandler(options: TuiOptions) {
                   sender: 'Tool',
                   content: `[edit] \u270E ${filePath}`,
                   type: 'tool',
+                  subType: 'tool-result',
+                  collapsed: true,  // 默认折叠
+                  summary: `\u270e edit: ${filePath}`,
                   meta: { name: tc.name, path: filePath },
                 }) || '';
                 await startCodeEditor?.(filePath, oldContent, tc.arguments.content);
@@ -414,11 +420,27 @@ function createMessageHandler(options: TuiOptions) {
               // exec 工具：特殊美观显示
               const execCommand = tc.arguments.command as string;
               const execCwd = tc.arguments.cwd as string | undefined;
+              const cmdPreview = execCommand.length > 30 ? execCommand.slice(0, 30) + '...' : execCommand;
               toolMsgId = addMessage?.({
                 sender: 'Tool',
                 content: `\u{1f9ed} ${execCommand}`,
                 type: 'tool',
+                subType: 'tool-result',
+                collapsed: true,  // 默认折叠
+                summary: `\u{1f9ed} exec: ${cmdPreview}`,
                 meta: { name: tc.name, arguments: tc.arguments, command: execCommand, cwd: execCwd },
+              }) || '';
+            } else if (tc.name === 'read') {
+              // read 工具：默认折叠，显示文件路径和行数
+              const readPath = tc.arguments?.path || tc.arguments?.file_path || '(unknown)';
+              toolMsgId = addMessage?.({
+                sender: 'Tool',
+                content: `\u{1f4d4} read: ${readPath}`,
+                type: 'tool',
+                subType: 'tool-result',
+                collapsed: true,  // 默认折叠
+                summary: `\u{1f4d4} read: ${readPath}`,
+                meta: { name: tc.name, path: readPath },
               }) || '';
             } else {
               // 其他工具：沙箱风格显示
@@ -427,6 +449,9 @@ function createMessageHandler(options: TuiOptions) {
                 sender: 'Tool',
                 content: `${toolIcon} ${tc.name}`,
                 type: 'tool',
+                subType: 'tool-result',
+                collapsed: true,  // 默认折叠
+                summary: `${toolIcon} ${tc.name}`,
                 meta: { name: tc.name, arguments: tc.arguments, toolArgs: argsStr },
               }) || '';
             }
@@ -497,7 +522,13 @@ function createMessageHandler(options: TuiOptions) {
               const status = toolResult.success ? '\u2713' : '\u2717';
               const execCommand = tc.arguments.command as string;
               const execCwd = tc.arguments.cwd as string | undefined;
+              const cmdPreview = execCommand.length > 30 ? execCommand.slice(0, 30) + '...' : execCommand;
               updateMessage?.(toolMsgId, `\u{1f9ed} ${execCommand}\n  \u{1f4c1} ${execCwd || process.cwd()}\n  ${status} ${resultPreview}`);
+            } else if (tc.name === 'read') {
+              // read 工具：更新摘要，显示行数
+              const lines = resultContent.split('\n').length;
+              const readPath = tc.arguments?.path || tc.arguments?.file_path || '(unknown)';
+              updateMessage?.(toolMsgId, `\u{1f4d4} read: ${readPath} (${lines} lines)\n${resultContent.slice(0, 200)}...`);
             } else {
               // 其他工具：沙箱风格显示结果
               const toolIcon = getToolIcon(tc.name);

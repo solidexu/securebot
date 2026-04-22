@@ -5,10 +5,13 @@ import { ScrollBar } from '../common/ScrollBar.js';
 import { useApp } from '../../context/index.js';
 import { CodeEditorPanel } from './CodeEditor.js';
 import { ShellOutputPanel } from './ShellOutputPanel.js';
+import { flattenCollapsibleMessage } from './CollapsibleMessage.js';
 
 interface Props {
   messages: Message[];
   scrollOffset?: number;
+  /** 消息点击回调（用于切换折叠） */
+  onMessageClick?: (messageId: string) => void;
 }
 
 /** 滚动窗口固定行数 */
@@ -24,6 +27,8 @@ interface FlatLine {
   bold?: boolean;       // 加粗（头部）
   dim?: boolean;        // 暗淡
   prefix?: string;      // 内容前缀
+  clickable?: boolean;  // 是否可点击
+  messageId?: string;   // 所属消息ID
 }
 
 /** 消息类型视觉风格 — 炫酷现代风格 */
@@ -35,34 +40,47 @@ const MSG_STYLES: Record<string, { headerColor: string; contentColor: string; ic
   error:  { headerColor: 'red',     contentColor: 'red',     icon: '\u26a0', prefix: '' },
   skill:  { headerColor: 'magenta',contentColor: 'white',   icon: '\u{1f527}', prefix: '' },
   warn:   { headerColor: 'yellow',  contentColor: 'yellow',  icon: '~',     prefix: '' },
+  thinking: { headerColor: 'magenta', contentColor: 'magenta', icon: '\u{1f4ad}', prefix: ' \u2503 ' }, // 💭 │
 };
 
 /**
- * 将所有消息完整展开为扁平化行列表（不截断）
+ * 将所有消息完整展开为扁平化行列表（支持折叠）
  * 每种消息类型有独特的视觉风格
  */
-function flattenAllMessages(messages: Message[]): FlatLine[] {
+function flattenAllMessages(messages: Message[], selectedMessageId: string | null): FlatLine[] {
   const lines: FlatLine[] = [];
   messages.forEach((msg) => {
+    const isSelected = msg.id === selectedMessageId;
     const isUser = msg.type === 'user';
+
+    // 工具调用和思考消息使用折叠组件
+    if (msg.type === 'tool' || msg.type === 'thinking' || msg.subType === 'thinking') {
+      const collapsibleLines = flattenCollapsibleMessage(msg, isSelected);
+      collapsibleLines.forEach((cl) => {
+        lines.push({
+          text: cl.text,
+          align: 'left',
+          color: cl.color,
+          bold: cl.bold,
+          dim: cl.dim,
+          clickable: cl.clickable,
+          messageId: cl.messageId,
+        });
+      });
+      return;
+    }
+
+    // 普通消息（用户、agent、system等）
     const style = MSG_STYLES[msg.type] || MSG_STYLES.system;
     const time = new Date(msg.timestamp).toLocaleTimeString('zh-CN', {
       hour: '2-digit',
       minute: '2-digit',
     });
 
-    if (msg.type === 'tool') {
-      const meta = msg.meta as { name?: string } | undefined;
-      lines.push({
-        text: `${style.icon} ${meta?.name || 'Tool'} ${time}`,
-        align: 'left', color: style.headerColor, bold: true,
-      });
-    } else {
-      lines.push({
-        text: `${style.icon} ${msg.sender} ${time}`,
-        align: isUser ? 'right' : 'left', color: style.headerColor, bold: true,
-      });
-    }
+    lines.push({
+      text: `${style.icon} ${msg.sender} ${time}`,
+      align: isUser ? 'right' : 'left', color: style.headerColor, bold: true,
+    });
 
     for (const line of msg.content.split('\n')) {
       lines.push({
@@ -80,6 +98,7 @@ function flattenAllMessages(messages: Message[]): FlatLine[] {
 export const MessageList: React.FC<Props> = ({
   messages,
   scrollOffset = 0,
+  onMessageClick,
 }) => {
   const {
     focusPanel,
@@ -91,6 +110,7 @@ export const MessageList: React.FC<Props> = ({
     setChatScroll,
     isStreaming,
     shellOutput,
+    toggleCollapse,
   } = useApp();
   const isFocused = focusPanel === 'chat';
 
@@ -103,8 +123,8 @@ export const MessageList: React.FC<Props> = ({
     // 用户已上滚(scrollOffset > 0)：不强制拉回
   }, [isStreaming, scrollOffset, messages.length]);
 
-  // 使用 useMemo 优化：完整展开所有消息（缓存结果）
-  const allLines = useMemo(() => flattenAllMessages(messages), [messages]);
+  // 使用 useMemo 优化：完整展开所有消息（缓存结果，支持折叠）
+  const allLines = useMemo(() => flattenAllMessages(messages, selectedMessageId), [messages, selectedMessageId]);
   const totalLines = allLines.length;
 
   // 使用 useMemo 优化：计算可见窗口范围（缓存计算结果）
@@ -124,22 +144,43 @@ export const MessageList: React.FC<Props> = ({
       : null;
   }, [selectedMessageId, messages]);
 
+  // 处理行点击（切换折叠或选择消息）
+  const handleLineClick = (line: FlatLine) => {
+    if (line.clickable && line.messageId) {
+      // 可点击行：切换折叠状态
+      toggleCollapse(line.messageId);
+      selectMessage(line.messageId);
+      onMessageClick?.(line.messageId);
+    }
+  };
+
   return (
     <Box flexDirection="column">
       {/* 行级滚动窗口 */}
       <Box flexDirection="row">
         <Box flexDirection="column" flexGrow={1} width="100%">
-          {viewport.visibleLines.map((line, i) => (
-            line.align === 'right' ? (
-              <Box key={i} width="100%" justifyContent="flex-end">
+          {viewport.visibleLines.map((line, i) => {
+            // 使用 messageId + startIdx + i 作为唯一 key，避免虚拟滚动时 key 冲突
+            const uniqueKey = line.messageId
+              ? `${line.messageId}-${viewport.startIdx + i}`
+              : `line-${viewport.startIdx + i}`;
+
+            return line.align === 'right' ? (
+              <Box key={uniqueKey} width="100%" justifyContent="flex-end">
                 <Text color={line.color} bold={line.bold}>{line.text}</Text>
               </Box>
+            ) : line.clickable ? (
+              <Box key={uniqueKey} onClick={() => handleLineClick(line)}>
+                <Text color={line.color} bold={line.bold} dimColor={line.dim}>
+                  {line.prefix}{line.text}
+                </Text>
+              </Box>
             ) : (
-              <Text key={i} color={line.color} bold={line.bold} dimColor={line.dim}>
+              <Text key={uniqueKey} color={line.color} bold={line.bold} dimColor={line.dim}>
                 {line.prefix}{line.text}
               </Text>
-            )
-          ))}
+            );
+          })}
           {/* 底部信息栏 */}
           {totalLines > WINDOW_HEIGHT && (
             <Text color="gray" dimColor>
