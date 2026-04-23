@@ -1,0 +1,64 @@
+# 代码审查工作流 - 含安全审批
+# 在 security-scanner 节点需要人工审批
+
+id: code-review-approval
+name: 代码审查（含审批）
+mode: lightweight
+
+hitl:
+  level: node_interrupt
+  interruptNodes:
+    - security-scanner
+  requireToolApproval: true
+  approvedTools:
+    - read_file
+    - grep
+    - list_files
+  autoApproveTimeoutMs: 30000
+
+entry: style-checker
+
+agents:
+  - id: style-checker
+    name: 风格检查员
+    role: 代码风格检查
+    systemPrompt: |
+      你是代码风格检查员。
+      检查代码是否符合团队的代码风格规范，包括：
+      - 命名规范
+      - 缩进和格式
+      - 注释完整性
+      - 代码组织
+
+  - id: bug-finder
+    name: Bug 检查员
+    role: 潜在 Bug 检查
+    systemPrompt: |
+      你是 Bug 检查员。
+      分析代码中的潜在问题，包括：
+      - 空指针异常
+      - 资源泄漏
+      - 逻辑错误
+      - 边界条件处理
+
+  - id: security-scanner
+    name: 安全扫描员
+    role: 安全问题检查
+    systemPrompt: |
+      你是安全扫描员。
+      扫描代码中的安全漏洞，包括：
+      - SQL 注入
+      - XSS 攻击
+      - 敏感信息泄露
+      - 权限问题
+
+edges:
+  - source: style-checker
+    target: bug-finder
+    type: direct
+  - source: bug-finder
+    target: security-scanner
+    type: direct
+  - source: security-scanner
+    target: __end__
+    type: direct

@@ -1,0 +1,55 @@
+# 逐步调试模式工作流
+# 每个节点都会暂停，等待用户确认
+
+id: step-debug
+name: 逐步调试
+mode: lightweight
+
+hitl:
+  level: step_through
+  autoApproveTimeoutMs: 60000
+
+entry: analyzer
+
+agents:
+  - id: analyzer
+    name: 分析器
+    role: 问题分析
+    systemPrompt: |
+      你是问题分析器。
+      分析用户提供的问题，拆解为可执行的子任务。
+
+  - id: planner
+    name: 规划器
+    role: 方案规划
+    systemPrompt: |
+      你是方案规划器。
+      根据分析结果制定详细的解决方案。
+
+  - id: executor
+    name: 执行器
+    role: 方案执行
+    systemPrompt: |
+      你是执行器。
+      按照规划方案逐步执行。
+
+  - id: validator
+    name: 验证器
+    role: 结果验证
+    systemPrompt: |
+      你是验证器。
+      验证执行结果是否符合预期。
+
+edges:
+  - source: analyzer
+    target: planner
+    type: direct
+  - source: planner
+    target: executor
+    type: direct
+  - source: executor
+    target: validator
+    type: direct
+  - source: validator
+    target: __end__
+    type: direct
