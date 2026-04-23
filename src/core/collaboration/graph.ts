@@ -112,6 +112,14 @@ export class Graph {
   }
 
   /**
+   * 设置人在回路配置
+   */
+  setHitlConfig(config: HitlConfig): this {
+    this.graph.hitlConfig = config;
+    return this;
+  }
+
+  /**
    * 设置最大迭代次数
    */
   setMaxIterations(max: number): this {

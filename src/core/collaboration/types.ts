@@ -32,6 +32,8 @@ export interface AgentGraph {
   maxIterations?: number;
   /** 高级配置（LangGraph 模式） */
   config?: GraphConfig;
+  /** 人在回路配置 */
+  hitlConfig?: HitlConfig;
 }
 
 /**
@@ -374,7 +376,20 @@ export interface WorkflowConfig {
   edges?: EdgeConfig[];
   /** 路由 */
   routes?: Record<string, RouteConfig>;
-  /** LangGraph 配置 */
+
+  /** 人在回路配置 */
+  hitl?: {
+    /** 干预级别 */
+    level: string;
+    /** 需要中断的节点列表 */
+    interruptNodes?: string[];
+    /** 工具调用是否需要审批 */
+    requireToolApproval?: boolean;
+    /** 白名单工具 */
+    approvedTools?: string[];
+    /** 超时自动通过（毫秒） */
+    autoApproveTimeoutMs?: number;
+  };
   langgraph?: GraphConfig;
   /** 允许循环（默认 false） */
   allowCycles?: boolean;
@@ -458,4 +473,9 @@ export type AgentEvent =
   | { type: 'state_update'; key: string; value: unknown; timestamp: number }
   | { type: 'workflow_start'; graphId: string; threadId: string; input: string; timestamp: number }
   | { type: 'workflow_complete'; graphId: string; threadId: string; result?: string; error?: string; timestamp: number }
-  | { type: 'workflow_interrupt'; graphId: string; threadId: string; nodeId: string; reason: string; timestamp: number };
+  | { type: 'workflow_interrupt'; graphId: string; threadId: string; nodeId: string; reason: string; timestamp: number }
+  // HITL 事件
+  | { type: 'hitl_interrupt'; graphId: string; threadId: string; nodeId: string; reason: string; interruptState: unknown; timestamp: number }
+  | { type: 'hitl_decision'; graphId: string; threadId: string; nodeId: string; decision: unknown; timestamp: number }
+  | { type: 'hitl_tool_approval'; graphId: string; threadId: string; nodeId: string; tool: string; args: Record<string, unknown>; timestamp: number }
+  | { type: 'hitl_state_updated'; graphId: string; threadId: string; before: unknown; after: unknown; timestamp: number };

@@ -51,3 +51,18 @@ export {
   configureCollaborationManager,
   resetCollaborationManager,
 } from './collaboration-manager.js';
+// Human-in-the-Loop
+export { HumanInteractionManager, createHitlManager, isAbortDecision, isSkipDecision, hasStateModification, getDecisionGoto } from './hitl-manager.js';
+export type { HitlEventEmitter } from './hitl-manager.js';
+export { MemoryInterruptStore, FileInterruptStore } from './hitl-store.js';
+export type { InterruptStore, CheckpointData, FileStoreConfig } from './hitl-store.js';
+export { HitlLevel } from './hitl-types.js';
+export type {
+  HitlConfig,
+  HitlEvent,
+  HumanDecision,
+  DecisionAction,
+  InterruptState,
+  InterruptType,
+  AgentHitlConfig,
+} from './hitl-types.js';

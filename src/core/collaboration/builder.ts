@@ -13,6 +13,7 @@ import {
   GraphConfig,
   END_NODE,
 } from './types';
+import { HitlConfig } from './hitl-types';
 import { Graph } from './graph';
 
 /**
@@ -126,6 +127,14 @@ export class GraphBuilder {
    */
   maxIterations(max: number): this {
     this.graph.setMaxIterations(max);
+    return this;
+  }
+
+  /**
+   * 设置人在回路配置
+   */
+  setHitlConfig(config: HitlConfig): this {
+    this.graph.setHitlConfig(config);
     return this;
   }
 
