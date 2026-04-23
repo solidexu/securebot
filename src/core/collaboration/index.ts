@@ -56,7 +56,7 @@ export { HumanInteractionManager, createHitlManager, isAbortDecision, isSkipDeci
 export type { HitlEventEmitter } from './hitl-manager.js';
 export { MemoryInterruptStore, FileInterruptStore } from './hitl-store.js';
 export type { InterruptStore, CheckpointData, FileStoreConfig } from './hitl-store.js';
-export { HitlLevel } from './hitl-types.js';
+export { HitlLevel, InterruptType } from './hitl-types.js';
 export type {
   HitlConfig,
   HitlEvent,
