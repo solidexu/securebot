@@ -20,7 +20,7 @@ import {
 } from './types';
 import { Graph } from './graph';
 import { HumanInteractionManager } from './hitl-manager.js';
-import { HitlConfig, HitlLevel } from './hitl-types.js';
+import { HitlConfig, HitlLevel, AgentHitlConfig } from './hitl-types.js';
 
 /**
  * LangGraph 类型定义（可选依赖）
@@ -411,7 +411,7 @@ export class LangGraphAdapter {
       const after: string[] = [];
       if (this.hitlConfig.agentConfig) {
         for (const [nid, cfg] of Object.entries(this.hitlConfig.agentConfig)) {
-          if ((cfg as any).interruptAfter) after.push(nid);
+          if ((cfg as AgentHitlConfig).interruptAfter) after.push(nid);
         }
       }
       if (after.length) compileConfig.interruptAfter = after;

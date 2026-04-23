@@ -26,12 +26,12 @@ export interface OrchestratorConfig {
   mode?: ExecutionMode;
   /** LangGraph 适配器配置 */
   langgraph?: LangGraphAdapterConfig;
-  /** LLM 客户端 */
   /** HITL 配置 */
   hitl?: {
     manager: HumanInteractionManager;
     config: HitlConfig;
   };
+  /** LLM 客户端 */
   llmClient: LLMClient;
 }
 

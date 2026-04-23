@@ -452,8 +452,6 @@ export interface RouteConfig {
 // ============ 常量 ============
 
 /** 结束节点标识 */
-
-/** 结束节点标识 */
 export const END_NODE = '__end__';
 
 /** 开始节点标识 */

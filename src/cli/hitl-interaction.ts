@@ -19,9 +19,9 @@ function formatTime(timestamp: number): string {
 }
 
 /**
- * 格式化操作标签
+ * 格式化标签（用于操作和中断类型）
  */
-function formatAction(action: string): string {
+function formatLabel(action: string): string {
   const labels: Record<string, string> = {
     before_node: '节点前',
     after_node: '节点后',
@@ -48,7 +48,7 @@ export function formatInterrupt(interrupt: InterruptState): string {
   lines.push(`  节点:     ${interrupt.nodeId || 'N/A'}`);
   lines.push(`  位置:     ${interrupt.interruptType === 'before_node' ? '节点执行前' : interrupt.interruptType === 'after_node' ? '节点执行后' : interrupt.interruptType || 'N/A'}`);
   lines.push(`  原因:     ${interrupt.reason || '手动中断'}`);
-  lines.push(`  级别:     ${formatInterruptType(interrupt.interruptType)}`);
+  lines.push(`  级别:     ${formatHitlLevel(interrupt.interruptType)}`);
   lines.push(`  创建时间: ${formatTime(interrupt.createdAt)}`);
   
   if (interrupt.currentState) {
@@ -72,9 +72,9 @@ export function formatInterrupt(interrupt: InterruptState): string {
 }
 
 /**
- * 格式化级别
+ * 格式化 HITL 级别/类型标签
  */
-function formatInterruptType(level: HitlLevel | string | undefined): string {
+function formatHitlLevel(level: HitlLevel | string | undefined): string {
   const labels: Record<string, string> = {
     before_node: '节点前',
     after_node: '节点后',
@@ -168,14 +168,18 @@ export async function presentDecision(
  * 读取用户选择
  */
 function readChoice(): Promise<string> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     process.stdin.resume();
     process.stdin.setEncoding('utf8');
     
+    const onError = (err: Error) => {
+      cleanup();
+      reject(err);
+    };
+    
     const onData = (data: string) => {
       const input = data.trim();
-      process.stdin.pause();
-      process.stdin.removeListener('data', onData);
+      cleanup();
       
       const map: Record<string, string> = {
         '1': 'approve',
@@ -187,7 +191,14 @@ function readChoice(): Promise<string> {
       resolve(map[input] || 'approve');
     };
     
+    const cleanup = () => {
+      process.stdin.pause();
+      process.stdin.removeListener('data', onData);
+      process.stdin.removeListener('error', onError);
+    };
+    
     process.stdin.on('data', onData);
+    process.stdin.once('error', onError);
   });
 }
 
@@ -195,17 +206,28 @@ function readChoice(): Promise<string> {
  * 读取一行输入
  */
 function readLine(): Promise<string> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     process.stdin.resume();
     process.stdin.setEncoding('utf8');
     
+    const onError = (err: Error) => {
+      cleanup();
+      reject(err);
+    };
+    
     const onData = (data: string) => {
-      process.stdin.pause();
-      process.stdin.removeListener('data', onData);
+      cleanup();
       resolve(data.trim());
     };
     
+    const cleanup = () => {
+      process.stdin.pause();
+      process.stdin.removeListener('data', onData);
+      process.stdin.removeListener('error', onError);
+    };
+    
     process.stdin.on('data', onData);
+    process.stdin.once('error', onError);
   });
 }
 
@@ -223,7 +245,7 @@ async function readOptionalReason(): Promise<string | undefined> {
  */
 export function formatDecision(decision: HumanDecision): string {
   const lines: string[] = [];
-  lines.push(`\n✅ 决策: ${formatAction(decision.action)}`);
+  lines.push(`\n✅ 决策: ${formatLabel(decision.action)}`);
   if (decision.reason) {
     lines.push(`   备注: ${decision.reason}`);
   }
