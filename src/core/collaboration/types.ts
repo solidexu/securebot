@@ -4,6 +4,8 @@
  * 定义图结构、节点、边等核心类型
  */
 
+import { HitlConfig } from "./hitl-types";
+
 // ============ 图核心类型 ============
 
 /**
@@ -448,6 +450,8 @@ export interface RouteConfig {
 }
 
 // ============ 常量 ============
+
+/** 结束节点标识 */
 
 /** 结束节点标识 */
 export const END_NODE = '__end__';

@@ -14,6 +14,7 @@ import {
   GraphConfig,
   END_NODE,
 } from './types';
+import { HitlConfig } from './hitl-types';
 
 /**
  * 图结构类

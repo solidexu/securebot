@@ -19,6 +19,8 @@ import {
   END_NODE,
 } from './types';
 import { Graph } from './graph';
+import { HumanInteractionManager } from './hitl-manager.js';
+import { HitlConfig, HitlLevel } from './hitl-types.js';
 
 /**
  * LangGraph 类型定义（可选依赖）
@@ -66,10 +68,21 @@ export class LangGraphAdapter {
   private config: LangGraphAdapterConfig;
   private langgraphModule: LangGraphModule | null = null;
   private compiledApp: CompiledLangGraphApp | null = null;
+  private hitlManager?: HumanInteractionManager;
+  private hitlConfig?: HitlConfig;
 
   constructor(graph: Graph | AgentGraph, config: LangGraphAdapterConfig = {}) {
     this.graph = graph instanceof Graph ? graph.getRaw() : graph;
     this.config = config;
+  }
+
+  /**
+   * 设置人在回路管理器
+   */
+  setHitl(manager: HumanInteractionManager, config: HitlConfig): this {
+    this.hitlManager = manager;
+    this.hitlConfig = config;
+    return this;
   }
 
   /**
@@ -386,6 +399,24 @@ export class LangGraphAdapter {
       }
     }
 
+    // HITL 中断配置
+    if (this.hitlConfig && this.hitlConfig.level !== HitlLevel.FULL_AUTO) {
+      const nodes = Array.from(this.graph.nodes.keys());
+      if (this.hitlConfig.level === HitlLevel.STEP_THROUGH) {
+        compileConfig.interruptBefore = nodes;
+      } else if (this.hitlConfig.interruptNodes?.length) {
+        compileConfig.interruptBefore = this.hitlConfig.interruptNodes;
+      }
+      // interruptAfter from agentConfig
+      const after: string[] = [];
+      if (this.hitlConfig.agentConfig) {
+        for (const [nid, cfg] of Object.entries(this.hitlConfig.agentConfig)) {
+          if ((cfg as any).interruptAfter) after.push(nid);
+        }
+      }
+      if (after.length) compileConfig.interruptAfter = after;
+    }
+
     // 编译
     this.compiledApp = stateGraph.compile(compileConfig);
 
@@ -533,6 +564,17 @@ export class LangGraphAdapter {
         mode: 'langgraph',
       };
     }
+  }
+
+  /**
+   * 编辑状态（LangGraph 原生 update_state 支持）
+   */
+  async editState(threadId: string, values: any): Promise<GraphState> {
+    const app = await this.compile();
+    const config = { configurable: { thread_id: threadId } };
+    await app.updateState(config, values);
+    const state = await app.getState(config);
+    return state.values;
   }
 
   /**
