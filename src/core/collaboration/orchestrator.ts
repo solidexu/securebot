@@ -15,6 +15,8 @@ import {
 import { Graph } from './graph';
 import { GraphExecutor } from './executor';
 import { LangGraphAdapter, LangGraphAdapterConfig, CompiledLangGraphApp } from './langgraph-adapter';
+import { HumanInteractionManager } from './hitl-manager.js';
+import { HitlConfig, HumanDecision, InterruptState } from './hitl-types.js';
 
 /**
  * 统一协调器配置
@@ -25,6 +27,11 @@ export interface OrchestratorConfig {
   /** LangGraph 适配器配置 */
   langgraph?: LangGraphAdapterConfig;
   /** LLM 客户端 */
+  /** HITL 配置 */
+  hitl?: {
+    manager: HumanInteractionManager;
+    config: HitlConfig;
+  };
   llmClient: LLMClient;
 }
 
@@ -62,6 +69,8 @@ export class UnifiedOrchestrator {
   private lightweightExecutor: GraphExecutor | null = null;
   private langgraphAdapter: LangGraphAdapter | null = null;
   private compiledApp: CompiledLangGraphApp | null = null;
+  private hitlManager: HumanInteractionManager | null = null;
+  private hitlConfig: HitlConfig | null = null;
 
   constructor(graph: Graph | AgentGraph, config: OrchestratorConfig) {
     this.graph = graph instanceof Graph ? graph.getRaw() : graph;
@@ -69,6 +78,12 @@ export class UnifiedOrchestrator {
 
     // 确定执行模式
     this.mode = this.determineMode();
+
+    // 初始化 HITL
+    if (this.config.hitl) {
+      this.hitlManager = this.config.hitl.manager;
+      this.hitlConfig = this.config.hitl.config;
+    }
   }
 
   /**
@@ -121,6 +136,11 @@ export class UnifiedOrchestrator {
   ): Promise<ExecutionResult> {
     // 创建执行器
     this.lightweightExecutor = new GraphExecutor(this.graph);
+
+    // 设置 HITL
+    if (this.hitlManager && this.hitlConfig) {
+      this.lightweightExecutor.setHitl(this.hitlManager, this.hitlConfig);
+    }
 
     // 订阅事件
     if (onEvent) {
@@ -255,6 +275,44 @@ export class UnifiedOrchestrator {
 
     return this.langgraphAdapter.updateState(threadId, values);
   }
+  // ============ HITL 人在回路代理方法 ============
+
+  /**
+   * 提交人类决策
+   */
+  async submitDecision(threadId: string, decision: HumanDecision): Promise<void> {
+    if (!this.hitlManager) {
+      throw new Error('HITL not configured');
+    }
+    return this.hitlManager.submitDecision(threadId, decision);
+  }
+
+  /**
+   * 获取待处理中断列表
+   */
+  async getPendingInterrupts(): Promise<InterruptState[]> {
+    if (!this.hitlManager) return [];
+    return this.hitlManager.listPendingInterrupts();
+  }
+
+  /**
+   * 编辑执行状态
+   */
+  async editState(threadId: string, updates: Partial<GraphState>): Promise<GraphState> {
+    if (!this.hitlManager) {
+      throw new Error('HITL not configured');
+    }
+    return this.hitlManager.editState(threadId, updates);
+  }
+
+  /**
+   * 获取中断状态
+   */
+  getInterrupt(threadId: string): InterruptState | undefined {
+    if (!this.hitlManager) return undefined;
+    return this.hitlManager.getInterrupt(threadId);
+  }
+
 
   /**
    * 从执行日志发送事件

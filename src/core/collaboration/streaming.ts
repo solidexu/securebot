@@ -28,7 +28,10 @@ export type StreamEventType =
   | 'handoff'         // Agent 切换
   | 'progress'        // 进度更新
   | 'complete'        // 执行完成
-  | 'error';          // 执行错误
+  | 'error'          // 执行错误
+  | 'hitl_interrupt' // HITL 中断
+  | 'hitl_decision'  // HITL 决策
+  | 'hitl_approval'; // HITL 工具审批
 
 /**
  * 流式事件
@@ -54,6 +57,12 @@ export interface StreamEvent {
   targetAgent?: string;
   /** 元数据 */
   metadata?: Record<string, unknown>;
+  /** HITL 中断原因 */
+  interruptReason?: string;
+  /** HITL 决策结果 */
+  hitlDecision?: string;
+  /** HITL 工具名称 */
+  hitlTool?: string;
 }
 
 /**
