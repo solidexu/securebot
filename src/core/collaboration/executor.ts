@@ -21,6 +21,8 @@ import {
 import { Graph } from './graph.js';
 import { NodeExecutionError, TimeoutError, GraphBubbleUp } from '../errors.js';
 import { runWithTimeout, DEFAULT_RETRY_POLICY, calculateBackoff, sleep } from '../retry.js';
+import { HumanInteractionManager, HitlEventEmitter } from './hitl-manager.js';
+import { HitlConfig, HitlLevel, HumanDecision, InterruptType } from './hitl-types.js';
 
 /**
  * LLM 客户端接口
@@ -79,6 +81,11 @@ export class GraphExecutor {
   protected eventEmitter?: (event: AgentEvent) => void;
   protected graphId: string;
 
+  // HITL 人在回路
+  protected hitlManager?: HumanInteractionManager;
+  protected hitlConfig?: HitlConfig;
+  protected hitlEventEmitter?: HitlEventEmitter;
+
   constructor(graph: Graph | AgentGraph) {
     this.graph = graph instanceof Graph ? graph.getRaw() : graph;
     this.graphId = this.graph.id;
@@ -100,6 +107,28 @@ export class GraphExecutor {
   }
 
   /**
+   * 设置人在回路管理器
+   *
+   * @param manager  HITL 交互管理器
+   * @param config   HITL 配置
+   * @param emitter  HITL 事件发射器（可选，默认使用 eventEmitter）
+   */
+  setHitl(manager: HumanInteractionManager, config: HitlConfig, emitter?: HitlEventEmitter): this {
+    this.hitlManager = manager;
+    this.hitlConfig = config;
+    this.hitlEventEmitter = emitter;
+    return this;
+  }
+
+  /**
+   * 是否启用了 HITL
+   */
+  protected isHitlEnabled(): boolean {
+    return !!this.hitlManager && !!this.hitlConfig
+      && this.hitlConfig.level !== HitlLevel.FULL_AUTO;
+  }
+
+  /**
    * 发射事件
    */
   protected emitEvent(event: AgentEvent): void {
@@ -107,6 +136,230 @@ export class GraphExecutor {
       this.eventEmitter(event);
     }
   }
+
+
+  /**
+   * 发射 HITL 事件
+   */
+  private emitHitlEvent(event: Parameters<NonNullable<HitlEventEmitter>>[0]): void {
+    if (this.hitlEventEmitter) {
+      this.hitlEventEmitter(event);
+    }
+  }
+
+  /**
+   * 判断节点执行前是否需要中断
+   */
+  protected shouldInterruptBefore(nodeId: string): boolean {
+    if (!this.isHitlEnabled()) return false;
+    const cfg = this.hitlConfig!;
+    if (cfg.agentConfig?.[nodeId]?.interruptBefore) return true;
+    if (cfg.level === HitlLevel.STEP_THROUGH || cfg.level === HitlLevel.FULL_MANUAL) return true;
+    if (cfg.level === HitlLevel.NODE_INTERRUPT) return cfg.interruptNodes?.includes(nodeId) ?? false;
+    return false;
+  }
+
+  /**
+   * 判断节点执行后是否需要中断
+   */
+  protected shouldInterruptAfter(nodeId: string): boolean {
+    if (!this.isHitlEnabled()) return false;
+    const cfg = this.hitlConfig!;
+    if (cfg.agentConfig?.[nodeId]?.interruptAfter) return true;
+    return cfg.level === HitlLevel.FULL_MANUAL;
+  }
+
+  /**
+   * 判断工具调用是否需要审批
+   */
+  protected needsToolApproval(toolName: string): boolean {
+    if (!this.isHitlEnabled()) return false;
+    const cfg = this.hitlConfig!;
+    if (cfg.level === HitlLevel.FULL_AUTO) return false;
+    if (!cfg.requireToolApproval) return false;
+    if (cfg.approvedTools?.includes(toolName)) return false;
+    return true;
+  }
+
+  /**
+   * 通用中断处理
+   */
+  protected async handleInterrupt(
+    type: InterruptType,
+    nodeId: string,
+    nodeName: string,
+    runState: GraphState,
+    threadId: string
+  ): Promise<HumanDecision | null> {
+    if (!this.hitlManager || !this.hitlConfig) return null;
+
+    const reason = type === 'before_node'
+      ? 'Node "' + nodeName + '" paused before execution'
+      : 'Node "' + nodeName + '" paused after execution';
+
+    await this.hitlManager.createInterrupt(
+      threadId, nodeId, reason, type, runState,
+      this.hitlConfig.autoApproveTimeoutMs
+    );
+
+    const interruptState = this.hitlManager.getInterrupt(threadId);
+    if (interruptState) {
+      this.emitHitlEvent({
+        type: 'hitl_interrupt',
+        graphId: this.graphId,
+        threadId, nodeId, reason,
+        interruptState,
+        timestamp: Date.now(),
+      });
+    }
+
+    const decision = await this.hitlManager.waitForDecision(threadId);
+
+    this.emitHitlEvent({
+      type: 'hitl_decision',
+      graphId: this.graphId,
+      threadId, nodeId, decision,
+      timestamp: Date.now(),
+    });
+
+    return decision;
+  }
+
+  /**
+   * 处理决策结果
+   * @returns nextNodeId 覆盖值，或 null 表示正常继续
+   */
+  protected processDecision(decision: HumanDecision): string | null {
+    switch (decision.action) {
+      case 'approve': return null;
+      case 'reject': return decision.goto || null;
+      case 'skip': return '__skip__';
+      case 'abort': return '__abort__';
+      case 'modify': return null;
+      default: return null;
+    }
+  }
+
+  /**
+   * 处理工具调用审批
+   */
+  protected async handleToolApproval(
+    nodeId: string,
+    toolName: string,
+    toolArgs: Record<string, unknown>,
+    runState: GraphState,
+    threadId: string
+  ): Promise<boolean> {
+    if (!this.needsToolApproval(toolName)) return true;
+    if (!this.hitlManager) return true;
+
+    await this.hitlManager.createInterrupt(
+      threadId, nodeId,
+      'Tool "' + toolName + '" requires approval',
+      'tool_call', runState,
+      this.hitlConfig?.autoApproveTimeoutMs
+    );
+
+    this.emitHitlEvent({
+      type: 'hitl_tool_approval',
+      graphId: this.graphId,
+      threadId, nodeId, tool: toolName,
+      args: toolArgs,
+      timestamp: Date.now(),
+    });
+
+    const decision = await this.hitlManager.waitForDecision(threadId);
+
+    this.emitHitlEvent({
+      type: 'hitl_decision',
+      graphId: this.graphId,
+      threadId, nodeId, decision,
+      timestamp: Date.now(),
+    });
+
+    return decision.action === 'approve';
+  }
+
+  // ============ HITL 辅助方法 ============
+
+  /**
+   * 创建中止结果
+   */
+  protected createAbortResult(
+    nodeId: string,
+    runState: GraphState,
+    runHistory: ExecutionLog[],
+    threadId: string,
+    reason: string
+  ): ExecutionResult {
+    this.history = runHistory;
+    this.state = runState;
+    this.threadId = threadId;
+    this.emitEvent({
+      type: 'workflow_complete',
+      graphId: this.graphId,
+      threadId,
+      error: reason,
+      timestamp: Date.now(),
+    });
+    return {
+      success: false,
+      error: reason,
+      state: runState,
+      history: runHistory,
+      threadId,
+      mode: this.graph.executionMode,
+    };
+  }
+
+  /**
+   * 创建完成结果
+   */
+  protected createCompleteResult(
+    nodeId: string,
+    runState: GraphState,
+    runHistory: ExecutionLog[],
+    threadId: string,
+    result: string
+  ): ExecutionResult {
+    runHistory.push({
+      timestamp: Date.now(),
+      type: 'workflow_complete',
+      nodeId,
+      data: { result, reason: 'skip_no_next' },
+    });
+    this.emitEvent({
+      type: 'workflow_complete',
+      graphId: this.graphId,
+      threadId,
+      result,
+      timestamp: Date.now(),
+    });
+    this.history = runHistory;
+    this.state = runState;
+    this.threadId = threadId;
+    return {
+      success: true,
+      result,
+      state: runState,
+      history: runHistory,
+      threadId,
+      mode: this.graph.executionMode,
+    };
+  }
+
+  /**
+   * 查找跳过当前节点后的下一节点
+   */
+  protected findNextAfterSkip(currentNodeId: string): string | null {
+    const outEdges = this.getOutEdges(currentNodeId);
+    for (const edge of outEdges) {
+      if (edge.type === 'direct') return edge.target;
+      if (this.checkCondition(edge)) return edge.target;
+    }
+    return null;
+  }
+
 
   /**
    * 执行图（状态隔离，支持并发调用）
@@ -176,6 +429,31 @@ export class GraphExecutor {
         timestamp: Date.now(),
       });
 
+      // ★★★ HITL: 节点前中断 ★★★
+      if (this.shouldInterruptBefore(currentNodeId)) {
+        const decision = await this.handleInterrupt('before_node', currentNodeId, node.name, runState, threadId);
+        if (decision) {
+          const nextOverride = this.processDecision(decision);
+          if (nextOverride === '__abort__') {
+            return this.createAbortResult(currentNodeId, runState, runHistory, threadId,
+              'Aborted by user at node "' + node.name + '"');
+          }
+          if (nextOverride === '__skip__') {
+            const skipTarget = this.findNextAfterSkip(currentNodeId);
+            if (!skipTarget || skipTarget === END_NODE) {
+              return this.createCompleteResult(currentNodeId, runState, runHistory, threadId,
+                'Node "' + node.name + '" skipped, no next node');
+            }
+            currentNodeId = skipTarget;
+            continue;
+          }
+          if (nextOverride && nextOverride !== '__skip__' && nextOverride !== '__abort__') {
+            currentNodeId = nextOverride;
+            continue;
+          }
+        }
+      }
+
       // 执行节点（传入运行状态而非实例状态）
       const startTime = Date.now();
       const response = await this.executeNodeWithContext(node, llmClient, runState, runHistory);
@@ -223,6 +501,35 @@ export class GraphExecutor {
         duration,
         timestamp: Date.now(),
       });
+
+      // ★★★ HITL: 节点后中断 ★★★
+      if (this.shouldInterruptAfter(currentNodeId)) {
+        const decision = await this.handleInterrupt('after_node', currentNodeId, node.name, runState, threadId);
+        if (decision) {
+          if (decision.modifiedState) {
+            Object.assign(runState, decision.modifiedState);
+            this.hitlManager?.editState(threadId, decision.modifiedState);
+          }
+          const nextOverride = this.processDecision(decision);
+          if (nextOverride === '__abort__') {
+            return this.createAbortResult(currentNodeId, runState, runHistory, threadId,
+              'Aborted by user after node "' + node.name + '"');
+          }
+          if (nextOverride === '__skip__') {
+            const skipTarget = this.findNextAfterSkip(currentNodeId);
+            if (!skipTarget || skipTarget === END_NODE) {
+              return this.createCompleteResult(currentNodeId, runState, runHistory, threadId,
+                'Node "' + node.name + '" skipped, no next node');
+            }
+            currentNodeId = skipTarget;
+            continue;
+          }
+          if (nextOverride && nextOverride !== '__skip__' && nextOverride !== '__abort__') {
+            currentNodeId = nextOverride;
+            continue;
+          }
+        }
+      }
 
       // 查找下一个节点
       const nextNodeId = this.findNextNodeWithContext(response, runState);
@@ -404,6 +711,16 @@ export class GraphExecutor {
 
         // 处理工具调用（Handoff）
         if (response.toolCall) {
+          // ★★★ HITL: 工具调用审批 ★★★
+          const approved = await this.handleToolApproval(
+            node.id, response.toolCall.name, response.toolCall.args,
+            this.state, this.threadId
+          );
+          if (!approved) {
+            this.log('tool_rejected', { nodeId: node.id, tool: response.toolCall.name });
+            return { type: 'result', content: 'Tool "' + response.toolCall.name + '" rejected by user' };
+          }
+
           const handoff = this.parseHandoff(response.toolCall);
           
           if (handoff) {

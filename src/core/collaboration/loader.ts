@@ -15,6 +15,7 @@ import {
 } from './types';
 import { Graph } from './graph';
 import { GraphBuilder } from './builder';
+import { HitlConfig, HitlLevel } from './hitl-types';
 
 /**
  * 从 YAML 字符串加载图
@@ -62,6 +63,18 @@ export function loadFromConfig(config: WorkflowConfig): Graph {
   // 设置 LangGraph 配置
   if (config.langgraph) {
     builder.setConfig(config.langgraph);
+  }
+
+  // 设置人在回路配置
+  if (config.hitl) {
+    const hitlConfig: HitlConfig = {
+      level: (config.hitl.level as HitlLevel) || HitlLevel.FULL_AUTO,
+      interruptNodes: config.hitl.interruptNodes,
+      requireToolApproval: config.hitl.requireToolApproval,
+      approvedTools: config.hitl.approvedTools,
+      autoApproveTimeoutMs: config.hitl.autoApproveTimeoutMs,
+    };
+    builder.setHitlConfig(hitlConfig);
   }
 
   // 设置循环和迭代配置

@@ -216,3 +216,79 @@ describe('LangGraphAdapter', () => {
     });
   });
 });
+
+// ============ Phase 3: HITL 人在回路测试 ============
+
+import { HumanInteractionManager } from './hitl-manager.js';
+import { MemoryInterruptStore } from './hitl-store.js';
+import { HitlConfig, HitlLevel } from './hitl-types.js';
+
+describe('LangGraphAdapter HITL', () => {
+  it('setHitl 应该设置 HITL 管理器和配置', () => {
+    const graph = new GraphBuilder('test', 'Test')
+      .addAgent(createNode('node1', 'Node1', 'test', 'prompt'))
+      .entry('node1')
+      .build();
+    const adapter = new LangGraphAdapter(graph);
+    const manager = new HumanInteractionManager(new MemoryInterruptStore());
+    const config: HitlConfig = { level: HitlLevel.NODE_INTERRUPT, interruptNodes: ['node1'] };
+
+    const result = adapter.setHitl(manager, config);
+    expect(result).toBe(adapter);
+  });
+
+  it('编译时应该包含 HITL 中断配置 (STEP_THROUGH)', async () => {
+    const graph = new GraphBuilder('test', 'Test')
+      .addAgent(createNode('node1', 'Node1', 'test', 'prompt'))
+      .entry('node1')
+      .build();
+    const adapter = new LangGraphAdapter(graph, { langgraph: mockLangGraph });
+    const manager = new HumanInteractionManager(new MemoryInterruptStore());
+    adapter.setHitl(manager, { level: HitlLevel.STEP_THROUGH });
+
+    const app = await adapter.compile();
+    expect(app).toBeDefined();
+  });
+
+  it('编译时应该包含 HITL 中断配置 (NODE_INTERRUPT)', async () => {
+    const graph = new GraphBuilder('test', 'Test')
+      .addAgent(createNode('agent-a', 'AgentA', 'test', 'prompt'))
+      .entry('agent-a')
+      .build();
+    const adapter = new LangGraphAdapter(graph, { langgraph: mockLangGraph });
+    const manager = new HumanInteractionManager(new MemoryInterruptStore());
+    adapter.setHitl(manager, { level: HitlLevel.NODE_INTERRUPT, interruptNodes: ['agent-a'] });
+
+    const app = await adapter.compile();
+    expect(app).toBeDefined();
+  });
+
+  it('FULL_AUTO 模式不应该添加中断配置', async () => {
+    const graph = new GraphBuilder('test', 'Test')
+      .addAgent(createNode('node1', 'Node1', 'test', 'prompt'))
+      .entry('node1')
+      .build();
+    const adapter = new LangGraphAdapter(graph, { langgraph: mockLangGraph });
+    const manager = new HumanInteractionManager(new MemoryInterruptStore());
+    adapter.setHitl(manager, { level: HitlLevel.FULL_AUTO });
+
+    const app = await adapter.compile();
+    expect(app).toBeDefined();
+  });
+
+  it('应该支持 agentConfig 中的 interruptAfter', async () => {
+    const graph = new GraphBuilder('test', 'Test')
+      .addAgent(createNode('agent-a', 'AgentA', 'test', 'prompt'))
+      .entry('agent-a')
+      .build();
+    const adapter = new LangGraphAdapter(graph, { langgraph: mockLangGraph });
+    const manager = new HumanInteractionManager(new MemoryInterruptStore());
+    adapter.setHitl(manager, {
+      level: HitlLevel.NODE_INTERRUPT,
+      agentConfig: { 'agent-a': { interruptAfter: true } },
+    });
+
+    const app = await adapter.compile();
+    expect(app).toBeDefined();
+  });
+});

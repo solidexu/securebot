@@ -14,6 +14,7 @@ import {
   GraphConfig,
   END_NODE,
 } from './types';
+import { HitlConfig } from './hitl-types';
 
 /**
  * 图结构类
@@ -109,6 +110,14 @@ export class Graph {
    */
   getAllowCycles(): boolean {
     return this.graph.allowCycles || false;
+  }
+
+  /**
+   * 设置人在回路配置
+   */
+  setHitlConfig(config: HitlConfig): this {
+    this.graph.hitlConfig = config;
+    return this;
   }
 
   /**

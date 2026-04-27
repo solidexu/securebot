@@ -469,3 +469,153 @@ function printEvent(event: any): void {
       console.log(`[${timestamp}] ${event.type}`);
   }
 }
+// ============ HITL 人在回路命令 ============
+
+import {
+  HumanInteractionManager,
+  MemoryInterruptStore,
+  HitlLevel,
+} from '../../core/collaboration/index.js';
+import { HitlCli, formatPendingInterrupts } from '../hitl-interaction.js';
+
+/**
+ * 全局 HITL 管理器（单例）
+ */
+let globalHitlManager: HumanInteractionManager | null = null;
+
+function getHitlManager(): HumanInteractionManager {
+  if (!globalHitlManager) {
+    globalHitlManager = new HumanInteractionManager(new MemoryInterruptStore());
+  }
+  return globalHitlManager;
+}
+
+function createHitlCliForManager(manager: HumanInteractionManager): HitlCli {
+  return new HitlCli(manager, { nonInteractive: !process.stdin.isTTY });
+}
+
+/**
+ * 注册 HITL 子命令
+ */
+function registerHitlCommands(graphCmd: Command): void {
+  const hitlCmd = graphCmd.command('hitl')
+    .description('Human-in-the-loop 人在回路管理');
+
+  // graph hitl status - 查看待处理中断
+  hitlCmd
+    .command('status')
+    .description('查看待处理的中断')
+    .action(async () => {
+      try {
+        const manager = getHitlManager();
+        const cli = createHitlCliForManager(manager);
+        console.log(await cli.status());
+      } catch (error: any) {
+        console.error(`❌ Error: ${error.message}`);
+      }
+    });
+
+  // graph hitl approve <threadId> - 快速批准
+  hitlCmd
+    .command('approve <threadId>')
+    .description('批准指定线程的中断并继续执行')
+    .action(async (threadId: string) => {
+      try {
+        const manager = getHitlManager();
+        const cli = createHitlCliForManager(manager);
+        console.log(await cli.approve(threadId));
+      } catch (error: any) {
+        console.error(`❌ Error: ${error.message}`);
+      }
+    });
+
+  // graph hitl reject <threadId> - 快速拒绝
+  hitlCmd
+    .command('reject <threadId>')
+    .description('拒绝指定线程的中断')
+    .option('-g, --goto <nodeId>', '跳转到指定节点')
+    .action(async (threadId: string, options: any) => {
+      try {
+        const manager = getHitlManager();
+        const cli = createHitlCliForManager(manager);
+        console.log(await cli.reject(threadId, options.goto));
+      } catch (error: any) {
+        console.error(`❌ Error: ${error.message}`);
+      }
+    });
+
+  // graph hitl skip <threadId> - 快速跳过
+  hitlCmd
+    .command('skip <threadId>')
+    .description('跳过指定线程的当前节点')
+    .action(async (threadId: string) => {
+      try {
+        const manager = getHitlManager();
+        const cli = createHitlCliForManager(manager);
+        console.log(await cli.skip(threadId));
+      } catch (error: any) {
+        console.error(`❌ Error: ${error.message}`);
+      }
+    });
+
+  // graph hitl abort <threadId> - 终止
+  hitlCmd
+    .command('abort <threadId>')
+    .description('终止指定线程的执行')
+    .action(async (threadId: string) => {
+      try {
+        const manager = getHitlManager();
+        const cli = createHitlCliForManager(manager);
+        console.log(await cli.abort(threadId));
+      } catch (error: any) {
+        console.error(`❌ Error: ${error.message}`);
+      }
+    });
+
+  // graph hitl decide <threadId> - 交互式决策
+  hitlCmd
+    .command('decide <threadId>')
+    .description('交互式处理中断决策')
+    .action(async (threadId: string) => {
+      try {
+        const manager = getHitlManager();
+        const cli = createHitlCliForManager(manager);
+        console.log(await cli.decide(threadId));
+      } catch (error: any) {
+        console.error(`❌ Error: ${error.message}`);
+      }
+    });
+
+  // graph hitl edit <threadId> - 编辑状态
+  hitlCmd
+    .command('edit <threadId>')
+    .description('编辑指定线程的状态')
+    .requiredOption('-v, --values <json>', '状态值 (JSON 格式)')
+    .action(async (threadId: string, options: any) => {
+      try {
+        const manager = getHitlManager();
+        const cli = createHitlCliForManager(manager);
+        console.log(await cli.editState(threadId, options.values));
+      } catch (error: any) {
+        console.error(`❌ Error: ${error.message}`);
+      }
+    });
+
+  // graph hitl list - 列出所有中断历史
+  hitlCmd
+    .command('list')
+    .description('列出所有中断记录')
+    .option('--all', '包括已处理的')
+    .action(async (options: any) => {
+      try {
+        const manager = getHitlManager();
+        const interrupts = await manager.listPendingInterrupts();
+        console.log(formatPendingInterrupts(interrupts));
+      } catch (error: any) {
+        console.error(`❌ Error: ${error.message}`);
+      }
+    });
+}
+
+// 注册 HITL 命令
+registerHitlCommands(graphCmd);
