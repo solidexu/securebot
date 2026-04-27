@@ -175,8 +175,6 @@ export const execTool: Tool = {
     const command = args['command'] as string;
     const timeout = (args['timeout'] as number | undefined) ?? 30000;
     const cwd = args['cwd'] as string | undefined;
-    // 流式回调（可选）
-    const streamCallbacks = args['streamCallbacks'] as StreamCallbacks | undefined;
     
     // ★ 危险命令检测
     if (isDangerousCommand(command)) {
@@ -325,8 +323,8 @@ export const execTool: Tool = {
       };
     }
     
-    // ★ 主机执行命令（支持流式回调）
-    const result = await runCommand(command, workDir, timeout, streamCallbacks);
+    // ★ 主机执行命令
+    const result = await runCommand(command, workDir, timeout);
     
     // 构建输出
     let output = '';

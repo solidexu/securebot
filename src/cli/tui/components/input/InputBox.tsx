@@ -295,11 +295,7 @@ export const InputBox: React.FC<Props> = ({
         }
       }
     } else if (key.backspace || key.delete) {
-      // 使用 Array.from 正确处理 Unicode 字符（如中文）
-      setInput(prev => {
-        const chars = Array.from(prev);
-        return chars.slice(0, -1).join('');
-      });
+      setInput(prev => prev.slice(0, -1));
       setCompletions([]);
     } else if (key.escape) {
       // Esc: 关闭查看器（如果打开的话）
