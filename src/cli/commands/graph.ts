@@ -438,6 +438,9 @@ export function registerGraphCommand(program: Command): void {
         }
       }
     });
+  // 注册 HITL 人在回路命令
+  registerHitlCommands(graphCmd);
+
 }
 
 /**
@@ -617,5 +620,3 @@ function registerHitlCommands(graphCmd: Command): void {
     });
 }
 
-// 注册 HITL 命令
-registerHitlCommands(graphCmd);
